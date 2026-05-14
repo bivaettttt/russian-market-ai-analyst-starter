@@ -1,0 +1,262 @@
+def build_ai_report_demo_html() -> str:
+    return """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Report · AI Аналитик рынка РФ</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #f4f6f8;
+      color: #17212b;
+    }
+    header {
+      background: #111827;
+      color: white;
+      padding: 24px 32px;
+    }
+    header h1 {
+      margin: 0 0 8px 0;
+      font-size: 28px;
+    }
+    header a {
+      color: #93c5fd;
+      text-decoration: none;
+    }
+    main {
+      padding: 24px 32px;
+      display: grid;
+      gap: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+    .section {
+      border-left: 4px solid #2563eb;
+      background: #f8fafc;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+    }
+    .section h3 {
+      margin-top: 0;
+    }
+    .muted {
+      color: #64748b;
+      font-size: 14px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    pre {
+      white-space: pre-wrap;
+      background: #0f172a;
+      color: #e5e7eb;
+      border-radius: 12px;
+      padding: 16px;
+      overflow-x: auto;
+    }
+  
+    .section-text {
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
+    .report-text-block {
+      white-space: pre-wrap;
+      line-height: 1.55;
+      font-family: inherit;
+      margin: 0;
+    }
+
+    .section-text {
+      white-space: pre-wrap;
+      line-height: 1.55;
+      margin: 0;
+    }
+</style>
+</head>
+<body>
+  <header>
+    <h1>AI Report</h1>
+    <p>
+      <a href="/dashboard">← Рынок</a>
+      · <a href="/events/dashboard">События</a>
+      · <a href="/portfolio/demo">Портфель</a>
+    </p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Портфель для отчёта</h2>
+      <p class="muted">Можно изменить JSON и пересобрать отчёт.</p>
+      <textarea id="portfolioInput">{
+  "positions": [
+    {"ticker": "SBER", "quantity": 10},
+    {"ticker": "LKOH", "quantity": 1},
+    {"ticker": "GAZP", "quantity": 50},
+    {"ticker": "PLZL", "quantity": 1}
+  ]
+}</textarea>
+      <br />
+      <button onclick="loadReport()">Собрать AI Report</button>
+      <button onclick="downloadMarkdown()">Скачать Markdown</button>
+      <p id="status" class="muted"></p>
+    </section>
+
+    <section class="card">
+      <h2 id="reportTitle">Отчёт</h2>
+      <p id="reportMeta" class="muted"></p>
+
+      <div class="section">
+        <h3>1. Рыночный фон</h3>
+        <p id="marketContext">—</p>
+      </div>
+
+      <div class="section">
+        <h3>2. Главные события</h3>
+        <p id="importantEvents">—</p>
+      </div>
+
+      <div class="section">
+        <h3>3. Рыночные сигналы</h3>
+        <p id="marketSignals">—</p>
+      </div>
+
+      <div class="section">
+        <h3>4. Портфель</h3>
+        <p id="portfolioContext">—</p>
+      </div>
+
+      <div class="section">
+        <h3>5. Риски</h3>
+        <p id="riskReview">—</p>
+      </div>
+
+      <div class="section">
+        <h3>6. Watchlist</h3>
+        <p id="watchlist">—</p>
+      </div>
+
+      <div class="section">
+        <h3>7. Вывод дня</h3>
+        <p id="conclusion">—</p>
+      </div>
+
+      <p class="muted" id="disclaimer"></p>
+    </section>
+
+    <section class="card">
+      <h2>Полный текст</h2>
+      <pre id="fullReport">—</pre>
+    </section>
+  </main>
+
+  <script>
+    function normalizeText(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      return String(value).replace(/\\n/g, "\n");
+    }
+
+    function setText(id, value) {
+      document.getElementById(id).textContent = normalizeText(value);
+    }
+
+    async function downloadMarkdown() {
+      let payload;
+
+      try {
+        payload = JSON.parse(document.getElementById("portfolioInput").value);
+      } catch (error) {
+        document.getElementById("status").textContent = "Ошибка JSON: " + error;
+        return;
+      }
+
+      const response = await fetch("/ai/report/markdown", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+
+      const text = await response.text();
+      const blob = new Blob([text], {type: "text/markdown;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ai-report.md";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      URL.revokeObjectURL(url);
+    }
+
+    async function loadReport() {
+      let payload;
+
+      try {
+        payload = JSON.parse(document.getElementById("portfolioInput").value);
+      } catch (error) {
+        document.getElementById("status").textContent = "Ошибка JSON: " + error;
+        return;
+      }
+
+      document.getElementById("status").textContent = "Собираю отчёт...";
+
+      const response = await fetch("/ai/report", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      const s = data.sections || {};
+
+      setText("reportTitle", data.title);
+      setText("reportMeta", "Дата: " + (data.date || "—"));
+      setText("marketContext", s.market_context);
+      setText("importantEvents", s.important_events);
+      setText("marketSignals", s.market_signals);
+      setText("portfolioContext", s.portfolio_context);
+      setText("riskReview", s.risk_review);
+      setText("watchlist", s.watchlist);
+      setText("conclusion", s.conclusion);
+      setText("fullReport", data.full_report);
+      setText("disclaimer", data.disclaimer);
+
+      document.getElementById("status").textContent = "Отчёт готов.";
+    }
+
+    loadReport().catch(error => {
+      document.getElementById("status").textContent = "Ошибка загрузки: " + error;
+    });
+  </script>
+</body>
+</html>
+"""

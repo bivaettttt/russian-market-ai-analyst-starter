@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: rmai_postgres
+    environment:
+      POSTGRES_USER: market_ai
+      POSTGRES_PASSWORD: market_ai
+      POSTGRES_DB: market_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: rmai_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:7
+    container_name: rmai_redis
+    ports:
+      - "6379:6379"
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rmai_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  ollama_data:
