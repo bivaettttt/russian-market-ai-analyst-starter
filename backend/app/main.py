@@ -1405,6 +1405,54 @@ def portfolio_construct_csv(
         },
     )
 
+
+
+# --- Portfolio constructor snapshots ---
+
+from app.services.portfolio_construct_history import (
+    create_portfolio_construct_snapshot,
+    get_portfolio_construct_snapshot,
+    list_portfolio_construct_snapshots,
+)
+
+
+@app.post("/portfolio/construct/snapshot")
+def portfolio_construct_snapshot_create(
+    payload: dict = PortfolioConstructBody(default={}),
+    db: Session = Depends(get_db),
+):
+    return create_portfolio_construct_snapshot(
+        db=db,
+        payload=payload,
+    )
+
+
+@app.get("/portfolio/construct/snapshots")
+def portfolio_construct_snapshots_list(
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return list_portfolio_construct_snapshots(
+        db=db,
+        limit=limit,
+    )
+
+
+@app.get("/portfolio/construct/snapshots/{snapshot_id}")
+def portfolio_construct_snapshot_detail(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+):
+    result = get_portfolio_construct_snapshot(
+        db=db,
+        snapshot_id=snapshot_id,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result)
+
+    return result
+
 @app.get("/portfolio/construct/demo", response_class=HTMLResponse)
 def portfolio_construct_demo_page():
     return build_portfolio_constructor_page_html()

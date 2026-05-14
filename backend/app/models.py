@@ -135,3 +135,25 @@ class SignalSnapshot(Base):
     reasons_json = Column(Text, nullable=False, default="[]")
     technical_json = Column(Text, nullable=False, default="{}")
     signal_json = Column(Text, nullable=False, default="{}")
+
+
+# --- Portfolio constructor snapshots ---
+
+class PortfolioConstructSnapshot(Base):
+    __tablename__ = "portfolio_construct_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_profile: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    horizon: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    quality_mode: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    positions_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    excluded_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    summary_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+

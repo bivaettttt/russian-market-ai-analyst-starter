@@ -291,7 +291,9 @@ def build_portfolio_constructor_page_html() -> str:
         </label>
 
         <button class="button" onclick="constructPortfolio()">Собрать портфель</button>
+        <button class="button secondary" onclick="savePortfolioSnapshot()">Сохранить snapshot</button>
         <button class="button secondary" onclick="downloadPortfolioCsv()">Скачать CSV</button>
+        <a class="button secondary" href="/portfolio/construct/snapshots" target="_blank">Snapshots JSON</a>
       </div>
 
       <p class="muted small" id="status" style="margin-bottom:0;">Готово.</p>
@@ -547,6 +549,30 @@ def build_portfolio_constructor_page_html() -> str:
     }
 
 
+
+    async function savePortfolioSnapshot() {
+      setText("status", "Сохраняю snapshot портфеля...");
+
+      const response = await fetch("/portfolio/construct/snapshot", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(getPortfolioPayload())
+      });
+
+      if (!response.ok) {
+        throw new Error("Snapshot HTTP " + response.status + ": " + await response.text());
+      }
+
+      const data = await response.json();
+      const snapshot = data.snapshot || {};
+      const id = snapshot.id || "—";
+
+      const now = new Date().toLocaleTimeString("ru-RU");
+      setText("status", `Snapshot #${id} сохранён: ${now}.`);
+    }
+
     async function downloadPortfolioCsv() {
       setText("status", "Готовлю CSV...");
 
@@ -579,6 +605,7 @@ def build_portfolio_constructor_page_html() -> str:
     }
 
     window.constructPortfolio = constructPortfolio;
+    window.savePortfolioSnapshot = savePortfolioSnapshot;
     window.downloadPortfolioCsv = downloadPortfolioCsv;
 
     constructPortfolio().catch(error => {
