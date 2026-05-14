@@ -39,3 +39,6 @@ build/
 # Project local runtime state
 backend/market_ai.db
 backend/data/signal_model_state.json
+
+# Backups
+*.bak
