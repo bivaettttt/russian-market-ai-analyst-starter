@@ -524,7 +524,7 @@ def ai_reports_dashboard_page():
     return build_ai_report_history_page_html()
 
 
-from app.services.ai_report_history import list_ai_report_snapshots
+from app.services.ai_report_history import list_ai_report_snapshots, save_ai_report_snapshot
 @app.get("/ai/reports")
 def ai_reports_list(
     limit: int = Query(50, ge=1, le=500),
@@ -1459,6 +1459,30 @@ def portfolio_construct_snapshot_detail(
 
 from app.services.portfolio_construct_history_page_html import build_portfolio_construct_history_page_html
 
+
+
+
+from app.services.portfolio_construct_snapshot_detail_page_html import (
+    build_portfolio_construct_snapshot_detail_page_html,
+)
+
+
+@app.get("/portfolio/construct/snapshots/{snapshot_id}/view", response_class=HTMLResponse)
+def portfolio_construct_snapshot_view_page(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+):
+    result = get_portfolio_construct_snapshot(
+        db=db,
+        snapshot_id=snapshot_id,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result)
+
+    return build_portfolio_construct_snapshot_detail_page_html(
+        result.get("snapshot") or {},
+    )
 
 @app.get("/portfolio/construct/history", response_class=HTMLResponse)
 def portfolio_construct_history_page():

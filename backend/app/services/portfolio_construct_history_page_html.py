@@ -431,6 +431,7 @@ def build_portfolio_construct_history_page_html() -> str:
               <div style="max-width:420px;">${escapeHtml(conclusion)}</div>
             </td>
             <td>
+              <a href="/portfolio/construct/snapshots/${row.id}/view">Открыть</a> ·
               <a href="${escapeHtml(row.detail_url)}" target="_blank">JSON</a>
             </td>
           </tr>
