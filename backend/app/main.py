@@ -1414,6 +1414,7 @@ from app.services.portfolio_construct_history import (
     delete_portfolio_construct_snapshot,
     get_latest_portfolio_construct_snapshot,
     get_portfolio_construct_snapshot,
+    get_portfolio_construct_snapshot_stats,
     list_portfolio_construct_snapshots,
     portfolio_construct_snapshots_to_csv,
 )
@@ -1482,6 +1483,18 @@ def portfolio_construct_snapshots_csv(
         headers={
             "Content-Disposition": 'attachment; filename="portfolio_snapshots.csv"',
         },
+    )
+
+
+
+@app.get("/portfolio/construct/snapshots/stats")
+def portfolio_construct_snapshots_stats(
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+):
+    return get_portfolio_construct_snapshot_stats(
+        db=db,
+        limit=limit,
     )
 
 @app.get("/portfolio/construct/snapshots/latest")

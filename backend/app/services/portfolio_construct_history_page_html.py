@@ -307,6 +307,16 @@ def build_portfolio_construct_history_page_html() -> str:
           <div class="label">Модель</div>
           <div class="value" id="latestModel">—</div>
         </div>
+
+        <div class="metric">
+          <div class="label">Средний risk/reward</div>
+          <div class="value" id="avgRiskReward">—</div>
+        </div>
+
+        <div class="metric">
+          <div class="label">Лучший snapshot</div>
+          <div class="value" id="bestSnapshot">—</div>
+        </div>
       </div>
     </section>
 
@@ -422,6 +432,21 @@ def build_portfolio_construct_history_page_html() -> str:
       setText("latestCash", `${formatMoney(latestSummary.cash)} · ${formatPct(latestSummary.cash_pct)}`);
       setText("latestPositions", latestSummary.positions_count ?? latest.positions_count);
       setText("latestModel", latest.model_version);
+
+      const rrRows = rows
+        .map(row => ({ row, rr: Number((row.summary || {}).risk_reward_ratio) }))
+        .filter(item => !Number.isNaN(item.rr));
+
+      if (rrRows.length) {
+        const avgRr = rrRows.reduce((acc, item) => acc + item.rr, 0) / rrRows.length;
+        const best = rrRows.reduce((bestItem, item) => item.rr > bestItem.rr ? item : bestItem, rrRows[0]);
+
+        setText("avgRiskReward", formatNumber(avgRr, 2));
+        setText("bestSnapshot", `#${best.row.id} · ${formatNumber(best.rr, 2)}`);
+      } else {
+        setText("avgRiskReward", "—");
+        setText("bestSnapshot", "—");
+      }
 
       tbody.innerHTML = rows.map(row => {
         const summary = row.summary || {};

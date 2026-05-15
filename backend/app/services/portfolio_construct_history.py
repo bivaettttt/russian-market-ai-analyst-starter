@@ -299,3 +299,100 @@ def portfolio_construct_snapshots_to_csv(data: dict[str, Any]) -> str:
 
     return output.getvalue()
 
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _average(values: list[float]) -> float | None:
+    if not values:
+        return None
+
+    return round(sum(values) / len(values), 2)
+
+
+def _snapshot_stats_brief(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+
+    summary = row.get("summary") or {}
+
+    return {
+        "id": row.get("id"),
+        "created_at": row.get("created_at"),
+        "model_version": row.get("model_version"),
+        "risk_profile": row.get("risk_profile"),
+        "horizon": row.get("horizon"),
+        "quality_mode": row.get("quality_mode"),
+        "positions_count": summary.get("positions_count") or row.get("positions_count"),
+        "cash_pct": summary.get("cash_pct"),
+        "risk_reward_ratio": summary.get("risk_reward_ratio"),
+        "risk_reward_label": summary.get("risk_reward_label"),
+        "portfolio_conclusion": summary.get("portfolio_conclusion"),
+        "view_url": f"/portfolio/construct/snapshots/{row.get('id')}/view",
+        "json_url": row.get("detail_url"),
+    }
+
+
+def get_portfolio_construct_snapshot_stats(
+    db: Session,
+    limit: int = 500,
+) -> dict[str, Any]:
+    data = list_portfolio_construct_snapshots(
+        db=db,
+        limit=limit,
+    )
+
+    rows = data.get("rows") or []
+
+    rr_rows = []
+    cash_pct_values: list[float] = []
+    positions_values: list[float] = []
+
+    quality_counts: dict[str, int] = {}
+    model_counts: dict[str, int] = {}
+
+    for row in rows:
+        summary = row.get("summary") or {}
+
+        rr = _safe_float(summary.get("risk_reward_ratio"))
+        cash_pct = _safe_float(summary.get("cash_pct"))
+        positions_count = _safe_float(summary.get("positions_count") or row.get("positions_count"))
+
+        if rr is not None:
+            rr_rows.append((rr, row))
+
+        if cash_pct is not None:
+            cash_pct_values.append(cash_pct)
+
+        if positions_count is not None:
+            positions_values.append(positions_count)
+
+        quality = str(row.get("quality_mode") or "unknown")
+        model = str(row.get("model_version") or "unknown")
+
+        quality_counts[quality] = quality_counts.get(quality, 0) + 1
+        model_counts[model] = model_counts.get(model, 0) + 1
+
+    best_row = max(rr_rows, key=lambda item: item[0])[1] if rr_rows else None
+    weakest_row = min(rr_rows, key=lambda item: item[0])[1] if rr_rows else None
+
+    return {
+        "ok": True,
+        "total": len(rows),
+        "limit": limit,
+        "latest": _snapshot_stats_brief(rows[0] if rows else None),
+        "best_by_risk_reward": _snapshot_stats_brief(best_row),
+        "weakest_by_risk_reward": _snapshot_stats_brief(weakest_row),
+        "avg_risk_reward_ratio": _average([item[0] for item in rr_rows]),
+        "avg_cash_pct": _average(cash_pct_values),
+        "avg_positions_count": _average(positions_values),
+        "quality_counts": quality_counts,
+        "model_counts": model_counts,
+    }
+
