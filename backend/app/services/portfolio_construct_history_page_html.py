@@ -448,13 +448,26 @@ def build_portfolio_construct_history_page_html() -> str:
         setText("bestSnapshot", "—");
       }
 
+      const bestRrItem = rows
+        .map(row => ({ row, rr: Number((row.summary || {}).risk_reward_ratio) }))
+        .filter(item => !Number.isNaN(item.rr))
+        .reduce((bestItem, item) => {
+          if (!bestItem || item.rr > bestItem.rr) return item;
+          return bestItem;
+        }, null);
+
+      const bestSnapshotId = bestRrItem?.row?.id;
+
       tbody.innerHTML = rows.map(row => {
         const summary = row.summary || {};
         const conclusion = summary.portfolio_conclusion || "—";
 
         return `
           <tr>
-            <td><b>#${row.id}</b></td>
+            <td>
+              <b>#${row.id}</b>
+              ${row.id === bestSnapshotId ? '<div class="badge good" style="margin-top:6px;">Лучший RR</div>' : ''}
+            </td>
             <td>
               ${escapeHtml(row.created_at || "—")}
             </td>
