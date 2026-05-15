@@ -79,3 +79,69 @@ curl -X POST "http://127.0.0.1:8000/analyze/news" \
 ## Дисклеймер
 
 Это исследовательский и аналитический инструмент. Он не является индивидуальной инвестиционной рекомендацией.
+
+
+## Portfolio Constructor & Snapshots
+
+В проект добавлен модуль конструктора портфеля на основе текущих технических сигналов.
+
+### Основные возможности
+
+- сбор модельного портфеля по бюджету, риск-профилю, горизонту и режиму качества;
+- учёт lot_size инструментов MOEX;
+- расчёт целевого потенциала, стоп-риска и risk/reward;
+- экспорт портфеля в CSV;
+- сохранение portfolio snapshots;
+- история snapshot-ов;
+- детальная HTML-страница snapshot-а;
+- сравнение двух snapshot-ов;
+- CSV-экспорт сравнения;
+- удаление snapshot-ов;
+- статистика по сохранённым snapshot-ам;
+- карточка последнего и лучшего portfolio snapshot на dashboard.
+
+### Portfolio endpoints
+
+```text
+GET    /portfolio/construct/demo
+POST   /portfolio/construct
+POST   /portfolio/construct.csv
+
+POST   /portfolio/construct/snapshot
+GET    /portfolio/construct/snapshots
+GET    /portfolio/construct/snapshots.csv
+GET    /portfolio/construct/snapshots/latest
+GET    /portfolio/construct/snapshots/stats
+GET    /portfolio/construct/snapshots/{snapshot_id}
+GET    /portfolio/construct/snapshots/{snapshot_id}/view
+DELETE /portfolio/construct/snapshots/{snapshot_id}
+
+GET    /portfolio/construct/history
+GET    /portfolio/construct/compare
+GET    /portfolio/construct/compare.json
+GET    /portfolio/construct/compare.csv
+```
+
+### Пример сборки портфеля
+
+```bash
+curl -X POST "http://127.0.0.1:8000/portfolio/construct" \
+  -H "Content-Type: application/json" \
+  -d '{"budget":100000,"risk_profile":"balanced","horizon":"medium","quality_mode":"normal"}'
+```
+
+### Пример сохранения snapshot-а
+
+```bash
+curl -X POST "http://127.0.0.1:8000/portfolio/construct/snapshot" \
+  -H "Content-Type: application/json" \
+  -d '{"budget":100000,"risk_profile":"balanced","horizon":"medium","quality_mode":"normal"}'
+```
+
+### Пример сравнения snapshot-ов
+
+```bash
+curl "http://127.0.0.1:8000/portfolio/construct/compare.json?left_id=1&right_id=2"
+```
+
+
