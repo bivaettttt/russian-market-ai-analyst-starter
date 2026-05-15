@@ -258,7 +258,19 @@ def build_portfolio_construct_history_page_html() -> str:
           <input id="limit" type="number" min="1" max="500" value="50" />
         </label>
 
+        <label class="control">
+          <span class="small muted">Старый ID</span>
+          <input id="leftSnapshotId" type="number" min="1" placeholder="например 1" />
+        </label>
+
+        <label class="control">
+          <span class="small muted">Новый ID</span>
+          <input id="rightSnapshotId" type="number" min="1" placeholder="например 2" />
+        </label>
+
         <button class="button" onclick="loadSnapshots()">Обновить</button>
+        <button class="button secondary" onclick="compareSelectedSnapshots()">Сравнить выбранные</button>
+        <a class="button secondary" href="/portfolio/construct/compare">Сравнить последние</a>
         <a id="jsonLink" class="button secondary" href="/portfolio/construct/snapshots?limit=50" target="_blank">JSON</a>
       </div>
 
@@ -313,11 +325,12 @@ def build_portfolio_construct_history_page_html() -> str:
               <th>Кэш</th>
               <th>Risk/reward</th>
               <th>Вывод</th>
+              <th>Сравнение</th>
               <th>Ссылки</th>
             </tr>
           </thead>
           <tbody id="snapshotRows">
-            <tr><td colspan="11" class="muted">Пока нет данных.</td></tr>
+            <tr><td colspan="12" class="muted">Пока нет данных.</td></tr>
           </tbody>
         </table>
       </div>
@@ -385,7 +398,7 @@ def build_portfolio_construct_history_page_html() -> str:
       setText("snapshotsTotal", data.total ?? rows.length);
 
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="11" class="muted">Snapshot-ов пока нет.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" class="muted">Snapshot-ов пока нет.</td></tr>';
         setText("latestRiskReward", "—");
         setText("latestCash", "—");
         setText("latestPositions", "—");
@@ -432,12 +445,51 @@ def build_portfolio_construct_history_page_html() -> str:
               <div style="max-width:420px;">${escapeHtml(conclusion)}</div>
             </td>
             <td>
+              <button class="button secondary small" onclick="setCompareSnapshot('left', ${row.id})">Старый</button>
+              <button class="button secondary small" onclick="setCompareSnapshot('right', ${row.id})">Новый</button>
+            </td>
+            <td>
               <a href="/portfolio/construct/snapshots/${row.id}/view">Открыть</a> ·
               <a href="${escapeHtml(row.detail_url)}" target="_blank">JSON</a>
             </td>
           </tr>
         `;
       }).join("");
+    }
+
+    function setCompareSnapshot(side, id) {
+      const inputId = side === "left" ? "leftSnapshotId" : "rightSnapshotId";
+      const input = document.getElementById(inputId);
+
+      if (input) {
+        input.value = id;
+      }
+
+      const left = document.getElementById("leftSnapshotId")?.value;
+      const right = document.getElementById("rightSnapshotId")?.value;
+
+      if (left && right) {
+        setText("status", `Выбрано для сравнения: #${left} → #${right}.`);
+      } else {
+        setText("status", `Snapshot #${id} выбран как ${side === "left" ? "старый" : "новый"}.`);
+      }
+    }
+
+    function compareSelectedSnapshots() {
+      const left = document.getElementById("leftSnapshotId")?.value;
+      const right = document.getElementById("rightSnapshotId")?.value;
+
+      if (!left || !right) {
+        setText("status", "Выберите старый и новый snapshot.");
+        return;
+      }
+
+      if (left === right) {
+        setText("status", "Для сравнения нужны два разных snapshot-а.");
+        return;
+      }
+
+      window.location.href = `/portfolio/construct/compare?left_id=${encodeURIComponent(left)}&right_id=${encodeURIComponent(right)}`;
     }
 
     async function loadSnapshots() {
@@ -461,6 +513,8 @@ def build_portfolio_construct_history_page_html() -> str:
     }
 
     window.loadSnapshots = loadSnapshots;
+    window.setCompareSnapshot = setCompareSnapshot;
+    window.compareSelectedSnapshots = compareSelectedSnapshots;
 
     loadSnapshots().catch(error => {
       setText("status", "Ошибка: " + error.message);
