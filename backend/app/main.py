@@ -1484,6 +1484,51 @@ def portfolio_construct_snapshot_view_page(
         result.get("snapshot") or {},
     )
 
+
+
+# --- Portfolio constructor snapshot compare ---
+
+from app.services.portfolio_construct_snapshot_compare import compare_portfolio_construct_snapshots
+from app.services.portfolio_construct_snapshot_compare_page_html import (
+    build_portfolio_construct_snapshot_compare_page_html,
+)
+
+
+@app.get("/portfolio/construct/compare.json")
+def portfolio_construct_compare_json(
+    left_id: int | None = Query(None),
+    right_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    result = compare_portfolio_construct_snapshots(
+        db=db,
+        left_id=left_id,
+        right_id=right_id,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result)
+
+    return result
+
+
+@app.get("/portfolio/construct/compare", response_class=HTMLResponse)
+def portfolio_construct_compare_page(
+    left_id: int | None = Query(None),
+    right_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    result = compare_portfolio_construct_snapshots(
+        db=db,
+        left_id=left_id,
+        right_id=right_id,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result)
+
+    return build_portfolio_construct_snapshot_compare_page_html(result)
+
 @app.get("/portfolio/construct/history", response_class=HTMLResponse)
 def portfolio_construct_history_page():
     return build_portfolio_construct_history_page_html()

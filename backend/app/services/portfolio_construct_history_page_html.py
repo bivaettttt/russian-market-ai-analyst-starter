@@ -243,6 +243,7 @@ def build_portfolio_construct_history_page_html() -> str:
       <div class="nav">
         <a class="button secondary" href="/dashboard">Рынок</a>
         <a class="button secondary" href="/portfolio/construct/demo">Конструктор</a>
+        <a class="button secondary" href="/portfolio/construct/compare">Сравнить последние</a>
         <a class="button secondary" href="/signals">Сигналы</a>
         <a class="button secondary" href="/signals/champion">Champion</a>
       </div>
