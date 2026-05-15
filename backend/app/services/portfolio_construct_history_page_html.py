@@ -272,6 +272,7 @@ def build_portfolio_construct_history_page_html() -> str:
         <button class="button secondary" onclick="compareSelectedSnapshots()">Сравнить выбранные</button>
         <button class="button secondary" onclick="downloadSelectedCompareCsv()">CSV выбранных</button>
         <a class="button secondary" href="/portfolio/construct/compare">Сравнить последние</a>
+        <a id="csvLink" class="button secondary" href="/portfolio/construct/snapshots.csv?limit=50">CSV истории</a>
         <a id="jsonLink" class="button secondary" href="/portfolio/construct/snapshots?limit=50" target="_blank">JSON</a>
       </div>
 
@@ -535,6 +536,11 @@ def build_portfolio_construct_history_page_html() -> str:
       const limit = document.getElementById("limit").value || "50";
       const url = `/portfolio/construct/snapshots?limit=${encodeURIComponent(limit)}`;
       document.getElementById("jsonLink").href = url;
+
+      const csvLink = document.getElementById("csvLink");
+      if (csvLink) {
+        csvLink.href = `/portfolio/construct/snapshots.csv?limit=${encodeURIComponent(limit)}`;
+      }
 
       const response = await fetch(url);
 

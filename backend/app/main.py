@@ -1415,6 +1415,7 @@ from app.services.portfolio_construct_history import (
     get_latest_portfolio_construct_snapshot,
     get_portfolio_construct_snapshot,
     list_portfolio_construct_snapshots,
+    portfolio_construct_snapshots_to_csv,
 )
 
 
@@ -1458,6 +1459,30 @@ def portfolio_construct_snapshot_delete(
     return result
 
 
+
+
+
+@app.get("/portfolio/construct/snapshots.csv")
+def portfolio_construct_snapshots_csv(
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import Response
+
+    data = list_portfolio_construct_snapshots(
+        db=db,
+        limit=limit,
+    )
+
+    csv_text = portfolio_construct_snapshots_to_csv(data)
+
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="portfolio_snapshots.csv"',
+        },
+    )
 
 @app.get("/portfolio/construct/snapshots/latest")
 def portfolio_construct_snapshot_latest(

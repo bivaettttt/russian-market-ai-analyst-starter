@@ -240,3 +240,62 @@ def get_latest_portfolio_construct_snapshot(
         "snapshot": portfolio_construct_snapshot_to_dict(row),
     }
 
+
+def portfolio_construct_snapshots_to_csv(data: dict[str, Any]) -> str:
+    import csv
+    import io
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+
+    writer.writerow([
+        "id",
+        "created_at",
+        "budget",
+        "risk_profile",
+        "horizon",
+        "quality_mode",
+        "model_version",
+        "positions_count",
+        "invested",
+        "cash",
+        "cash_pct",
+        "avg_confidence_pct",
+        "portfolio_risk_level",
+        "target_upside_rub",
+        "target_upside_pct",
+        "stop_downside_rub",
+        "stop_downside_pct",
+        "risk_reward_ratio",
+        "risk_reward_label",
+        "portfolio_conclusion",
+    ])
+
+    for row in data.get("rows") or []:
+        summary = row.get("summary") or {}
+
+        writer.writerow([
+            row.get("id"),
+            row.get("created_at"),
+            row.get("budget"),
+            row.get("risk_profile"),
+            row.get("horizon"),
+            row.get("quality_mode"),
+            row.get("model_version"),
+            summary.get("positions_count") or row.get("positions_count"),
+            summary.get("invested"),
+            summary.get("cash"),
+            summary.get("cash_pct"),
+            summary.get("avg_confidence_pct"),
+            summary.get("portfolio_risk_level"),
+            summary.get("target_upside_rub"),
+            summary.get("target_upside_pct"),
+            summary.get("stop_downside_rub"),
+            summary.get("stop_downside_pct"),
+            summary.get("risk_reward_ratio"),
+            summary.get("risk_reward_label"),
+            summary.get("portfolio_conclusion"),
+        ])
+
+    return output.getvalue()
+
