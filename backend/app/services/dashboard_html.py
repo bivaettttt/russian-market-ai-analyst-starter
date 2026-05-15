@@ -462,6 +462,12 @@ def build_dashboard_html() -> str:
 
     <p id="portfolioSnapshotConclusion" style="color:#6b7280;margin-top:14px;">Загружаю последний snapshot...</p>
 
+    <div id="bestPortfolioSnapshotBox" style="margin-top:12px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:14px;background:#f8fafc;">
+      <div style="color:#6b7280;font-size:12px;margin-bottom:4px;">Лучший snapshot по risk/reward</div>
+      <div id="bestPortfolioSnapshotText" style="font-weight:800;">—</div>
+      <div id="bestPortfolioSnapshotLinks" style="font-size:13px;margin-top:6px;"></div>
+    </div>
+
     <p style="margin-bottom:0;">
       <button onclick="saveCurrentPortfolioSnapshotFromDashboard()" style="border:0;border-radius:10px;background:#2563eb;color:white;padding:8px 12px;font-weight:700;cursor:pointer;">Сохранить текущий snapshot</button>
       · <a href="/portfolio/construct/history" style="color:#2563eb;text-decoration:none;">История snapshot →</a> ·
@@ -529,6 +535,38 @@ def build_dashboard_html() -> str:
     }
 
     await loadLatestPortfolioSnapshotCard();
+    await loadBestPortfolioSnapshotCard();
+  }
+
+  async function loadBestPortfolioSnapshotCard() {
+    const response = await fetch("/portfolio/construct/snapshots/stats?limit=500");
+
+    if (!response.ok) {
+      throw new Error("Stats HTTP " + response.status);
+    }
+
+    const data = await response.json();
+    const best = data.best_by_risk_reward;
+
+    if (!best) {
+      portfolioSnapshotSetText("bestPortfolioSnapshotText", "Лучший snapshot пока не определён.");
+      return;
+    }
+
+    const rr = best.risk_reward_ratio;
+    const rrText = rr === null || rr === undefined
+      ? (best.risk_reward_label || "—")
+      : portfolioSnapshotFormatNumber(rr, 2) + " · " + (best.risk_reward_label || "");
+
+    portfolioSnapshotSetText(
+      "bestPortfolioSnapshotText",
+      `#${best.id} · ${rrText} · позиций: ${best.positions_count ?? "—"} · кэш: ${portfolioSnapshotFormatPct(best.cash_pct)}`
+    );
+
+    const links = document.getElementById("bestPortfolioSnapshotLinks");
+    if (links) {
+      links.innerHTML = `<a href="${best.view_url}" style="color:#2563eb;text-decoration:none;">Открыть лучший snapshot →</a>`;
+    }
   }
 
   async function loadLatestPortfolioSnapshotCard() {
@@ -567,6 +605,10 @@ def build_dashboard_html() -> str:
 
   loadLatestPortfolioSnapshotCard().catch(error => {
     portfolioSnapshotSetText("portfolioSnapshotConclusion", "Ошибка загрузки portfolio snapshot: " + error.message);
+  });
+
+  loadBestPortfolioSnapshotCard().catch(error => {
+    portfolioSnapshotSetText("bestPortfolioSnapshotText", "Ошибка загрузки лучшего snapshot: " + error.message);
   });
 </script>
 
