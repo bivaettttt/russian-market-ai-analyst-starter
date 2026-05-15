@@ -463,7 +463,8 @@ def build_dashboard_html() -> str:
     <p id="portfolioSnapshotConclusion" style="color:#6b7280;margin-top:14px;">Загружаю последний snapshot...</p>
 
     <p style="margin-bottom:0;">
-      <a href="/portfolio/construct/history" style="color:#2563eb;text-decoration:none;">История snapshot →</a> ·
+      <button onclick="saveCurrentPortfolioSnapshotFromDashboard()" style="border:0;border-radius:10px;background:#2563eb;color:white;padding:8px 12px;font-weight:700;cursor:pointer;">Сохранить текущий snapshot</button>
+      · <a href="/portfolio/construct/history" style="color:#2563eb;text-decoration:none;">История snapshot →</a> ·
       <a href="/portfolio/construct/compare" style="color:#2563eb;text-decoration:none;">Сравнить последние →</a> ·
       <a href="/portfolio/construct/demo" style="color:#2563eb;text-decoration:none;">Конструктор портфеля →</a>
     </p>
@@ -498,6 +499,33 @@ def build_dashboard_html() -> str:
     return portfolioSnapshotFormatNumber(n, 2) + "%";
   }
 
+  async function saveCurrentPortfolioSnapshotFromDashboard() {
+    portfolioSnapshotSetText("portfolioSnapshotConclusion", "Сохраняю portfolio snapshot...");
+
+    const response = await fetch("/portfolio/construct/snapshot", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        budget: 100000,
+        risk_profile: "balanced",
+        horizon: "medium",
+        quality_mode: "normal"
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error("Snapshot HTTP " + response.status + ": " + await response.text());
+    }
+
+    const data = await response.json();
+    const snapshot = data.snapshot || {};
+    portfolioSnapshotSetText("portfolioSnapshotConclusion", `Snapshot #${snapshot.id || "—"} сохранён. Обновляю карточку...`);
+
+    await loadLatestPortfolioSnapshotCard();
+  }
+
   async function loadLatestPortfolioSnapshotCard() {
     const response = await fetch("/portfolio/construct/snapshots/latest");
 
@@ -529,6 +557,8 @@ def build_dashboard_html() -> str:
     portfolioSnapshotSetText("portfolioSnapshotPositions", summary.positions_count ?? snapshot.positions_count);
     portfolioSnapshotSetText("portfolioSnapshotConclusion", summary.portfolio_conclusion || "Snapshot загружен.");
   }
+
+  window.saveCurrentPortfolioSnapshotFromDashboard = saveCurrentPortfolioSnapshotFromDashboard;
 
   loadLatestPortfolioSnapshotCard().catch(error => {
     portfolioSnapshotSetText("portfolioSnapshotConclusion", "Ошибка загрузки portfolio snapshot: " + error.message);
