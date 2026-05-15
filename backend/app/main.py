@@ -1453,6 +1453,17 @@ def portfolio_construct_snapshot_detail(
 
     return result
 
+
+
+# --- Portfolio constructor history page ---
+
+from app.services.portfolio_construct_history_page_html import build_portfolio_construct_history_page_html
+
+
+@app.get("/portfolio/construct/history", response_class=HTMLResponse)
+def portfolio_construct_history_page():
+    return build_portfolio_construct_history_page_html()
+
 @app.get("/portfolio/construct/demo", response_class=HTMLResponse)
 def portfolio_construct_demo_page():
     return build_portfolio_constructor_page_html()
