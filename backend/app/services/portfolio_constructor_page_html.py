@@ -570,7 +570,11 @@ def build_portfolio_constructor_page_html() -> str:
       const id = snapshot.id || "—";
 
       const now = new Date().toLocaleTimeString("ru-RU");
-      setText("status", `Snapshot #${id} сохранён: ${now}.`);
+      if (data.duplicate) {
+        setText("status", `Такой snapshot уже есть: #${id}. Новая запись не создана: ${now}.`);
+      } else {
+        setText("status", `Snapshot #${id} сохранён: ${now}.`);
+      }
     }
 
     async function downloadPortfolioCsv() {

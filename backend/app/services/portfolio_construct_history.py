@@ -24,6 +24,42 @@ def _json_load(value: str | None, fallback: Any) -> Any:
         return fallback
 
 
+def _snapshot_signature_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Stable payload used to detect duplicate portfolio constructor snapshots."""
+    return {
+        "budget": data.get("budget"),
+        "risk_profile": data.get("risk_profile"),
+        "horizon": data.get("horizon"),
+        "quality_mode": data.get("quality_mode"),
+        "model_version": data.get("model_version"),
+        "positions": data.get("positions") or [],
+        "excluded": data.get("excluded") or [],
+        "summary": data.get("summary") or {},
+    }
+
+
+def _snapshot_signature(data: dict[str, Any]) -> str:
+    return json.dumps(
+        _snapshot_signature_payload(data),
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _get_latest_snapshot_row(db: Session) -> PortfolioConstructSnapshot | None:
+    PortfolioConstructSnapshot.__table__.create(
+        bind=db.get_bind(),
+        checkfirst=True,
+    )
+
+    return db.scalars(
+        select(PortfolioConstructSnapshot)
+        .order_by(desc(PortfolioConstructSnapshot.created_at), desc(PortfolioConstructSnapshot.id))
+        .limit(1)
+    ).first()
+
+
 def portfolio_construct_snapshot_to_dict(row: PortfolioConstructSnapshot) -> dict[str, Any]:
     summary = _json_load(row.summary_json, {})
     positions = _json_load(row.positions_json, [])
@@ -70,6 +106,17 @@ def create_portfolio_construct_snapshot(
     positions = data.get("positions") or []
     excluded = data.get("excluded") or []
 
+    latest_row = _get_latest_snapshot_row(db)
+    if latest_row is not None:
+        latest_data = _json_load(latest_row.result_json, {})
+        if _snapshot_signature(latest_data) == _snapshot_signature(data):
+            return {
+                "ok": True,
+                "created": False,
+                "duplicate": True,
+                "snapshot": portfolio_construct_snapshot_to_dict(latest_row),
+            }
+
     row = PortfolioConstructSnapshot(
         budget=data.get("budget"),
         risk_profile=data.get("risk_profile"),
@@ -89,6 +136,8 @@ def create_portfolio_construct_snapshot(
 
     return {
         "ok": True,
+        "created": True,
+        "duplicate": False,
         "snapshot": portfolio_construct_snapshot_to_dict(row),
     }
 

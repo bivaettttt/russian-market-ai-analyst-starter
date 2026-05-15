@@ -521,7 +521,12 @@ def build_dashboard_html() -> str:
 
     const data = await response.json();
     const snapshot = data.snapshot || {};
-    portfolioSnapshotSetText("portfolioSnapshotConclusion", `Snapshot #${snapshot.id || "—"} сохранён. Обновляю карточку...`);
+
+    if (data.duplicate) {
+      portfolioSnapshotSetText("portfolioSnapshotConclusion", `Такой snapshot уже есть: #${snapshot.id || "—"}. Новая запись не создана.`);
+    } else {
+      portfolioSnapshotSetText("portfolioSnapshotConclusion", `Snapshot #${snapshot.id || "—"} сохранён. Обновляю карточку...`);
+    }
 
     await loadLatestPortfolioSnapshotCard();
   }
