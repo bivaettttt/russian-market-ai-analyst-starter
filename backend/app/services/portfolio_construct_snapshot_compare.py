@@ -193,3 +193,79 @@ def compare_portfolio_construct_snapshots(
         "summary": compare_summary,
         "rows": rows,
     }
+
+
+def portfolio_construct_snapshot_compare_to_csv(data: dict[str, Any]) -> str:
+    import csv
+    import io
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+
+    left = data.get("left") or {}
+    right = data.get("right") or {}
+    summary = data.get("summary") or {}
+
+    writer.writerow(["Portfolio snapshot compare"])
+    writer.writerow(["left_id", left.get("id")])
+    writer.writerow(["right_id", right.get("id")])
+    writer.writerow(["left_created_at", left.get("created_at")])
+    writer.writerow(["right_created_at", right.get("created_at")])
+    writer.writerow(["added", summary.get("added")])
+    writer.writerow(["removed", summary.get("removed")])
+    writer.writerow(["kept", summary.get("kept")])
+    writer.writerow(["cash_delta", summary.get("cash_delta")])
+    writer.writerow(["risk_reward_delta", summary.get("risk_reward_delta")])
+    writer.writerow([])
+
+    writer.writerow([
+        "ticker",
+        "name",
+        "status",
+        "old_action",
+        "new_action",
+        "old_quantity",
+        "new_quantity",
+        "delta_quantity",
+        "old_value",
+        "new_value",
+        "delta_value",
+        "old_weight_pct",
+        "new_weight_pct",
+        "delta_weight_pct",
+        "old_score",
+        "new_score",
+        "delta_score",
+        "old_target_upside_pct",
+        "new_target_upside_pct",
+        "old_stop_downside_pct",
+        "new_stop_downside_pct",
+    ])
+
+    for row in data.get("rows") or []:
+        writer.writerow([
+            row.get("ticker"),
+            row.get("name"),
+            row.get("status"),
+            row.get("old_action"),
+            row.get("new_action"),
+            row.get("old_quantity"),
+            row.get("new_quantity"),
+            row.get("delta_quantity"),
+            row.get("old_value"),
+            row.get("new_value"),
+            row.get("delta_value"),
+            row.get("old_weight_pct"),
+            row.get("new_weight_pct"),
+            row.get("delta_weight_pct"),
+            row.get("old_score"),
+            row.get("new_score"),
+            row.get("delta_score"),
+            row.get("old_target_upside_pct"),
+            row.get("new_target_upside_pct"),
+            row.get("old_stop_downside_pct"),
+            row.get("new_stop_downside_pct"),
+        ])
+
+    return output.getvalue()
+

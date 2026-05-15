@@ -253,6 +253,7 @@ def build_portfolio_construct_snapshot_compare_page_html(data: dict[str, Any]) -
         <a class="button" href="/portfolio/construct/history">История</a>
         <a class="button" href="/portfolio/construct/demo">Конструктор</a>
         <a class="button" href="/portfolio/construct/compare.json?left_id={_e(left.get('id'))}&right_id={_e(right.get('id'))}" target="_blank">JSON</a>
+        <a class="button" href="/portfolio/construct/compare.csv?left_id={_e(left.get('id'))}&right_id={_e(right.get('id'))}">CSV</a>
         <a class="button" href="/dashboard">Рынок</a>
       </div>
     </div>

@@ -1488,11 +1488,43 @@ def portfolio_construct_snapshot_view_page(
 
 # --- Portfolio constructor snapshot compare ---
 
-from app.services.portfolio_construct_snapshot_compare import compare_portfolio_construct_snapshots
+from app.services.portfolio_construct_snapshot_compare import compare_portfolio_construct_snapshots, portfolio_construct_snapshot_compare_to_csv
 from app.services.portfolio_construct_snapshot_compare_page_html import (
     build_portfolio_construct_snapshot_compare_page_html,
 )
 
+
+
+
+@app.get("/portfolio/construct/compare.csv")
+def portfolio_construct_compare_csv(
+    left_id: int | None = Query(None),
+    right_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import Response
+
+    result = compare_portfolio_construct_snapshots(
+        db=db,
+        left_id=left_id,
+        right_id=right_id,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result)
+
+    csv_text = portfolio_construct_snapshot_compare_to_csv(result)
+    left = result.get("left") or {}
+    right = result.get("right") or {}
+    filename = f"portfolio_compare_{left.get('id', 'left')}_{right.get('id', 'right')}.csv"
+
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 @app.get("/portfolio/construct/compare.json")
 def portfolio_construct_compare_json(
