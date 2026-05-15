@@ -434,6 +434,107 @@ def build_dashboard_html() -> str:
 
     loadLatestAIReport();
   </script>
+
+  <section class="card" id="latestPortfolioSnapshotCard" style="margin-top:18px;">
+    <h2>Последний portfolio snapshot</h2>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px;">
+      <div style="padding:14px;border:1px solid #e5e7eb;border-radius:14px;background:#fafafa;">
+        <div style="color:#6b7280;font-size:12px;">Snapshot</div>
+        <div id="portfolioSnapshotId" style="font-size:22px;font-weight:800;">—</div>
+      </div>
+
+      <div style="padding:14px;border:1px solid #e5e7eb;border-radius:14px;background:#fafafa;">
+        <div style="color:#6b7280;font-size:12px;">Risk/reward</div>
+        <div id="portfolioSnapshotRR" style="font-size:22px;font-weight:800;">—</div>
+      </div>
+
+      <div style="padding:14px;border:1px solid #e5e7eb;border-radius:14px;background:#fafafa;">
+        <div style="color:#6b7280;font-size:12px;">Кэш</div>
+        <div id="portfolioSnapshotCash" style="font-size:22px;font-weight:800;">—</div>
+      </div>
+
+      <div style="padding:14px;border:1px solid #e5e7eb;border-radius:14px;background:#fafafa;">
+        <div style="color:#6b7280;font-size:12px;">Позиций</div>
+        <div id="portfolioSnapshotPositions" style="font-size:22px;font-weight:800;">—</div>
+      </div>
+    </div>
+
+    <p id="portfolioSnapshotConclusion" style="color:#6b7280;margin-top:14px;">Загружаю последний snapshot...</p>
+
+    <p style="margin-bottom:0;">
+      <a href="/portfolio/construct/history" style="color:#2563eb;text-decoration:none;">История snapshot →</a> ·
+      <a href="/portfolio/construct/compare" style="color:#2563eb;text-decoration:none;">Сравнить последние →</a> ·
+      <a href="/portfolio/construct/demo" style="color:#2563eb;text-decoration:none;">Конструктор портфеля →</a>
+    </p>
+  </section>
+
+
+<script>
+  function portfolioSnapshotSetText(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value === null || value === undefined || value === "" ? "—" : value;
+  }
+
+  function portfolioSnapshotFormatNumber(value, digits = 2) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return "—";
+    return n.toLocaleString("ru-RU", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
+
+  function portfolioSnapshotFormatMoney(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return "—";
+    return portfolioSnapshotFormatNumber(n, 2) + " ₽";
+  }
+
+  function portfolioSnapshotFormatPct(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return "—";
+    return portfolioSnapshotFormatNumber(n, 2) + "%";
+  }
+
+  async function loadLatestPortfolioSnapshotCard() {
+    const response = await fetch("/portfolio/construct/snapshots/latest");
+
+    if (!response.ok) {
+      throw new Error("HTTP " + response.status);
+    }
+
+    const data = await response.json();
+
+    if (!data.ok || !data.snapshot) {
+      portfolioSnapshotSetText("portfolioSnapshotConclusion", "Snapshot-ов портфеля пока нет.");
+      return;
+    }
+
+    const snapshot = data.snapshot || {};
+    const summary = snapshot.summary || {};
+
+    portfolioSnapshotSetText("portfolioSnapshotId", "#" + snapshot.id);
+    portfolioSnapshotSetText(
+      "portfolioSnapshotRR",
+      summary.risk_reward_ratio === null || summary.risk_reward_ratio === undefined
+        ? (summary.risk_reward_label || "—")
+        : portfolioSnapshotFormatNumber(summary.risk_reward_ratio, 2) + " · " + (summary.risk_reward_label || "")
+    );
+    portfolioSnapshotSetText(
+      "portfolioSnapshotCash",
+      portfolioSnapshotFormatMoney(summary.cash) + " · " + portfolioSnapshotFormatPct(summary.cash_pct)
+    );
+    portfolioSnapshotSetText("portfolioSnapshotPositions", summary.positions_count ?? snapshot.positions_count);
+    portfolioSnapshotSetText("portfolioSnapshotConclusion", summary.portfolio_conclusion || "Snapshot загружен.");
+  }
+
+  loadLatestPortfolioSnapshotCard().catch(error => {
+    portfolioSnapshotSetText("portfolioSnapshotConclusion", "Ошибка загрузки portfolio snapshot: " + error.message);
+  });
+</script>
+
 </body>
 </html>
 """

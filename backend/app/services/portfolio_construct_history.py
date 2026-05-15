@@ -164,3 +164,30 @@ def delete_portfolio_construct_snapshot(
         "deleted_id": snapshot_id,
     }
 
+
+def get_latest_portfolio_construct_snapshot(
+    db: Session,
+) -> dict[str, Any]:
+    PortfolioConstructSnapshot.__table__.create(
+        bind=db.get_bind(),
+        checkfirst=True,
+    )
+
+    row = db.scalars(
+        select(PortfolioConstructSnapshot)
+        .order_by(desc(PortfolioConstructSnapshot.created_at), desc(PortfolioConstructSnapshot.id))
+        .limit(1)
+    ).first()
+
+    if row is None:
+        return {
+            "ok": False,
+            "error": "snapshot_not_found",
+            "message": "Portfolio constructor snapshots not found.",
+        }
+
+    return {
+        "ok": True,
+        "snapshot": portfolio_construct_snapshot_to_dict(row),
+    }
+
