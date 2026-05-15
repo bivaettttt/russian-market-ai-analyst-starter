@@ -136,3 +136,31 @@ def get_portfolio_construct_snapshot(
         "ok": True,
         "snapshot": portfolio_construct_snapshot_to_dict(row),
     }
+
+
+def delete_portfolio_construct_snapshot(
+    db: Session,
+    snapshot_id: int,
+) -> dict[str, Any]:
+    PortfolioConstructSnapshot.__table__.create(
+        bind=db.get_bind(),
+        checkfirst=True,
+    )
+
+    row = db.get(PortfolioConstructSnapshot, snapshot_id)
+
+    if row is None:
+        return {
+            "ok": False,
+            "error": "snapshot_not_found",
+            "id": snapshot_id,
+        }
+
+    db.delete(row)
+    db.commit()
+
+    return {
+        "ok": True,
+        "deleted_id": snapshot_id,
+    }
+

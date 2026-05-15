@@ -451,7 +451,8 @@ def build_portfolio_construct_history_page_html() -> str:
             </td>
             <td>
               <a href="/portfolio/construct/snapshots/${row.id}/view">Открыть</a> ·
-              <a href="${escapeHtml(row.detail_url)}" target="_blank">JSON</a>
+              <a href="${escapeHtml(row.detail_url)}" target="_blank">JSON</a> ·
+              <a href="#" onclick="deleteSnapshot(${row.id}); return false;" style="color:#b91c1c;">Удалить</a>
             </td>
           </tr>
         `;
@@ -509,6 +510,25 @@ def build_portfolio_construct_history_page_html() -> str:
       window.location.href = `/portfolio/construct/compare.csv?left_id=${encodeURIComponent(selected.left)}&right_id=${encodeURIComponent(selected.right)}`;
     }
 
+    async function deleteSnapshot(id) {
+      const confirmed = confirm(`Удалить snapshot #${id}? Это действие нельзя отменить.`);
+
+      if (!confirmed) return;
+
+      setText("status", `Удаляю snapshot #${id}...`);
+
+      const response = await fetch(`/portfolio/construct/snapshots/${id}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        throw new Error("Delete HTTP " + response.status + ": " + await response.text());
+      }
+
+      await loadSnapshots();
+      setText("status", `Snapshot #${id} удалён.`);
+    }
+
     async function loadSnapshots() {
       setText("status", "Загружаю snapshot-ы...");
 
@@ -532,6 +552,7 @@ def build_portfolio_construct_history_page_html() -> str:
     window.loadSnapshots = loadSnapshots;
     window.setCompareSnapshot = setCompareSnapshot;
     window.compareSelectedSnapshots = compareSelectedSnapshots;
+    window.deleteSnapshot = deleteSnapshot;
     window.downloadSelectedCompareCsv = downloadSelectedCompareCsv;
 
     loadSnapshots().catch(error => {

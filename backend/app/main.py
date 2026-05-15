@@ -1411,6 +1411,7 @@ def portfolio_construct_csv(
 
 from app.services.portfolio_construct_history import (
     create_portfolio_construct_snapshot,
+    delete_portfolio_construct_snapshot,
     get_portfolio_construct_snapshot,
     list_portfolio_construct_snapshots,
 )
@@ -1437,6 +1438,23 @@ def portfolio_construct_snapshots_list(
         limit=limit,
     )
 
+
+
+
+@app.delete("/portfolio/construct/snapshots/{snapshot_id}")
+def portfolio_construct_snapshot_delete(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+):
+    result = delete_portfolio_construct_snapshot(
+        db=db,
+        snapshot_id=snapshot_id,
+    )
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result)
+
+    return result
 
 @app.get("/portfolio/construct/snapshots/{snapshot_id}")
 def portfolio_construct_snapshot_detail(
