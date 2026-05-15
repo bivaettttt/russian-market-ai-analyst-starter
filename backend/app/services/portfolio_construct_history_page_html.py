@@ -270,6 +270,7 @@ def build_portfolio_construct_history_page_html() -> str:
 
         <button class="button" onclick="loadSnapshots()">Обновить</button>
         <button class="button secondary" onclick="compareSelectedSnapshots()">Сравнить выбранные</button>
+        <button class="button secondary" onclick="downloadSelectedCompareCsv()">CSV выбранных</button>
         <a class="button secondary" href="/portfolio/construct/compare">Сравнить последние</a>
         <a id="jsonLink" class="button secondary" href="/portfolio/construct/snapshots?limit=50" target="_blank">JSON</a>
       </div>
@@ -476,20 +477,36 @@ def build_portfolio_construct_history_page_html() -> str:
     }
 
     function compareSelectedSnapshots() {
+      const selected = getSelectedCompareIds();
+
+      if (!selected) return;
+
+      window.location.href = `/portfolio/construct/compare?left_id=${encodeURIComponent(selected.left)}&right_id=${encodeURIComponent(selected.right)}`;
+    }
+
+    function getSelectedCompareIds() {
       const left = document.getElementById("leftSnapshotId")?.value;
       const right = document.getElementById("rightSnapshotId")?.value;
 
       if (!left || !right) {
         setText("status", "Выберите старый и новый snapshot.");
-        return;
+        return null;
       }
 
       if (left === right) {
         setText("status", "Для сравнения нужны два разных snapshot-а.");
-        return;
+        return null;
       }
 
-      window.location.href = `/portfolio/construct/compare?left_id=${encodeURIComponent(left)}&right_id=${encodeURIComponent(right)}`;
+      return { left, right };
+    }
+
+    function downloadSelectedCompareCsv() {
+      const selected = getSelectedCompareIds();
+
+      if (!selected) return;
+
+      window.location.href = `/portfolio/construct/compare.csv?left_id=${encodeURIComponent(selected.left)}&right_id=${encodeURIComponent(selected.right)}`;
     }
 
     async function loadSnapshots() {
@@ -515,6 +532,7 @@ def build_portfolio_construct_history_page_html() -> str:
     window.loadSnapshots = loadSnapshots;
     window.setCompareSnapshot = setCompareSnapshot;
     window.compareSelectedSnapshots = compareSelectedSnapshots;
+    window.downloadSelectedCompareCsv = downloadSelectedCompareCsv;
 
     loadSnapshots().catch(error => {
       setText("status", "Ошибка: " + error.message);
