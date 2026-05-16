@@ -42,3 +42,8 @@ backend/data/signal_model_state.json
 
 # Backups
 *.bak
+
+# Generated archives / patches
+*-clean.zip
+*-current.zip
+*-patched.diff
