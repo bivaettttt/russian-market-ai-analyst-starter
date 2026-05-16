@@ -106,6 +106,10 @@ check_get "portfolio snapshots stats" "/portfolio/construct/snapshots/stats"
 check_get "portfolio snapshots csv" "/portfolio/construct/snapshots.csv?limit=20"
 check_get "AI report page" "/ai/report/demo"
 check_get "AI reports list" "/ai/reports"
+check_get "AI reports dashboard" "/ai/reports/dashboard"
+check_get "AI reports trends" "/ai/reports/trends"
+check_get "AI reports trends json" "/ai/reports/trends.json"
+check_get "AI reports trends csv" "/ai/reports/trends.csv"
 
 check_post_json "portfolio construct" "/portfolio/construct" \
   '{"budget":100000,"risk_profile":"balanced","horizon":"medium","quality_mode":"normal"}'
