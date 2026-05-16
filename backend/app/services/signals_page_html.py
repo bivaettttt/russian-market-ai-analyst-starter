@@ -251,6 +251,14 @@ def build_signals_page_html() -> str:
             <option value="ticker_asc">Тикер A→Z</option>
           </select>
         </label>
+        <label class="small muted" style="display:inline-flex; flex-direction:column; gap:6px; margin-right:10px; vertical-align:top;">
+          Min Quality
+          <input id="minQuality" type="number" min="0" max="100" step="1" placeholder="например 40" onchange="loadSignals()" style="height:38px; border:1px solid #d6dee8; border-radius:10px; padding:0 10px; width:130px;" />
+        </label>
+        <label class="small muted" style="display:inline-flex; flex-direction:column; gap:6px; margin-right:10px; vertical-align:top;">
+          Min RR
+          <input id="minRR" type="number" min="0" step="0.1" placeholder="например 1.0" onchange="loadSignals()" style="height:38px; border:1px solid #d6dee8; border-radius:10px; padding:0 10px; width:130px;" />
+        </label>
         <button class="button secondary" onclick="loadSignals()">Обновить</button>
         <button class="button secondary" onclick="saveSignalSnapshot()">Сохранить snapshot</button>
         <a class="button secondary" href="/signals/history">История сигналов</a>
@@ -364,6 +372,40 @@ def build_signals_page_html() -> str:
       return Number.isNaN(n) ? Number.NEGATIVE_INFINITY : n;
     }
 
+    function numericOrNull(value) {
+      const n = Number(value);
+      return Number.isNaN(n) ? null : n;
+    }
+
+    function filterSignalRows(rows) {
+      const minQuality = numericOrNull(document.getElementById("minQuality")?.value);
+      const minRR = numericOrNull(document.getElementById("minRR")?.value);
+
+      if (minQuality === null && minRR === null) {
+        return rows;
+      }
+
+      return rows.filter(row => {
+        const signal = row.signal || {};
+
+        if (minQuality !== null) {
+          const quality = numericOrNull(signal.quality_score);
+          if (quality === null || quality < minQuality) {
+            return false;
+          }
+        }
+
+        if (minRR !== null) {
+          const rr = numericOrNull(signal.risk_reward_ratio);
+          if (rr === null || rr < minRR) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+    }
+
     function sortSignalRows(rows) {
       const sortBy = document.getElementById("sortBy")?.value || "action_confidence";
 
@@ -456,9 +498,13 @@ def build_signals_page_html() -> str:
       setText("riskSignals", summary.risk_sell_watch);
 
       const tbody = document.getElementById("signalsRows");
+      const totalRowsBeforeClientFilters = rows.length;
+
+      rows = filterSignalRows(rows);
 
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="13" class="muted">По выбранному фильтру сигналов нет.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="muted">По выбранным фильтрам сигналов нет.</td></tr>';
+        setText("status", `Нет сигналов после фильтров Quality/RR. Исходно: ${totalRowsBeforeClientFilters}.`);
         return;
       }
 
@@ -501,6 +547,10 @@ def build_signals_page_html() -> str:
           </tr>
         `;
       }).join("");
+
+      if (rows.length !== totalRowsBeforeClientFilters) {
+        setText("status", `Показано ${rows.length} из ${totalRowsBeforeClientFilters} сигналов после фильтров Quality/RR.`);
+      }
     }
 
     async function loadSignals() {
