@@ -241,6 +241,16 @@ def build_signals_page_html() -> str:
         <button id="filterBuy" class="button secondary" onclick="setFilter('buy_watch')">Кандидаты на покупку</button>
         <button id="filterWatch" class="button secondary" onclick="setFilter('hold_watch')">Нейтрально</button>
         <button id="filterRisk" class="button secondary" onclick="setFilter('risk_sell_watch')">Риск снижения</button>
+        <label class="small muted" style="display:inline-flex; flex-direction:column; gap:6px; margin-right:10px; vertical-align:top;">
+          Сортировка
+          <select id="sortBy" onchange="loadSignals()" style="height:40px; border:1px solid #d6dee8; border-radius:10px; padding:0 10px; min-width:220px;">
+            <option value="action_confidence">Сигнал + уверенность</option>
+            <option value="quality_desc">Quality ↓</option>
+            <option value="rr_desc">Risk/reward ↓</option>
+            <option value="confidence_desc">Уверенность ↓</option>
+            <option value="ticker_asc">Тикер A→Z</option>
+          </select>
+        </label>
         <button class="button secondary" onclick="loadSignals()">Обновить</button>
         <button class="button secondary" onclick="saveSignalSnapshot()">Сохранить snapshot</button>
         <a class="button secondary" href="/signals/history">История сигналов</a>
@@ -340,6 +350,54 @@ def build_signals_page_html() -> str:
       return "";
     }
 
+    const ACTION_RANK = {
+      buy_watch: 1,
+      watch_buy: 2,
+      hold_watch: 3,
+      risk_sell_watch: 4,
+      no_data: 9,
+      no_price: 9
+    };
+
+    function numericOrMinusInfinity(value) {
+      const n = Number(value);
+      return Number.isNaN(n) ? Number.NEGATIVE_INFINITY : n;
+    }
+
+    function sortSignalRows(rows) {
+      const sortBy = document.getElementById("sortBy")?.value || "action_confidence";
+
+      return [...rows].sort((a, b) => {
+        const signalA = a.signal || {};
+        const signalB = b.signal || {};
+
+        if (sortBy === "quality_desc") {
+          return numericOrMinusInfinity(signalB.quality_score) - numericOrMinusInfinity(signalA.quality_score);
+        }
+
+        if (sortBy === "rr_desc") {
+          return numericOrMinusInfinity(signalB.risk_reward_ratio) - numericOrMinusInfinity(signalA.risk_reward_ratio);
+        }
+
+        if (sortBy === "confidence_desc") {
+          return numericOrMinusInfinity(signalB.confidence_pct) - numericOrMinusInfinity(signalA.confidence_pct);
+        }
+
+        if (sortBy === "ticker_asc") {
+          return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+        }
+
+        const actionRankA = ACTION_RANK[signalA.action] || 99;
+        const actionRankB = ACTION_RANK[signalB.action] || 99;
+
+        if (actionRankA !== actionRankB) {
+          return actionRankA - actionRankB;
+        }
+
+        return numericOrMinusInfinity(signalB.confidence_pct) - numericOrMinusInfinity(signalA.confidence_pct);
+      });
+    }
+
     function signalBadgeClass(action) {
       if (action === "buy_watch") return "badge buy";
       if (action === "watch_buy") return "badge watch";
@@ -390,7 +448,7 @@ def build_signals_page_html() -> str:
 
     function renderSignals(data) {
       const summary = data.summary || {};
-      const rows = data.rows || [];
+      let rows = data.rows || [];
 
       setText("totalSignals", summary.total);
       setText("buySignals", summary.buy_watch);
@@ -403,6 +461,8 @@ def build_signals_page_html() -> str:
         tbody.innerHTML = '<tr><td colspan="13" class="muted">По выбранному фильтру сигналов нет.</td></tr>';
         return;
       }
+
+      rows = sortSignalRows(rows);
 
       tbody.innerHTML = rows.map(row => {
         const signal = row.signal || {};
