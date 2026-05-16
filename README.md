@@ -145,3 +145,19 @@ curl "http://127.0.0.1:8000/portfolio/construct/compare.json?left_id=1&right_id=
 ```
 
 
+## Smoke test
+
+После запуска backend можно проверить основные страницы и API одной командой:
+
+```bash
+./scripts/smoke_test.sh
+```
+
+По умолчанию скрипт проверяет `http://127.0.0.1:8000`.
+
+Для другого адреса:
+
+```bash
+BASE_URL="http://127.0.0.1:8001" ./scripts/smoke_test.sh
+```
+
