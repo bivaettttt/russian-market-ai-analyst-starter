@@ -258,6 +258,8 @@ def build_signals_page_html() -> str:
             <th>Изм.</th>
             <th>Сигнал</th>
             <th>Уверенность</th>
+            <th>Quality</th>
+            <th>RR</th>
             <th>Риск</th>
             <th>Вход</th>
             <th>Цель</th>
@@ -267,7 +269,7 @@ def build_signals_page_html() -> str:
           </tr>
         </thead>
         <tbody id="signalsRows">
-          <tr><td colspan="11">Загрузка...</td></tr>
+          <tr><td colspan="13">Загрузка...</td></tr>
         </tbody>
       </table>
     </section>
@@ -314,6 +316,28 @@ def build_signals_page_html() -> str:
     function setText(id, value) {
       document.getElementById(id).textContent =
         value === null || value === undefined || value === "" ? "—" : value;
+    }
+
+    function qualityClass(score) {
+      const n = Number(score);
+
+      if (Number.isNaN(n)) return "";
+
+      if (n >= 70) return "good";
+      if (n <= 40) return "bad";
+
+      return "";
+    }
+
+    function rrClass(value) {
+      const n = Number(value);
+
+      if (Number.isNaN(n)) return "";
+
+      if (n >= 1.5) return "good";
+      if (n < 1.0) return "bad";
+
+      return "";
     }
 
     function signalBadgeClass(action) {
@@ -376,7 +400,7 @@ def build_signals_page_html() -> str:
       const tbody = document.getElementById("signalsRows");
 
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="11" class="muted">По выбранному фильтру сигналов нет.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="muted">По выбранному фильтру сигналов нет.</td></tr>';
         return;
       }
 
@@ -397,6 +421,13 @@ def build_signals_page_html() -> str:
               <div class="muted small">${escapeHtml((row.technical || {}).trend || "")}</div>
             </td>
             <td><b>${signal.confidence_pct ? signal.confidence_pct + "%" : "—"}</b></td>
+            <td class="${qualityClass(signal.quality_score)}">
+              <b>${formatNumber(signal.quality_score, 0)}</b>
+            </td>
+            <td class="${rrClass(signal.risk_reward_ratio)}">
+              <b>${formatNumber(signal.risk_reward_ratio, 2)}</b>
+              ${signal.risk_reward_entry_price ? `<div class="muted small">entry: ${formatNumber(signal.risk_reward_entry_price)}</div>` : ""}
+            </td>
             <td>${escapeHtml(signal.risk_level || "—")}</td>
             <td>${formatNumber(signal.entry_price)}</td>
             <td>${formatNumber(signal.target_price)}</td>
