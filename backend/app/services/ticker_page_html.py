@@ -141,9 +141,67 @@ def build_ticker_page_html(ticker: str) -> str:
       background: #334155;
     }}
 
+    .forecast-card {{
+      border: 1px solid #dbeafe;
+      background: linear-gradient(135deg, #ffffff, #f8fbff);
+    }}
+
+    .forecast-grid {{
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr 1fr;
+      gap: 14px;
+      margin-top: 16px;
+    }}
+
+    .forecast-pill {{
+      display: inline-flex;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 850;
+      background: #eef2ff;
+      color: #3730a3;
+    }}
+
+    .forecast-pill.positive {{ background: #dcfce7; color: #166534; }}
+    .forecast-pill.neutral {{ background: #f1f5f9; color: #334155; }}
+    .forecast-pill.negative {{ background: #fee2e2; color: #991b1b; }}
+
+    .forecast-value {{
+      font-size: 30px;
+      font-weight: 950;
+      margin-top: 6px;
+      letter-spacing: -0.04em;
+    }}
+
+    .forecast-explanation {{
+      display: none;
+      margin-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 16px;
+    }}
+
+    .explanation-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }}
+
+    .explanation-box {{
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 14px;
+    }}
+
+    .explanation-box h4 {{ margin: 0 0 8px; }}
+    .explanation-box ul {{ margin: 0; padding-left: 18px; color: #475569; }}
+
     @media (max-width: 900px) {{
       .metrics,
-      .grid {{
+      .grid,
+      .forecast-grid,
+      .explanation-grid {{
         grid-template-columns: 1fr;
       }}
     }}
@@ -189,9 +247,65 @@ def build_ticker_page_html(ticker: str) -> str:
       </p>
     </section>
 
+    <section class="card forecast-card">
+      <h2>Сводный прогноз</h2>
+      <p class="muted" id="forecastSubtitle">Прогноз строится автоматически по цене, объёму, технической картине и доступным событиям.</p>
+
+      <div class="forecast-grid">
+        <div class="metric">
+          <div class="label">Рекомендация</div>
+          <div class="forecast-value"><span id="forecastRecommendation" class="forecast-pill neutral">—</span></div>
+        </div>
+        <div class="metric">
+          <div class="label">Вероятность достижения цели</div>
+          <div class="forecast-value" id="forecastProbability">—</div>
+        </div>
+        <div class="metric">
+          <div class="label">Прогнозная цена</div>
+          <div class="forecast-value" id="forecastPrice">—</div>
+        </div>
+        <div class="metric">
+          <div class="label">Диапазон</div>
+          <div class="forecast-value" id="forecastRange">—</div>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric">
+          <div class="label">Потенциал</div>
+          <div class="value" id="forecastPotential">—</div>
+        </div>
+        <div class="metric">
+          <div class="label">Целевая цена</div>
+          <div class="value" id="forecastTarget">—</div>
+        </div>
+        <div class="metric">
+          <div class="label">Горизонт</div>
+          <div class="value" id="forecastHorizon">—</div>
+        </div>
+        <div class="metric">
+          <div class="label">Уровень пересмотра</div>
+          <div class="value" id="forecastStop">—</div>
+        </div>
+      </div>
+
+      <p style="margin-top:18px;">
+        <button class="button" onclick="toggleForecastExplanation()">Почему такой прогноз?</button>
+      </p>
+
+      <div id="forecastExplanation" class="forecast-explanation">
+        <p class="muted" id="forecastExplanationSummary">—</p>
+        <div class="explanation-grid">
+          <div class="explanation-box"><h4>Техническая картина</h4><ul id="forecastTechnical"><li>—</li></ul></div>
+          <div class="explanation-box"><h4>Новости и события</h4><ul id="forecastNews"><li>—</li></ul></div>
+          <div class="explanation-box"><h4>Риски</h4><ul id="forecastRisks"><li>—</li></ul></div>
+        </div>
+      </div>
+    </section>
+
 
     <section class="card">
-      <h2>Техническая картина</h2>
+      <h2>Что влияет на прогноз</h2>
 
       <div class="metrics">
         <div class="metric">
@@ -236,11 +350,11 @@ def build_ticker_page_html(ticker: str) -> str:
 
 
     <section class="card">
-      <h2>Первичный сигнал</h2>
+      <h2>Технические детали сценария</h2>
 
       <div class="metrics">
         <div class="metric">
-          <div class="label">Сигнал</div>
+          <div class="label">Сценарий</div>
           <div class="value" id="signalAction">—</div>
         </div>
         <div class="metric">
@@ -429,6 +543,65 @@ def build_ticker_page_html(ticker: str) -> str:
       `).join("");
     }}
 
+
+    function escapeHtml(value) {{
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }}
+
+    function forecastToneClass(tone) {{
+      if (tone === "positive") return "positive";
+      if (tone === "negative") return "negative";
+      return "neutral";
+    }}
+
+    function listHtml(items) {{
+      return (items || []).map(item => `<li>${{escapeHtml(item)}}</li>`).join("") || "<li>Факторы не выделены.</li>";
+    }}
+
+    function toggleForecastExplanation() {{
+      const box = document.getElementById("forecastExplanation");
+      if (!box) return;
+      box.style.display = box.style.display === "block" ? "none" : "block";
+    }}
+
+    function renderForecast(data) {{
+      const forecast = (data || {{}}).forecast || {{}};
+      const explanation = forecast.explanation || {{}};
+      const range = forecast.forecast_range || {{}};
+      const rec = document.getElementById("forecastRecommendation");
+
+      if (rec) {{
+        rec.textContent = forecast.recommendation || "—";
+        rec.className = "forecast-pill " + forecastToneClass(forecast.recommendation_tone);
+      }}
+
+      setText("forecastProbability", forecast.target_probability_pct ? formatPct(forecast.target_probability_pct) : "—");
+      setText("forecastPrice", formatRub(forecast.forecast_price));
+      setText("forecastRange", range.low && range.high ? `${{formatRub(range.low)}} — ${{formatRub(range.high)}}` : "—");
+      setText("forecastPotential", `${{formatRub(forecast.potential_abs)}} / ${{formatPct(forecast.potential_pct)}}`);
+      setText("forecastTarget", formatRub(forecast.target_price));
+      setText("forecastHorizon", forecast.horizon);
+      setText("forecastStop", formatRub(forecast.stop_loss));
+      setText("forecastExplanationSummary", explanation.summary);
+      document.getElementById("forecastTechnical").innerHTML = listHtml(explanation.technical);
+      document.getElementById("forecastNews").innerHTML = listHtml(explanation.news);
+      document.getElementById("forecastRisks").innerHTML = listHtml(explanation.risks);
+    }}
+
+    async function loadForecast() {{
+      const response = await fetch(`/signals/consumer/${{ticker}}.json?candles_limit=240`);
+      if (!response.ok) {{
+        throw new Error("Forecast HTTP " + response.status + ": " + await response.text());
+      }}
+      const data = await response.json();
+      renderForecast(data);
+    }}
+
     function renderTicker(data) {{
       const latest = data.latest || {{}};
       const instrument = data.instrument || {{}};
@@ -500,6 +673,9 @@ def build_ticker_page_html(ticker: str) -> str:
 
       const data = await response.json();
       renderTicker(data);
+      loadForecast().catch(error => {{
+        setText("forecastSubtitle", "Не удалось загрузить прогноз: " + error.message);
+      }});
     }}
 
     function startAutoRefresh() {{
@@ -515,6 +691,7 @@ def build_ticker_page_html(ticker: str) -> str:
     }}
 
     window.loadTicker = loadTicker;
+    window.toggleForecastExplanation = toggleForecastExplanation;
 
     loadTicker()
       .then(startAutoRefresh)

@@ -13,7 +13,40 @@ router = APIRouter()
 # --- Market signals dashboard ---
 
 from app.services.signals_data import list_market_signals
+from app.services.consumer_signals import build_consumer_signal_for_ticker, list_consumer_signals
 from app.services.signals_page_html import build_signals_page_html
+
+
+
+
+@router.get("/signals/consumer.json")
+def consumer_signals_data_api(
+    limit: int = Query(100, ge=1, le=500),
+    candles_limit: int = Query(240, ge=20, le=1000),
+    action: str | None = Query(None),
+    min_probability: float | None = Query(None, ge=0, le=100),
+    db: Session = Depends(get_db),
+):
+    return list_consumer_signals(
+        db=db,
+        limit=limit,
+        action=action,
+        min_probability=min_probability,
+        candles_limit=candles_limit,
+    )
+
+
+@router.get("/signals/consumer/{ticker}.json")
+def consumer_signal_ticker_api(
+    ticker: str,
+    candles_limit: int = Query(240, ge=20, le=1000),
+    db: Session = Depends(get_db),
+):
+    return build_consumer_signal_for_ticker(
+        db=db,
+        ticker=ticker,
+        candles_limit=candles_limit,
+    )
 
 
 @router.get("/signals/data")
