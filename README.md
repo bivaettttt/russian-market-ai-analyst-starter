@@ -180,3 +180,22 @@ CLEANUP_SMOKE_SNAPSHOTS=0 ./scripts/smoke_test.sh
 ```bash
 ./scripts/make_clean_archive.sh russian-market-ai-analyst-starter-clean.zip
 ```
+
+
+## Project structure
+
+Основная FastAPI-точка входа находится в `backend/app/main.py`.
+
+Крупные группы routes вынесены в отдельные routers:
+
+```text
+backend/app/routers/
+  ai_reports.py   # AI Report, история отчётов, trends, compare, saved views
+  signals.py      # Signals dashboard, history, evaluation, backtest, model compare, champion
+  portfolio.py    # Portfolio constructor, snapshots, history, compare, CSV, stats
+```
+
+Бизнес-логика и HTML-страницы находятся в `backend/app/services/`.
+
+Такой формат оставляет `main.py` компактным и упрощает дальнейшее развитие проекта.
+
