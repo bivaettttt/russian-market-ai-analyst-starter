@@ -422,209 +422,38 @@ def portfolio_positions_save(
     }
 
 
-@app.post("/ai/report")
-def ai_report(
-    payload: dict = AIReportBody(default={}),
-    db: Session = Depends(get_db),
-):
-    positions = payload.get("positions") or get_portfolio_positions(db)
-
-    return build_ai_report(
-        db=db,
-        positions=positions,
-    )
 
 
-@app.get("/ai/report/demo", response_class=AIReportHTMLResponse)
-def ai_report_demo_page():
-    return build_ai_report_demo_html()
 
 from fastapi.responses import PlainTextResponse as AIReportPlainTextResponse
 from app.services.ai_report_export import build_ai_report_markdown
 
 
-@app.post("/ai/report/markdown", response_class=AIReportPlainTextResponse)
-def ai_report_markdown(
-    payload: dict = AIReportBody(default={}),
-    db: Session = Depends(get_db),
-):
-    positions = payload.get("positions") or get_portfolio_positions(db)
-
-    report = build_ai_report(
-        db=db,
-        positions=positions,
-    )
-
-    return build_ai_report_markdown(report)
 
 
-@app.get("/ai/report/demo.md")
-def ai_report_demo_markdown(db: Session = Depends(get_db)):
-    positions = [
-        {"ticker": "SBER", "quantity": 10},
-        {"ticker": "LKOH", "quantity": 1},
-        {"ticker": "GAZP", "quantity": 50},
-        {"ticker": "PLZL", "quantity": 1},
-    ]
-
-    report = build_ai_report(
-        db=db,
-        positions=positions,
-    )
-
-    markdown = build_ai_report_markdown(report)
-    filename = f'ai_report_{report.get("date", "demo")}.md'
-
-    return Response(
-        content=markdown,
-        media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        },
-    )
-
-@app.post("/ai/report/build-and-save")
-def ai_report_build_and_save(
-    payload: dict = AIReportBody(default={}),
-    db: Session = Depends(get_db),
-):
-    positions = payload.get("positions")
-
-    report = build_ai_report(
-        db=db,
-        positions=positions,
-    )
-
-    saved = save_ai_report_snapshot(
-        db=db,
-        positions=positions,
-    )
-
-    report["saved_report"] = saved
-    return report
 
 
-@app.post("/ai/report/save")
-def ai_report_save(
-    payload: dict = AIReportBody(default={}),
-    db: Session = Depends(get_db),
-):
-    positions = payload.get("positions") or get_portfolio_positions(db)
 
-    return save_ai_report_snapshot(
-        db=db,
-        positions=positions,
-    )
 
 
 from app.services.ai_report_trends_html import build_ai_report_trends_html
 from app.services.ai_report_history_page_html import build_ai_report_history_page_html
-@app.get("/ai/reports/dashboard", response_class=AIReportHTMLResponse)
-def ai_reports_dashboard_page():
-    return build_ai_report_history_page_html()
 
 
 from app.services.ai_report_history import list_ai_report_snapshots, save_ai_report_snapshot
-@app.get("/ai/reports")
-def ai_reports_list(
-    limit: int = Query(50, ge=1, le=500),
-    favorite: bool | None = Query(None),
-    with_note: bool = Query(False),
-    db: Session = Depends(get_db),
-):
-    return list_ai_report_snapshots(
-        db=db,
-        limit=limit,
-        favorite=favorite,
-        with_note=with_note,
-    )
 
 
-@app.get("/ai/reports/trends.csv")
-def ai_report_trends_csv(
-    limit: int = Query(500, ge=1, le=5000),
-    db: Session = Depends(get_db),
-):
-    csv_text = build_ai_report_trends_csv(
-        db=db,
-        limit=limit,
-    )
-
-    return Response(
-        content=csv_text,
-        media_type="text/csv; charset=utf-8",
-        headers={
-            "Content-Disposition": 'attachment; filename="ai_report_trends.csv"'
-        },
-    )
 
 
-@app.get("/ai/reports/trends.json")
-def ai_report_trends_json(
-    limit: int = Query(100, ge=1, le=500),
-    db: Session = Depends(get_db),
-):
-    return list_ai_report_trends(
-        db=db,
-        limit=limit,
-    )
 
 
-@app.get("/ai/reports/trends", response_class=AIReportHTMLResponse)
-def ai_report_trends_page():
-    return build_ai_report_trends_html()
 
 
 from app.services.ai_report_history import update_ai_report_snapshot_meta
 
 
-@app.patch("/ai/reports/{report_id}/meta")
-def ai_report_update_meta(
-    report_id: int,
-    payload: dict = AIReportBody(default={}),
-    db: Session = Depends(get_db),
-):
-    report = update_ai_report_snapshot_meta(
-        db=db,
-        report_id=report_id,
-        is_favorite=payload.get("is_favorite"),
-        note=payload.get("note"),
-    )
-
-    if report is None:
-        return Response(
-            content='{"error":"Report not found"}',
-            status_code=404,
-            media_type="application/json",
-        )
-
-    return report
 
 
-@app.get("/ai/reports/{report_id}.md")
-def ai_report_saved_markdown(
-    report_id: int,
-    db: Session = Depends(get_db),
-):
-    markdown = get_ai_report_markdown(
-        db=db,
-        report_id=report_id,
-    )
-
-    if markdown is None:
-        return Response(
-            content="Report not found",
-            status_code=404,
-            media_type="text/plain; charset=utf-8",
-        )
-
-    return Response(
-        content=markdown,
-        media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="ai_report_{report_id}.md"'
-        },
-    )
 
 
 
@@ -632,66 +461,12 @@ def ai_report_saved_markdown(
 
 from app.services.ai_report_history import preview_ai_report_cleanup, cleanup_ai_report_snapshots
 
-@app.get("/ai/reports/cleanup/preview")
-def ai_reports_cleanup_preview(
-    keep: int = Query(30, ge=0, le=1000),
-    db: Session = Depends(get_db),
-):
-    return preview_ai_report_cleanup(
-        db=db,
-        keep=keep,
-    )
 
 
-@app.delete("/ai/reports/cleanup")
-def ai_reports_cleanup(
-    keep: int = Query(30, ge=0, le=1000),
-    db: Session = Depends(get_db),
-):
-    return cleanup_ai_report_snapshots(
-        db=db,
-        keep=keep,
-    )
 
 
-@app.delete("/ai/reports/{report_id}")
-def ai_report_saved_delete(
-    report_id: int,
-    db: Session = Depends(get_db),
-):
-    ok = delete_ai_report_snapshot(
-        db=db,
-        report_id=report_id,
-    )
-
-    if not ok:
-        return Response(
-            content='{"error":"Report not found"}',
-            status_code=404,
-            media_type="application/json",
-        )
-
-    return {"ok": True, "deleted_id": report_id}
 
 
-@app.get("/ai/reports/{report_id}")
-def ai_report_saved_detail(
-    report_id: int,
-    db: Session = Depends(get_db),
-):
-    report = get_ai_report_snapshot(
-        db=db,
-        report_id=report_id,
-    )
-
-    if report is None:
-        return Response(
-            content='{"error":"Report not found"}',
-            status_code=404,
-            media_type="application/json",
-        )
-
-    return report
 
 
 # --- System one-click update ---
@@ -718,24 +493,6 @@ def system_dashboard_page():
 from app.services.ai_report_saved_view_html import build_ai_report_saved_view_html
 
 
-@app.get("/ai/reports/{report_id}/view", response_class=AIReportHTMLResponse)
-def ai_report_saved_view(
-    report_id: int,
-    db: Session = Depends(get_db),
-):
-    report = get_ai_report_snapshot(
-        db=db,
-        report_id=report_id,
-    )
-
-    if report is None:
-        return Response(
-            content="Report not found",
-            status_code=404,
-            media_type="text/plain; charset=utf-8",
-        )
-
-    return build_ai_report_saved_view_html(report)
 
 
 # --- AI Report compare ---
@@ -744,80 +501,14 @@ from app.services.ai_report_compare import build_ai_report_compare
 from app.services.ai_report_compare_html import build_ai_report_compare_html
 
 
-@app.get("/ai/report/compare")
-def ai_report_compare_page(
-    left_id: int = Query(...),
-    right_id: int = Query(...),
-    db: Session = Depends(get_db),
-):
-    comparison = build_ai_report_compare(
-        db=db,
-        left_id=left_id,
-        right_id=right_id,
-    )
-
-    if comparison is None:
-        return Response(
-            content="Report not found",
-            status_code=404,
-            media_type="text/plain; charset=utf-8",
-        )
-
-    return Response(
-        content=build_ai_report_compare_html(comparison),
-        media_type="text/html; charset=utf-8",
-    )
 
 
 
 from fastapi.responses import RedirectResponse as AIReportRedirectResponse
 
 
-@app.get("/ai/report/compare/latest")
-def ai_report_compare_latest(
-    db: Session = Depends(get_db),
-):
-    reports = list_ai_report_snapshots(
-        db=db,
-        limit=2,
-    )
-
-    if len(reports) < 2:
-        return Response(
-            content="Need at least two saved reports to compare",
-            status_code=400,
-            media_type="text/plain; charset=utf-8",
-        )
-
-    new_report = reports[0]
-    old_report = reports[1]
-
-    return AIReportRedirectResponse(
-        url=f"/ai/report/compare?left_id={new_report['id']}&right_id={old_report['id']}",
-        status_code=302,
-    )
 
 
-@app.get("/ai/report/compare.json")
-def ai_report_compare_json(
-    left_id: int = Query(...),
-    right_id: int = Query(...),
-    db: Session = Depends(get_db),
-):
-    comparison = build_ai_report_compare(
-        db=db,
-        left_id=left_id,
-        right_id=right_id,
-    )
-
-    if comparison is None:
-        return Response(
-            content='{"error":"Report not found"}',
-            status_code=404,
-            media_type="application/json",
-        )
-
-    return comparison
 
 
 # --- Ticker pages and live-ish data ---
@@ -844,6 +535,12 @@ def ticker_page(
     ticker: str,
 ):
     return build_ticker_page_html(ticker)
+
+# --- AI reports router ---
+
+from app.routers.ai_reports import router as ai_reports_router
+
+app.include_router(ai_reports_router)
 
 # --- Signals router ---
 
