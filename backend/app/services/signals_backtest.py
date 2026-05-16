@@ -575,11 +575,26 @@ def build_historical_signal_v4(
     volatility = _to_float(technical.get("volatility_20d_pct"))
     return_20d = _to_float(technical.get("return_20d_pct"))
 
+    entry_price_for_rr = base.get("entry_price")
+
+    if _to_float(entry_price_for_rr) is None:
+        entry_price_for_rr = (
+            candle.get("close")
+            or candle.get("price")
+            or technical.get("close")
+            or technical.get("last_price")
+        )
+
     rr = _risk_reward_ratio(
-        base.get("entry_price"),
+        entry_price_for_rr,
         base.get("target_price"),
         base.get("stop_loss"),
     )
+
+    if rr is not None and _to_float(base.get("entry_price")) is None:
+        reasons.append(
+            "tech_v4: risk/reward рассчитан от текущей цены, так как entry_price отсутствует."
+        )
 
     quality_score = 50.0
 
@@ -652,6 +667,7 @@ def build_historical_signal_v4(
                 "confidence_pct": min(_to_float(base.get("confidence_pct")) or 50.0, 55.0),
                 "quality_score": quality_score,
                 "risk_reward_ratio": rr,
+                "risk_reward_entry_price": _to_float(entry_price_for_rr),
                 "summary": "tech_v4: directional buy-сигнал заблокирован quality-фильтром.",
                 "reasons": reasons,
             }
@@ -666,6 +682,7 @@ def build_historical_signal_v4(
             "confidence_pct": confidence,
             "quality_score": quality_score,
             "risk_reward_ratio": rr,
+            "risk_reward_entry_price": _to_float(entry_price_for_rr),
             "summary": "tech_v4: качественный buy-сценарий с risk/reward-фильтром.",
             "reasons": reasons,
         }
@@ -675,6 +692,7 @@ def build_historical_signal_v4(
         "model_version": TECH_V4_MODEL_VERSION,
         "quality_score": quality_score,
         "risk_reward_ratio": rr,
+        "risk_reward_entry_price": _to_float(entry_price_for_rr),
         "label": (base.get("label") or "Сигнал") + " v4",
         "summary": "tech_v4: quality-score рассчитан, directional buy-фильтр применён.",
         "reasons": reasons,
