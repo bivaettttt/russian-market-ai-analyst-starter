@@ -2,8 +2,10 @@
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+CLEANUP_SMOKE_SNAPSHOTS="${CLEANUP_SMOKE_SNAPSHOTS:-1}"
 
 ok_count=0
+created_snapshot_ids=()
 
 check_get() {
   local name="$1"
@@ -48,8 +50,48 @@ create_snapshot() {
     -X POST "${BASE_URL}/portfolio/construct/snapshot" \
     -H "Content-Type: application/json" \
     -d "{\"budget\":100000,\"risk_profile\":\"balanced\",\"horizon\":\"medium\",\"quality_mode\":\"${quality_mode}\"}" \
-    | python3 -c 'import json,sys; data=json.load(sys.stdin); print((data.get("snapshot") or {}).get("id") or "")'
+    | python3 -c 'import json,sys; data=json.load(sys.stdin); snapshot=data.get("snapshot") or {}; print("{}|{}|{}".format(snapshot.get("id") or "", str(bool(data.get("created"))).lower(), str(bool(data.get("duplicate"))).lower()))'
 }
+
+remember_created_snapshot() {
+  local snapshot_id="$1"
+  local created="$2"
+
+  if [[ -n "$snapshot_id" && "$created" == "true" ]]; then
+    created_snapshot_ids+=("$snapshot_id")
+  fi
+}
+
+cleanup_created_snapshots() {
+  if [[ "$CLEANUP_SMOKE_SNAPSHOTS" == "0" ]]; then
+    return
+  fi
+
+  if [[ "${#created_snapshot_ids[@]}" -eq 0 ]]; then
+    return
+  fi
+
+  echo
+  echo "Cleaning up smoke-test snapshots..."
+
+  for snapshot_id in "${created_snapshot_ids[@]}"; do
+    if [[ -z "$snapshot_id" ]]; then
+      continue
+    fi
+
+    local code
+    code="$(curl -s -o /dev/null -w "%{http_code}" \
+      -X DELETE "${BASE_URL}/portfolio/construct/snapshots/${snapshot_id}")"
+
+    if [[ "$code" == "200" || "$code" == "404" ]]; then
+      echo "OK   DELETE smoke snapshot #${snapshot_id}: ${code}"
+    else
+      echo "WARN DELETE smoke snapshot #${snapshot_id}: ${code}"
+    fi
+  done
+}
+
+trap cleanup_created_snapshots EXIT
 
 echo "Smoke test base URL: ${BASE_URL}"
 echo
@@ -73,11 +115,17 @@ check_post_json "portfolio csv" "/portfolio/construct.csv" \
 
 echo
 echo "Creating test snapshots..."
-normal_id="$(create_snapshot normal)"
-strict_id="$(create_snapshot strict)"
+normal_result="$(create_snapshot normal)"
+strict_result="$(create_snapshot strict)"
 
-echo "normal snapshot id: ${normal_id}"
-echo "strict snapshot id: ${strict_id}"
+IFS='|' read -r normal_id normal_created normal_duplicate <<< "$normal_result"
+IFS='|' read -r strict_id strict_created strict_duplicate <<< "$strict_result"
+
+remember_created_snapshot "$normal_id" "$normal_created"
+remember_created_snapshot "$strict_id" "$strict_created"
+
+echo "normal snapshot id: ${normal_id} (created=${normal_created}, duplicate=${normal_duplicate})"
+echo "strict snapshot id: ${strict_id} (created=${strict_created}, duplicate=${strict_duplicate})"
 
 if [[ -n "$normal_id" ]]; then
   check_get "snapshot detail view" "/portfolio/construct/snapshots/${normal_id}/view"
@@ -91,6 +139,8 @@ if [[ -n "$normal_id" && -n "$strict_id" && "$normal_id" != "$strict_id" ]]; the
   check_get "portfolio compare selected" "/portfolio/construct/compare?left_id=${normal_id}&right_id=${strict_id}"
   check_get "portfolio compare selected json" "/portfolio/construct/compare.json?left_id=${normal_id}&right_id=${strict_id}"
   check_get "portfolio compare selected csv" "/portfolio/construct/compare.csv?left_id=${normal_id}&right_id=${strict_id}"
+else
+  echo "SKIP selected compare: need two distinct snapshot IDs"
 fi
 
 echo

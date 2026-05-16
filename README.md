@@ -153,7 +153,7 @@ curl "http://127.0.0.1:8000/portfolio/construct/compare.json?left_id=1&right_id=
 ./scripts/smoke_test.sh
 ```
 
-По умолчанию скрипт проверяет `http://127.0.0.1:8000`.
+По умолчанию скрипт проверяет `http://127.0.0.1:8000` и удаляет test snapshot-ы, которые сам создал.
 
 Для другого адреса:
 
@@ -161,3 +161,22 @@ curl "http://127.0.0.1:8000/portfolio/construct/compare.json?left_id=1&right_id=
 BASE_URL="http://127.0.0.1:8001" ./scripts/smoke_test.sh
 ```
 
+Если нужно оставить test snapshot-ы для ручной проверки:
+
+```bash
+CLEANUP_SMOKE_SNAPSHOTS=0 ./scripts/smoke_test.sh
+```
+
+## Clean archive
+
+Чтобы собрать архив проекта без `.venv`, SQLite-базы, `__pycache__`, `.DS_Store` и других runtime-файлов:
+
+```bash
+./scripts/make_clean_archive.sh
+```
+
+Можно указать имя файла:
+
+```bash
+./scripts/make_clean_archive.sh russian-market-ai-analyst-starter-clean.zip
+```
