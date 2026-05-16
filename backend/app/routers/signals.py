@@ -352,6 +352,36 @@ def market_signals_models_compare_json(
 def market_signals_models_compare_page():
     return build_signals_model_compare_page_html()
 
+
+
+# --- Signal model quality ---
+
+from app.services.signals_model_quality import build_signal_model_quality_report
+from app.services.signals_model_quality_page_html import build_signals_model_quality_page_html
+
+
+@router.get("/signals/models/quality.json")
+def market_signals_models_quality_json(
+    model_versions: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    candles_limit: int = Query(120, ge=20, le=1000),
+    action: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return build_signal_model_quality_report(
+        db=db,
+        model_versions=model_versions,
+        limit=limit,
+        candles_limit=candles_limit,
+        action=action,
+    )
+
+
+@router.get("/signals/models/quality", response_class=HTMLResponse)
+def market_signals_models_quality_page():
+    return build_signals_model_quality_page_html()
+
+
 # --- Signal model registry ---
 
 from app.services.signal_model_registry import (

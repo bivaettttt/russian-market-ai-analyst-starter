@@ -246,6 +246,7 @@ def build_signal_champion_page_html() -> str:
         <a class="button secondary" href="/signals/evaluation">Оценка</a>
         <a class="button secondary" href="/signals/backtest">Backtest</a>
         <a class="button secondary" href="/signals/models/compare">Model Lab</a>
+        <a class="button secondary" href="/signals/models/quality">Quality</a>
         <a class="button secondary" href="/portfolio/construct/demo">Конструктор портфеля</a>
       </div>
     </div>

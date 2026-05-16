@@ -192,6 +192,7 @@ def build_signals_page_html() -> str:
     <nav>
       <a href="/dashboard">← Рынок</a> ·
       <a href="/signals/history">История сигналов</a> ·\n      <a href="/signals/models/compare">Model Lab</a> ·
+      <a href="/signals/models/quality">Quality</a> ·
       <a href="/signals/backtest">Backtest</a> ·
       <a href="/ai/report/demo">AI Report</a> ·
       <a href="/portfolio/construct/demo">Конструктор портфеля</a> ·
