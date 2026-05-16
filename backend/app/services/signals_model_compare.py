@@ -11,6 +11,7 @@ DEFAULT_MODEL_VERSIONS = [
     "tech_v1_sma_momentum",
     "tech_v2_rsi_atr",
     "tech_v3_v1_atr_risk",
+    "tech_v4_quality_rr",
 ]
 
 

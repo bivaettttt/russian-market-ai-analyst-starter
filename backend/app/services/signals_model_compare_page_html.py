@@ -204,7 +204,7 @@ def build_signals_model_compare_page_html() -> str:
 
         <div>
           <label>Модели через запятую</label>
-          <input id="models" style="min-width: 340px" value="tech_v1_sma_momentum,tech_v2_rsi_atr,tech_v3_v1_atr_risk">
+          <input id="models" style="min-width: 340px" value="tech_v1_sma_momentum,tech_v2_rsi_atr,tech_v3_v1_atr_risk,tech_v4_quality_rr">
         </div>
 
         <div>

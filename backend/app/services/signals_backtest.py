@@ -18,10 +18,12 @@ from app.services.ticker_data import candle_to_dict, enrich_candles_with_changes
 SIGNAL_MODEL_VERSION = "tech_v1_sma_momentum"
 TECH_V2_MODEL_VERSION = "tech_v2_rsi_atr"
 TECH_V3_MODEL_VERSION = "tech_v3_v1_atr_risk"
+TECH_V4_MODEL_VERSION = "tech_v4_quality_rr"
 AVAILABLE_SIGNAL_MODEL_VERSIONS = {
     SIGNAL_MODEL_VERSION,
     TECH_V2_MODEL_VERSION,
     TECH_V3_MODEL_VERSION,
+    TECH_V4_MODEL_VERSION,
 }
 
 
@@ -526,6 +528,158 @@ def build_historical_signal_v2(
     }
 
 
+
+def _risk_reward_ratio(
+    entry_price: Any,
+    target_price: Any,
+    stop_loss: Any,
+) -> float | None:
+    entry = _to_float(entry_price)
+    target = _to_float(target_price)
+    stop = _to_float(stop_loss)
+
+    if entry is None or target is None or stop is None:
+        return None
+
+    reward = target - entry
+    risk = entry - stop
+
+    if reward <= 0 or risk <= 0:
+        return None
+
+    return round(reward / risk, 2)
+
+
+def build_historical_signal_v4(
+    history: list[dict[str, Any]],
+    candle: dict[str, Any],
+    technical: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    tech_v4:
+    - направление и ATR-уровни берём из v3;
+    - усиливаем quality-filter: risk/reward, RSI, объём и волатильность;
+    - слабые buy-сценарии переводим в hold_watch, чтобы модель была строже.
+    """
+    base = build_historical_signal_v3(history, candle, technical)
+
+    if not base or base.get("ok") is False:
+        result = dict(base or {})
+        result["model_version"] = TECH_V4_MODEL_VERSION
+        return result
+
+    action = base.get("action")
+    reasons = list(base.get("reasons") or [])
+    rsi_14 = _to_float(technical.get("rsi_14"))
+    volume_ratio = _to_float(technical.get("volume_ratio"))
+    volatility = _to_float(technical.get("volatility_20d_pct"))
+    return_20d = _to_float(technical.get("return_20d_pct"))
+
+    rr = _risk_reward_ratio(
+        base.get("entry_price"),
+        base.get("target_price"),
+        base.get("stop_loss"),
+    )
+
+    quality_score = 50.0
+
+    if rr is not None:
+        if rr >= 1.8:
+            quality_score += 18
+            reasons.append(f"tech_v4: сильный risk/reward ≈ {rr}.")
+        elif rr >= 1.3:
+            quality_score += 10
+            reasons.append(f"tech_v4: приемлемый risk/reward ≈ {rr}.")
+        else:
+            quality_score -= 15
+            reasons.append(f"tech_v4: слабый risk/reward ≈ {rr}.")
+    else:
+        quality_score -= 10
+        reasons.append("tech_v4: risk/reward не удалось рассчитать.")
+
+    if rsi_14 is not None:
+        if 45 <= rsi_14 <= 68:
+            quality_score += 8
+            reasons.append("tech_v4: RSI в рабочей зоне.")
+        elif rsi_14 >= 76:
+            quality_score -= 18
+            reasons.append("tech_v4: RSI перегрет, риск позднего входа.")
+        elif rsi_14 <= 35:
+            quality_score -= 8
+            reasons.append("tech_v4: RSI слабый, нужен разворот/подтверждение.")
+
+    if volume_ratio is not None:
+        if volume_ratio >= 1.0:
+            quality_score += 5
+            reasons.append("tech_v4: объём подтверждает движение.")
+        elif volume_ratio < 0.55:
+            quality_score -= 8
+            reasons.append("tech_v4: объём слишком низкий для качественного сигнала.")
+
+    if volatility is not None:
+        if volatility <= 1.8:
+            quality_score += 4
+        elif volatility >= 3.0:
+            quality_score -= 10
+            reasons.append("tech_v4: волатильность повышена, риск выбивания стопа.")
+
+    if return_20d is not None and return_20d < -4:
+        quality_score -= 8
+        reasons.append("tech_v4: 20-свечной фон слабый.")
+
+    quality_score = round(max(0.0, min(100.0, quality_score)), 0)
+
+    if action in {"buy_watch", "watch_buy"}:
+        block_reasons: list[str] = []
+
+        if rr is None or rr < 1.2:
+            block_reasons.append("risk/reward ниже 1.2")
+        if rsi_14 is not None and rsi_14 >= 76:
+            block_reasons.append("RSI перегрет")
+        if volume_ratio is not None and volume_ratio < 0.55:
+            block_reasons.append("объём слабый")
+        if volatility is not None and volatility >= 3.0:
+            block_reasons.append("волатильность высокая")
+
+        if block_reasons:
+            reasons.append("tech_v4: buy переведён в наблюдение: " + ", ".join(block_reasons) + ".")
+            return {
+                **base,
+                "model_version": TECH_V4_MODEL_VERSION,
+                "action": "hold_watch",
+                "label": "Нейтрально / quality-фильтр v4",
+                "entry_price": None,
+                "confidence_pct": min(_to_float(base.get("confidence_pct")) or 50.0, 55.0),
+                "quality_score": quality_score,
+                "risk_reward_ratio": rr,
+                "summary": "tech_v4: directional buy-сигнал заблокирован quality-фильтром.",
+                "reasons": reasons,
+            }
+
+        confidence = _to_float(base.get("confidence_pct")) or 60.0
+        confidence = round(max(confidence, min(92.0, confidence + quality_score * 0.08)), 0)
+
+        return {
+            **base,
+            "model_version": TECH_V4_MODEL_VERSION,
+            "label": "Кандидат на покупку v4 quality",
+            "confidence_pct": confidence,
+            "quality_score": quality_score,
+            "risk_reward_ratio": rr,
+            "summary": "tech_v4: качественный buy-сценарий с risk/reward-фильтром.",
+            "reasons": reasons,
+        }
+
+    return {
+        **base,
+        "model_version": TECH_V4_MODEL_VERSION,
+        "quality_score": quality_score,
+        "risk_reward_ratio": rr,
+        "label": (base.get("label") or "Сигнал") + " v4",
+        "summary": "tech_v4: quality-score рассчитан, directional buy-фильтр применён.",
+        "reasons": reasons,
+    }
+
 def build_historical_signal_v3(
     history: list[dict[str, Any]],
     candle: dict[str, Any],
@@ -908,6 +1062,9 @@ def _call_historical_signal(
 
     if model_version == TECH_V3_MODEL_VERSION:
         return build_historical_signal_v3(history, candle, technical)
+
+    if model_version == TECH_V4_MODEL_VERSION:
+        return build_historical_signal_v4(history, candle, technical)
 
     return build_historical_signal(history, candle, technical)
 

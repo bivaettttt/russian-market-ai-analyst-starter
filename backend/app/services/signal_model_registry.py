@@ -36,6 +36,15 @@ SIGNAL_MODELS: dict[str, dict[str, Any]] = {
             "Пока хуже production-модели по backtest."
         ),
     },
+    "tech_v4_quality_rr": {
+        "title": "tech_v4_quality_rr",
+        "status": "lab",
+        "kind": "rule_based",
+        "description": (
+            "Более строгая quality-модель: направление и ATR-уровни от v3, "
+            "дополнительный фильтр risk/reward, RSI, объёма и волатильности."
+        ),
+    },
 }
 
 

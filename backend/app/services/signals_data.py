@@ -15,6 +15,7 @@ from app.services.signal_model_registry import (
 SIGNAL_MODEL_VERSION = PRODUCTION_SIGNAL_MODEL_VERSION
 TECH_V2_MODEL_VERSION = "tech_v2_rsi_atr"
 TECH_V3_MODEL_VERSION = "tech_v3_v1_atr_risk"
+TECH_V4_MODEL_VERSION = "tech_v4_quality_rr"
 
 
 ACTION_RANK = {
@@ -111,6 +112,24 @@ def build_signal_for_model(
                 technical=technical,
             )
             signal["model_version"] = TECH_V3_MODEL_VERSION
+            return signal
+        except Exception as exc:
+            signal = dict(fallback_signal or {})
+            signal["model_version"] = SIGNAL_MODEL_VERSION
+            signal["fallback_error"] = str(exc)
+            return signal
+
+    if selected == TECH_V4_MODEL_VERSION:
+        try:
+            from app.services.signals_backtest import build_historical_signal_v4
+
+            candle = candles[-1] if candles else latest
+            signal = build_historical_signal_v4(
+                history=candles or [latest],
+                candle=candle,
+                technical=technical,
+            )
+            signal["model_version"] = TECH_V4_MODEL_VERSION
             return signal
         except Exception as exc:
             signal = dict(fallback_signal or {})

@@ -206,6 +206,7 @@ def build_signals_evaluation_page_html() -> str:
             <option value="tech_v1_sma_momentum">production · tech_v1_sma_momentum</option>
             <option value="tech_v2_rsi_atr">lab · tech_v2_rsi_atr</option>
             <option value="tech_v3_v1_atr_risk">lab · tech_v3_v1_atr_risk</option>
+            <option value="tech_v4_quality_rr">lab · tech_v4_quality_rr</option>
           </select>
         </label>
         <button class="button" onclick="loadEvaluation()">Обновить оценку</button>
