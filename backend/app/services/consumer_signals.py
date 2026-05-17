@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import or_, select, func
@@ -331,6 +331,220 @@ def _calculate_target_probability(
     return round(probability, 0)
 
 
+
+def _parse_event_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    text_value = str(value).strip()
+
+    if not text_value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except ValueError:
+        return None
+
+
+def _event_direction_score(event: dict[str, Any]) -> int:
+    impact = str(event.get("impact") or "").lower()
+    event_type = str(event.get("event_type") or "").lower()
+    title = str(event.get("title") or "").lower()
+    reasoning = str(event.get("reasoning") or "").lower()
+    blob = " ".join([impact, event_type, title, reasoning])
+
+    positive_words = {
+        "positive", "bullish", "growth", "upgrade", "beat", "buyback",
+        "позит", "рост", "выше ожид", "дивиденд", "байбек", "прибыль",
+        "увелич", "одобр", "контракт", "сильн", "улучш",
+    }
+
+    negative_words = {
+        "negative", "bearish", "decline", "downgrade", "miss", "sanction",
+        "risk", "lawsuit", "default", "loss",
+        "негат", "паден", "сниж", "санкц", "риск", "штраф", "убыт",
+        "запрет", "огранич", "хуже ожид", "слаб",
+    }
+
+    positive_hits = sum(1 for word in positive_words if word in blob)
+    negative_hits = sum(1 for word in negative_words if word in blob)
+
+    if positive_hits > negative_hits:
+        return 1
+
+    if negative_hits > positive_hits:
+        return -1
+
+    if "positive" in impact:
+        return 1
+
+    if "negative" in impact:
+        return -1
+
+    return 0
+
+
+def _build_news_assessment(
+    *,
+    events: list[dict[str, Any]],
+    scenario_direction: str | None,
+) -> dict[str, Any]:
+    scenario = str(scenario_direction or "neutral").lower()
+
+    if not events:
+        return {
+            "has_events": False,
+            "sentiment": "none",
+            "sentiment_score": 0,
+            "impact_score": 0,
+            "confidence": 0,
+            "freshness_score": 0,
+            "source_count": 0,
+            "positive_events": [],
+            "negative_events": [],
+            "risk_events": [],
+            "adjustment_pct": 0.0,
+            "risk_flags": [],
+            "summary": "Свежих событий по тикеру в базе нет. Новостной слой не менял вероятность.",
+        }
+
+    now = datetime.now(timezone.utc)
+
+    raw_score = 0.0
+    total_weight = 0.0
+    freshness_values: list[float] = []
+    positive_events: list[dict[str, Any]] = []
+    negative_events: list[dict[str, Any]] = []
+    risk_events: list[dict[str, Any]] = []
+
+    for event in events[:8]:
+        direction = _event_direction_score(event)
+        importance = _to_float(event.get("importance")) or 5.0
+        importance = min(max(importance, 1.0), 10.0)
+
+        created_at = _parse_event_datetime(event.get("created_at"))
+        if created_at is not None:
+            age_days = max((now - created_at).total_seconds() / 86400, 0)
+            if age_days <= 2:
+                freshness = 100.0
+            elif age_days <= 7:
+                freshness = 82.0
+            elif age_days <= 21:
+                freshness = 55.0
+            elif age_days <= 60:
+                freshness = 30.0
+            else:
+                freshness = 12.0
+        else:
+            freshness = 45.0
+
+        freshness_values.append(freshness)
+
+        weight = importance * freshness / 100.0
+        total_weight += weight
+
+        contribution = direction * weight * 10.0
+        raw_score += contribution
+
+        compact = {
+            "title": event.get("title"),
+            "impact": event.get("impact"),
+            "importance": event.get("importance"),
+            "source": event.get("source"),
+            "url": event.get("url"),
+            "freshness_score": _round(freshness, 0),
+        }
+
+        if direction > 0:
+            positive_events.append(compact)
+        elif direction < 0:
+            negative_events.append(compact)
+
+        impact_blob = str(event.get("impact") or "").lower()
+        if direction < 0 or "risk" in impact_blob or "риск" in impact_blob:
+            risk_events.append(compact)
+
+    sentiment_score = int(round(_clamp(raw_score, -100, 100), 0))
+    impact_score = int(round(_clamp(total_weight * 10.0, 0, 100), 0))
+    freshness_score = int(round(sum(freshness_values) / len(freshness_values), 0)) if freshness_values else 0
+    confidence = int(round(_clamp(35 + len(events[:8]) * 9 + impact_score * 0.25, 0, 95), 0))
+
+    if sentiment_score >= 25:
+        sentiment = "positive"
+    elif sentiment_score <= -25:
+        sentiment = "negative"
+    elif sentiment_score != 0:
+        sentiment = "mixed"
+    else:
+        sentiment = "neutral"
+
+    # Для long-сценария позитивные события повышают вероятность,
+    # негативные снижают. Для downside-сценария знак разворачивается:
+    # негативная новость подтверждает риск снижения.
+    scenario_score = sentiment_score
+
+    if scenario == "downside":
+        scenario_score = -sentiment_score
+
+    adjustment = round(_clamp(scenario_score / 100.0 * min(7.0, max(2.0, impact_score / 12.0)), -7.0, 7.0), 1)
+
+    risk_flags: list[str] = []
+
+    if sentiment == "negative" and scenario != "downside":
+        risk_flags.append("негативный новостной фон для long-сценария")
+
+    if risk_events:
+        risk_flags.append("есть события риска")
+
+    if freshness_score < 35:
+        risk_flags.append("события устарели или недостаточно свежие")
+
+    if sentiment == "positive":
+        summary = f"Новостной фон положительный: sentiment_score={sentiment_score}, влияние на вероятность {adjustment:+.1f} п.п."
+    elif sentiment == "negative":
+        summary = f"Новостной фон негативный: sentiment_score={sentiment_score}, влияние на вероятность {adjustment:+.1f} п.п."
+    elif sentiment == "mixed":
+        summary = f"Новостной фон смешанный: sentiment_score={sentiment_score}, влияние на вероятность {adjustment:+.1f} п.п."
+    else:
+        summary = "Новостной фон нейтральный. Существенной корректировки вероятности нет."
+
+    return {
+        "has_events": True,
+        "sentiment": sentiment,
+        "sentiment_score": sentiment_score,
+        "impact_score": impact_score,
+        "confidence": confidence,
+        "freshness_score": freshness_score,
+        "source_count": len(events),
+        "positive_events": positive_events[:5],
+        "negative_events": negative_events[:5],
+        "risk_events": risk_events[:5],
+        "adjustment_pct": adjustment,
+        "risk_flags": risk_flags,
+        "summary": summary,
+    }
+
+
+def _apply_news_adjustment(
+    probability: float | None,
+    news_assessment: dict[str, Any],
+) -> float | None:
+    if probability is None:
+        return None
+
+    adjustment = _to_float(news_assessment.get("adjustment_pct")) or 0.0
+    return _round(_clamp(float(probability) + adjustment, 1, 99), 0)
+
+
 def _build_explanation(
     signal: dict[str, Any],
     technical: dict[str, Any],
@@ -373,6 +587,11 @@ def _build_explanation(
         risk_factors.append(f"Соотношение потенциальной цели и риска: {signal.get('risk_reward_ratio')}.")
 
     assessment = probability_assessment or {}
+    news_internal = (assessment.get("internal") or {}).get("news_assessment") or {}
+
+    if news_internal.get("summary"):
+        news_factors.insert(0, str(news_internal.get("summary")))
+
     reliability_level = assessment.get("reliability_level")
     reliability_reasons = assessment.get("reliability_reasons") or []
     calibration = assessment.get("calibration") or {}
@@ -1092,6 +1311,10 @@ def build_consumer_forecast(
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
     stop_loss_value = _to_float(signal.get("stop_loss"))
     rule_probability = _calculate_target_probability(signal, technical, price, target_price, events)
+    news_assessment = _build_news_assessment(
+        events=events,
+        scenario_direction=scenario_direction,
+    )
     ml_probability = (
         _to_float((ml_probability_result or {}).get("ml_probability_pct"))
         if ml_probability_result and ml_probability_result.get("ok")
@@ -1120,7 +1343,15 @@ def build_consumer_forecast(
         events=events,
         horizon_days=20,
     )
-    probability = probability_assessment.get("probability_pct")
+    base_probability = probability_assessment.get("probability_pct")
+    probability = _apply_news_adjustment(base_probability, news_assessment)
+    news_adjustment_pct = _to_float(news_assessment.get("adjustment_pct")) or 0.0
+
+    probability_assessment["probability_pct"] = probability
+    probability_assessment.setdefault("internal", {})
+    probability_assessment["internal"]["pre_news_probability_pct"] = _round(base_probability, 0)
+    probability_assessment["internal"]["news_adjustment_pct"] = _round(news_adjustment_pct, 1)
+    probability_assessment["internal"]["news_assessment"] = news_assessment
 
     preliminary_target_distance_pct = _pct_change(target_price, price)
     preliminary_stop_distance_pct = None
@@ -1211,7 +1442,10 @@ def build_consumer_forecast(
         "ml_probability_pct": _round(ml_probability, 1),
         "ml_weight": ml_weight,
         "ml_adjustment_pct": ml_adjustment_pct,
-        "probability_source": probability_source,
+        "probability_source": f"{probability_source}_news" if news_assessment.get("has_events") else probability_source,
+        "news_adjustment_pct": _round(news_adjustment_pct, 1),
+        "news_assessment": news_assessment,
+        "news_risk_flags": news_assessment.get("risk_flags") or [],
         "ml_regime_multiplier": regime_multiplier,
         "ml_regime_reason": regime_reason,
         "source_signal_action": source_signal_action,
@@ -1429,6 +1663,9 @@ def build_consumer_signal_for_ticker(
             "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
             "ml_regime_reason": forecast.get("ml_regime_reason"),
             "probability_source": forecast.get("probability_source"),
+            "news_adjustment_pct": forecast.get("news_adjustment_pct"),
+            "news_assessment": forecast.get("news_assessment"),
+            "news_risk_flags": forecast.get("news_risk_flags"),
             "source_signal_action": forecast.get("source_signal_action"),
             "source_signal_type": forecast.get("source_signal_type"),
             "source_target_price": forecast.get("source_target_price"),
@@ -1542,6 +1779,9 @@ def list_consumer_signals(
                 "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
                 "ml_regime_reason": forecast.get("ml_regime_reason"),
                 "probability_source": forecast.get("probability_source"),
+            "news_adjustment_pct": forecast.get("news_adjustment_pct"),
+            "news_assessment": forecast.get("news_assessment"),
+            "news_risk_flags": forecast.get("news_risk_flags"),
                 "source_signal_action": forecast.get("source_signal_action"),
                 "source_signal_type": forecast.get("source_signal_type"),
                 "source_target_price": forecast.get("source_target_price"),
@@ -1707,6 +1947,10 @@ def list_consumer_signals(
                 "ml_probability_pct": row.get("ml_probability_pct"),
                 "ml_weight": row.get("ml_weight"),
                 "ml_regime_multiplier": row.get("ml_regime_multiplier"),
+                "news_adjustment_pct": row.get("news_adjustment_pct"),
+                "news_sentiment": (row.get("news_assessment") or {}).get("sentiment"),
+                "news_sentiment_score": (row.get("news_assessment") or {}).get("sentiment_score"),
+                "news_summary": (row.get("news_assessment") or {}).get("summary"),
                 "source_signal_action": row.get("source_signal_action"),
                 "source_signal_type": row.get("source_signal_type"),
                 "source_target_price": row.get("source_target_price"),
