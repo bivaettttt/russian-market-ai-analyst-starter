@@ -1509,10 +1509,140 @@ def list_consumer_signals(
         ) if rows else None,
     }
 
+    def _diagnostic_reason(row: dict[str, Any]) -> str:
+        action_value = row.get("action")
+        sizing = row.get("position_sizing") or {}
+
+        if action_value == "avoid_bad_target":
+            return "Целевая цена не выше текущей цены — long-вход запрещён."
+        if action_value == "avoid_bad_rr":
+            return "Risk/reward ниже минимального порога."
+        if action_value == "avoid_ml_veto":
+            return "ML-модель оценила вероятность цели ниже 15%."
+        if action_value == "avoid_ml_filter":
+            return "ML-корректировка заметно снизила итоговую вероятность."
+        if action_value == "avoid_risk":
+            return "Риск сценария выше допустимого для текущей вероятности."
+        if action_value == "avoid":
+            return "Итоговая вероятность ниже минимального потребительского порога."
+        if action_value == "watch_ml_confirmed":
+            return "ML подтверждает сценарий, но итоговой вероятности пока мало для покупки."
+        if action_value == "watch_bad_rr":
+            return "Вероятность приемлемая, но risk/reward ниже 1.2."
+        if action_value == "watch_ml_rejected":
+            return "Rule-сигнал есть, но ML не подтверждает покупку."
+        if action_value == "watch":
+            return "Нейтральный сигнал: наблюдение без входа."
+
+        return str(row.get("decision_reason") or "Причина не классифицирована.")
+
+    def _next_fix_hint(row: dict[str, Any]) -> str:
+        action_value = row.get("action")
+        sizing = row.get("position_sizing") or {}
+
+        if action_value == "avoid_bad_target":
+            return "Проверить target generation: цель должна быть выше текущей цены для long-сигнала."
+        if action_value == "avoid_bad_rr":
+            return "Улучшить цель или подтянуть стоп: текущий RR недостаточен."
+        if action_value == "avoid_ml_veto":
+            return "Не усиливать вручную: ML явно против сценария."
+        if action_value in {"watch_ml_confirmed", "watch"}:
+            return "Ждать роста probability/reliability или улучшения RR."
+        if action_value == "avoid":
+            return "Недостаточно сильный общий сигнал."
+        if sizing.get("allowed") is False:
+            return "Позиция запрещена risk layer."
+
+        return "Дополнительных действий не требуется."
+
+    rejection_actions = {
+        "avoid",
+        "avoid_bad_target",
+        "avoid_bad_rr",
+        "avoid_ml_filter",
+        "avoid_ml_veto",
+        "avoid_risk",
+        "watch_bad_rr",
+        "watch_ml_rejected",
+    }
+
+    rejection_reasons: dict[str, int] = {}
+
+    for row in rows:
+        action_value = row.get("action")
+
+        if action_value in rejection_actions:
+            rejection_reasons[action_value] = rejection_reasons.get(action_value, 0) + 1
+
+    near_misses = []
+
+    for row in rows:
+        action_value = row.get("action")
+        probability_value = _to_float(row.get("target_probability_pct")) or 0
+        ml_value = _to_float(row.get("ml_probability_pct"))
+        sizing = row.get("position_sizing") or {}
+
+        if action_value in {"buy", "consider_buy"}:
+            continue
+
+        is_near = (
+            probability_value >= 40
+            or action_value in {"watch", "watch_ml_confirmed", "avoid_bad_rr", "avoid_bad_target"}
+            or (ml_value is not None and ml_value >= 35)
+        )
+
+        if not is_near:
+            continue
+
+        near_misses.append(
+            {
+                "ticker": row.get("ticker"),
+                "name": row.get("name"),
+                "action": action_value,
+                "recommendation": row.get("recommendation"),
+                "decision": row.get("decision"),
+                "probability_pct": row.get("target_probability_pct"),
+                "rule_probability_pct": row.get("rule_probability_pct"),
+                "ml_probability_pct": row.get("ml_probability_pct"),
+                "ml_weight": row.get("ml_weight"),
+                "ml_regime_multiplier": row.get("ml_regime_multiplier"),
+                "target_price": row.get("target_price"),
+                "target_distance_pct": sizing.get("target_distance_pct"),
+                "stop_distance_pct": sizing.get("stop_distance_pct"),
+                "risk_reward_ratio": row.get("risk_reward_ratio"),
+                "reliability_level": row.get("reliability_level"),
+                "reliability_score": row.get("reliability_score"),
+                "risk_level": row.get("risk_level"),
+                "blocked_reason": _diagnostic_reason(row),
+                "next_fix_hint": _next_fix_hint(row),
+            }
+        )
+
+    near_misses.sort(
+        key=lambda item: (
+            float(item.get("probability_pct") or 0),
+            float(item.get("ml_probability_pct") or 0),
+        ),
+        reverse=True,
+    )
+
+    diagnostics = {
+        "rejection_reasons": rejection_reasons,
+        "near_misses": near_misses[:15],
+        "near_misses_count": len(near_misses),
+        "interpretation": [
+            "avoid_bad_target означает, что цель для long-сценария не выше текущей цены.",
+            "avoid_bad_rr означает, что цель есть, но risk/reward слишком слабый.",
+            "avoid_ml_veto означает, что ML явно против сценария.",
+            "watch_ml_confirmed означает, что ML подтверждает сценарий, но итоговой вероятности пока недостаточно.",
+        ],
+    }
+
     return {
         "ok": True,
         "mode": "consumer",
         "summary": summary,
+        "diagnostics": diagnostics,
         "rows": rows,
         "notes": [
             "Страница не показывает выбор модели: используется единый потребительский прогноз.",
