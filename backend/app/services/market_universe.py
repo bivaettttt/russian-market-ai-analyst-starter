@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import asyncio
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, literal
 from sqlalchemy.orm import Session
 
 from app.models import Candle, Instrument
@@ -249,6 +251,85 @@ def _save_candle_rows(db: Session, rows: list[dict[str, Any]]) -> int:
     return saved
 
 
+def _candle_update_state_path() -> Path:
+    backend_dir = Path(__file__).resolve().parents[2]
+    data_dir = backend_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "candle_update_state.json"
+
+
+def _load_candle_update_state() -> dict[str, Any]:
+    path = _candle_update_state_path()
+
+    if not path.exists():
+        return {"zero_rows": {}}
+
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            return {"zero_rows": {}}
+        data.setdefault("zero_rows", {})
+        return data
+    except Exception:
+        return {"zero_rows": {}}
+
+
+def _save_candle_update_state(state: dict[str, Any]) -> None:
+    path = _candle_update_state_path()
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _is_recent_zero_row_skip(
+    state: dict[str, Any],
+    ticker: str,
+    board: str | None,
+    days: int,
+    today: date,
+    retry_after_days: int = 7,
+) -> bool:
+    zero_rows = state.get("zero_rows") or {}
+    item = zero_rows.get(ticker)
+
+    if not item:
+        return False
+
+    if item.get("board") and board and item.get("board") != board:
+        return False
+
+    if int(item.get("days") or 0) < days:
+        return False
+
+    checked_at_raw = item.get("checked_at")
+
+    try:
+        checked_at = date.fromisoformat(str(checked_at_raw))
+    except Exception:
+        return False
+
+    return (today - checked_at).days < retry_after_days
+
+
+def _mark_zero_row(
+    state: dict[str, Any],
+    ticker: str,
+    board: str | None,
+    days: int,
+    today: date,
+) -> None:
+    state.setdefault("zero_rows", {})[ticker] = {
+        "ticker": ticker,
+        "board": board,
+        "days": days,
+        "checked_at": str(today),
+    }
+
+
+def _clear_zero_row(state: dict[str, Any], ticker: str) -> None:
+    zero_rows = state.setdefault("zero_rows", {})
+    zero_rows.pop(ticker, None)
+
+
+
 async def update_candles_for_universe(
     db: Session,
     days: int = 420,
@@ -259,14 +340,71 @@ async def update_candles_for_universe(
     to_date = date.today()
     from_date = to_date - timedelta(days=days)
 
-    stmt = select(Instrument).order_by(Instrument.ticker).limit(max_tickers)
+    state = _load_candle_update_state()
+
+    candle_stats = (
+        select(
+            Candle.ticker.label("ticker"),
+            func.count(Candle.id).label("candles_count"),
+            func.max(Candle.trade_date).label("latest_candle_date"),
+        )
+        .group_by(Candle.ticker)
+        .subquery()
+    )
+
+    candles_count_expr = func.coalesce(candle_stats.c.candles_count, 0)
+    latest_date_expr = func.coalesce(
+        candle_stats.c.latest_candle_date,
+        literal(date(1970, 1, 1)),
+    )
+
+    candidate_limit = max(max_tickers * 5, max_tickers + 200)
+
+    stmt = (
+        select(Instrument)
+        .outerjoin(candle_stats, candle_stats.c.ticker == Instrument.ticker)
+        .order_by(
+            candles_count_expr.asc(),
+            latest_date_expr.asc(),
+            Instrument.ticker.asc(),
+        )
+        .limit(candidate_limit)
+    )
+
     if board:
         stmt = stmt.where(Instrument.board == board)
-    instruments = db.scalars(stmt).all()
+
+    candidates = db.scalars(stmt).all()
+
+    instruments: list[Instrument] = []
+    skipped_recent_zero_rows: list[dict[str, Any]] = []
+
+    for instrument in candidates:
+        if _is_recent_zero_row_skip(
+            state=state,
+            ticker=instrument.ticker,
+            board=instrument.board,
+            days=days,
+            today=to_date,
+        ):
+            skipped_recent_zero_rows.append(
+                {
+                    "ticker": instrument.ticker,
+                    "board": instrument.board,
+                    "reason": "recent_zero_rows",
+                }
+            )
+            continue
+
+        instruments.append(instrument)
+
+        if len(instruments) >= max_tickers:
+            break
 
     client = MoexClient(timeout=30.0)
     updated: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
+    zero_rows: list[dict[str, Any]] = []
     total_rows = 0
     total_saved = 0
 
@@ -280,26 +418,65 @@ async def update_candles_for_universe(
             )
             saved = _save_candle_rows(db, rows)
             db.commit()
+
             total_rows += len(rows)
             total_saved += saved
-            updated.append({"ticker": instrument.ticker, "board": instrument.board, "rows": len(rows), "saved": saved})
+
+            if rows:
+                _clear_zero_row(state, instrument.ticker)
+            else:
+                _mark_zero_row(
+                    state=state,
+                    ticker=instrument.ticker,
+                    board=instrument.board,
+                    days=days,
+                    today=to_date,
+                )
+                zero_rows.append(
+                    {
+                        "ticker": instrument.ticker,
+                        "board": instrument.board,
+                    }
+                )
+
+            updated.append(
+                {
+                    "ticker": instrument.ticker,
+                    "board": instrument.board,
+                    "rows": len(rows),
+                    "saved": saved,
+                }
+            )
         except Exception as exc:  # noqa: BLE001
             db.rollback()
-            failed.append({"ticker": instrument.ticker, "board": instrument.board, "error": str(exc)})
+            failed.append(
+                {
+                    "ticker": instrument.ticker,
+                    "board": instrument.board,
+                    "error": str(exc),
+                }
+            )
 
         if pause_seconds > 0:
             await asyncio.sleep(pause_seconds)
+
+    _save_candle_update_state(state)
 
     return {
         "ok": True,
         "from_date": str(from_date),
         "to_date": str(to_date),
         "requested_tickers": len(instruments),
+        "candidate_tickers": len(candidates),
         "updated_count": len(updated),
         "failed_count": len(failed),
+        "zero_rows_count": len(zero_rows),
+        "skipped_recent_zero_rows_count": len(skipped_recent_zero_rows),
         "rows_fetched": total_rows,
         "rows_saved": total_saved,
         "updated": updated[:25],
+        "zero_rows": zero_rows[:25],
+        "skipped_recent_zero_rows": skipped_recent_zero_rows[:25],
         "failed": failed[:25],
-        "note": "Для полного рынка запускайте батчами: max_tickers=50/100, пока tickers_with_candles не догонит universe.",
+        "note": "Батч пропускает тикеры, по которым недавно MOEX вернул 0 свечей, и берёт следующие кандидаты.",
     }

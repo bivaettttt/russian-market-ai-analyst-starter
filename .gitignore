@@ -47,3 +47,6 @@ backend/data/signal_model_state.json
 *-clean.zip
 *-current.zip
 *-patched.diff
+
+# Runtime candle update state
+backend/data/candle_update_state.json
