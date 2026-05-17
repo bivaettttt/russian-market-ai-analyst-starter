@@ -500,16 +500,77 @@ def build_signals_page_html() -> str:
     function decisionClass(level, action, recommendation) {
       const value = `${level || ""} ${action || ""} ${recommendation || ""}`.toLowerCase();
 
-      if (value.includes("buy") || value.includes("positive") || value.includes("покуп")) return "positive";
-      if (value.includes("avoid") || value.includes("negative") || value.includes("risk") || value.includes("не покуп")) return "negative";
+      // Важно: "Не покупать" содержит слово "покупать", поэтому negative проверяем первым.
+      if (
+        value.includes("не покуп") ||
+        value.includes("avoid") ||
+        value.includes("negative") ||
+        value.includes("risk") ||
+        value.includes("риск")
+      ) return "negative";
+
+      if (
+        value.includes("рассмотреть") ||
+        value.includes("покупать") ||
+        value.includes("buy") ||
+        value.includes("positive")
+      ) return "positive";
+
       if (value.includes("unknown")) return "unknown";
       return "neutral";
     }
 
+    function isAvoidSignal(item) {
+      const action = String(item.consumer_action || "").toLowerCase();
+      const recommendation = String(item.recommendation || "").toLowerCase().trim();
+      const level = String(item.decision_level || "").toLowerCase();
+      const decision = String(item.decision || "").toLowerCase();
+
+      return (
+        action.includes("avoid") ||
+        level.includes("negative") ||
+        recommendation.startsWith("не покупать") ||
+        decision.includes("риск") ||
+        decision.includes("слабый сигнал") ||
+        decision.includes("ml-фильтр")
+      );
+    }
+
+    function isPositiveSignal(item) {
+      const action = String(item.consumer_action || "").toLowerCase();
+      const recommendation = String(item.recommendation || "").toLowerCase().trim();
+      const level = String(item.decision_level || "").toLowerCase();
+
+      if (isAvoidSignal(item)) return false;
+
+      return (
+        Boolean(item.is_buy_candidate) ||
+        action === "buy" ||
+        action === "consider_buy" ||
+        level.includes("positive") ||
+        recommendation === "покупать" ||
+        recommendation === "рассмотреть покупку"
+      );
+    }
+
+    function isWatchSignal(item) {
+      const action = String(item.consumer_action || "").toLowerCase();
+      const recommendation = String(item.recommendation || "").toLowerCase().trim();
+      const level = String(item.decision_level || "").toLowerCase();
+
+      if (isPositiveSignal(item) || isAvoidSignal(item)) return false;
+
+      return (
+        action.includes("watch") ||
+        recommendation.includes("наблюдать") ||
+        level.includes("neutral")
+      );
+    }
+
     function decisionRank(item) {
-      if (item.is_buy_candidate) return 1;
-      if ((item.consumer_action || "").includes("watch")) return 2;
-      if ((item.consumer_action || "").includes("avoid")) return 3;
+      if (isPositiveSignal(item)) return 1;
+      if (isWatchSignal(item)) return 2;
+      if (isAvoidSignal(item)) return 3;
       return 4;
     }
 
@@ -522,19 +583,16 @@ def build_signals_page_html() -> str:
           return false;
         }
 
-        const action = String(item.consumer_action || "").toLowerCase();
-        const rec = String(item.recommendation || "").toLowerCase();
-
         if (filter === "buy") {
-          return item.is_buy_candidate || action.includes("buy") || rec.includes("покупать") || rec.includes("рассмотреть");
+          return isPositiveSignal(item);
         }
 
         if (filter === "watch") {
-          return action.includes("watch") || rec.includes("наблюдать");
+          return isWatchSignal(item);
         }
 
         if (filter === "avoid") {
-          return action.includes("avoid") || rec.includes("не покупать") || rec.includes("риск");
+          return isAvoidSignal(item);
         }
 
         return true;
@@ -620,9 +678,9 @@ def build_signals_page_html() -> str:
       const grid = document.getElementById("signalsGrid");
       const rows = sortRows(filterRows(latestRows));
 
-      const buyCount = rows.filter(item => item.is_buy_candidate).length;
-      const watchCount = rows.filter(item => String(item.consumer_action || "").includes("watch") || item.recommendation === "Наблюдать").length;
-      const avoidCount = rows.filter(item => String(item.consumer_action || "").includes("avoid") || item.recommendation === "Не покупать").length;
+      const buyCount = rows.filter(isPositiveSignal).length;
+      const watchCount = rows.filter(isWatchSignal).length;
+      const avoidCount = rows.filter(isAvoidSignal).length;
 
       document.getElementById("metricTotal").textContent = rows.length;
       document.getElementById("metricBuy").textContent = buyCount;
