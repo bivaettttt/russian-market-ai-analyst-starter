@@ -871,82 +871,6 @@ def build_ticker_page_html(ticker: str) -> str:
       return allCandles;
     }
 
-    function drawChart() {
-      const svg = document.getElementById("chartSvg");
-      const empty = document.getElementById("chartEmpty");
-      const candles = getVisibleCandles();
-
-      const width = 900;
-      const height = 360;
-      const padX = 34;
-      const padY = 24;
-
-      if (!candles.length || candles.length < 2) {
-        svg.innerHTML = "";
-        empty.style.display = "flex";
-        return;
-      }
-
-      empty.style.display = "none";
-
-      const values = candles.flatMap(item => [item.high, item.low, item.close]).filter(value => value !== null);
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const span = max - min || 1;
-
-      const xFor = index => padX + index * ((width - padX * 2) / Math.max(1, candles.length - 1));
-      const yFor = value => height - padY - ((value - min) / span) * (height - padY * 2);
-
-      const grid = [0, 0.25, 0.5, 0.75, 1].map(part => {
-        const y = padY + part * (height - padY * 2);
-        const price = max - part * span;
-        return `
-          <line x1="${padX}" y1="${y}" x2="${width - padX}" y2="${y}" stroke="#eef2f7" stroke-width="1" />
-          <text x="${width - padX + 8}" y="${y + 4}" fill="#98a2b3" font-size="12">${formatNumber(price, 0)}</text>
-        `;
-      }).join("");
-
-      if (chartType === "candles") {
-        const step = (width - padX * 2) / Math.max(1, candles.length - 1);
-        const bodyWidth = Math.max(3, Math.min(12, step * 0.56));
-
-        const body = candles.map((item, index) => {
-          const x = xFor(index);
-          const yo = yFor(item.open ?? item.close);
-          const yc = yFor(item.close);
-          const yh = yFor(item.high ?? item.close);
-          const yl = yFor(item.low ?? item.close);
-          const up = item.close >= (item.open ?? item.close);
-          const color = up ? "#12b76a" : "#f04438";
-          const y = Math.min(yo, yc);
-          const h = Math.max(2, Math.abs(yo - yc));
-
-          return `
-            <line x1="${x}" y1="${yh}" x2="${x}" y2="${yl}" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-            <rect x="${x - bodyWidth / 2}" y="${y}" width="${bodyWidth}" height="${h}" rx="1.5" fill="${color}" />
-          `;
-        }).join("");
-
-        svg.innerHTML = `${grid}${body}`;
-        return;
-      }
-
-      const coords = candles.map((item, index) => [xFor(index), yFor(item.close)]);
-      const line = coords.map((point, index) => `${index === 0 ? "M" : "L"} ${point[0].toFixed(2)} ${point[1].toFixed(2)}`).join(" ");
-      const last = coords[coords.length - 1];
-      const first = coords[0];
-      const area = `${line} L ${last[0]} ${height - padY} L ${first[0]} ${height - padY} Z`;
-
-      svg.innerHTML = `
-        ${grid}
-        <path d="${area}" fill="var(--accent-soft)"></path>
-        <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="3" vector-effect="non-scaling-stroke"></path>
-        <circle cx="${last[0]}" cy="${last[1]}" r="4" fill="var(--accent)"></circle>
-        <text x="${padX}" y="${height - 7}" fill="#98a2b3" font-size="12">${escapeHtml(candles[0].date || "")}</text>
-        <text x="${width - 150}" y="${height - 7}" fill="#98a2b3" font-size="12">${escapeHtml(candles[candles.length - 1].date || "")}</text>
-      `;
-    }
-
     async function setChartPeriod(period, button) {
       chartPeriod = period;
 
@@ -1108,80 +1032,129 @@ def build_ticker_page_html(ticker: str) -> str:
       return response.json();
     }
 
-    async function loadChartData() {
-      const empty = document.getElementById("chartEmpty");
-      empty.style.display = "flex";
-      empty.textContent = "Загружаю график...";
-
-      try {
-        const chartPayload = await fetchJson(
-          `/tickers/${encodeURIComponent(TICKER)}/chart.json?period=${encodeURIComponent(chartPeriod)}&limit=1500`
-        );
-
-        allCandles = (chartPayload.candles || []).map(normalizeCandle).filter(Boolean);
-
-        if (!allCandles.length) {
-          empty.textContent = "Недостаточно исторических данных для графика";
-        }
-
-        drawChart();
-      } catch (error) {
-        allCandles = [];
-        empty.style.display = "flex";
-        empty.textContent = `Не удалось загрузить график: ${error.message}`;
-        drawChart();
-      }
-    }
-
 
 
     let tvChart = null;
     let tvSeries = null;
     let tvResizeObserver = null;
 
-    function chartTime(value) {
+    function parsedChartTime(value) {
       const raw = String(value || "").trim();
 
       if (!raw) return null;
 
-      if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) {
-        return raw;
+      const normalized = raw.replace(" ", "T");
+      const datePart = normalized.slice(0, 10);
+
+      const looksLikeDate =
+        datePart.length === 10 &&
+        datePart[4] === "-" &&
+        datePart[7] === "-";
+
+      if (looksLikeDate) {
+        const year = Number(datePart.slice(0, 4));
+        const month = Number(datePart.slice(5, 7));
+        const day = Number(datePart.slice(8, 10));
+
+        if (
+          Number.isFinite(year) &&
+          Number.isFinite(month) &&
+          Number.isFinite(day) &&
+          year > 1900 &&
+          month >= 1 &&
+          month <= 12 &&
+          day >= 1 &&
+          day <= 31
+        ) {
+          return {
+            time: { year, month, day },
+            key: datePart,
+            sort: Date.UTC(year, month - 1, day),
+          };
+        }
       }
 
-      const parsed = Date.parse(raw.replace(" ", "T"));
+      const parsed = Date.parse(normalized);
 
       if (Number.isNaN(parsed)) {
         return null;
       }
 
-      return Math.floor(parsed / 1000);
+      const unix = Math.floor(parsed / 1000);
+
+      return {
+        time: unix,
+        key: String(unix),
+        sort: parsed,
+      };
+    }
+
+    function normalizeChartRows(rows) {
+      const byTime = new Map();
+
+      for (const row of rows) {
+        if (!row || row._key === null || row._key === undefined) {
+          continue;
+        }
+
+        byTime.set(String(row._key), row);
+      }
+
+      return Array
+        .from(byTime.values())
+        .sort((a, b) => a._sort - b._sort)
+        .map(({ _key, _sort, ...clean }) => clean);
     }
 
     function buildInteractiveLineData(candles) {
-      return candles
-        .map(item => ({
-          time: chartTime(item.date),
-          value: toNumber(item.close),
-        }))
-        .filter(item => item.time !== null && item.value !== null);
+      const rows = candles
+        .map(item => {
+          const parsed = parsedChartTime(item.date || item.time || item.begin || item.end || item.trade_date);
+          const value = toNumber(item.close ?? item.price ?? item.last ?? item.value);
+
+          if (!parsed || value === null) {
+            return null;
+          }
+
+          return {
+            time: parsed.time,
+            value,
+            _key: parsed.key,
+            _sort: parsed.sort,
+          };
+        })
+        .filter(Boolean);
+
+      return normalizeChartRows(rows);
     }
 
     function buildInteractiveCandleData(candles) {
-      return candles
-        .map(item => ({
-          time: chartTime(item.date),
-          open: toNumber(item.open ?? item.close),
-          high: toNumber(item.high ?? item.close),
-          low: toNumber(item.low ?? item.close),
-          close: toNumber(item.close),
-        }))
-        .filter(item =>
-          item.time !== null &&
-          item.open !== null &&
-          item.high !== null &&
-          item.low !== null &&
-          item.close !== null
-        );
+      const rows = candles
+        .map(item => {
+          const parsed = parsedChartTime(item.date || item.time || item.begin || item.end || item.trade_date);
+          const close = toNumber(item.close ?? item.price ?? item.last ?? item.value);
+
+          if (!parsed || close === null) {
+            return null;
+          }
+
+          const open = toNumber(item.open ?? close);
+          const high = toNumber(item.high ?? close);
+          const low = toNumber(item.low ?? close);
+
+          return {
+            time: parsed.time,
+            open: open === null ? close : open,
+            high: high === null ? close : high,
+            low: low === null ? close : low,
+            close,
+            _key: parsed.key,
+            _sort: parsed.sort,
+          };
+        })
+        .filter(Boolean);
+
+      return normalizeChartRows(rows);
     }
 
     function destroyInteractiveChart() {
@@ -1196,6 +1169,36 @@ def build_ticker_page_html(ticker: str) -> str:
         tvSeries = null;
       }
     }
+
+    function addCompatibleLineSeries(chartInstance, options) {
+      if (typeof chartInstance.addLineSeries === "function") {
+        return chartInstance.addLineSeries(options);
+      }
+
+      if (window.LightweightCharts && window.LightweightCharts.LineSeries && typeof chartInstance.addSeries === "function") {
+        return chartInstance.addSeries(window.LightweightCharts.LineSeries, options);
+      }
+
+      // fallback для старого кода, если LineSeries недоступен
+      if (typeof chartInstance.addAreaSeries === "function") {
+        return chartInstance.addAreaSeries({
+          ...options,
+          topColor: "rgba(37, 99, 235, 0.12)",
+          bottomColor: "rgba(37, 99, 235, 0.02)",
+        });
+      }
+
+      if (window.LightweightCharts && window.LightweightCharts.AreaSeries && typeof chartInstance.addSeries === "function") {
+        return chartInstance.addSeries(window.LightweightCharts.AreaSeries, {
+          ...options,
+          topColor: "rgba(37, 99, 235, 0.12)",
+          bottomColor: "rgba(37, 99, 235, 0.02)",
+        });
+      }
+
+      throw new Error("Line series API недоступен в текущей версии lightweight-charts");
+    }
+
 
     function addCompatibleAreaSeries(chartInstance, options) {
       if (typeof chartInstance.addAreaSeries === "function") {
@@ -1221,15 +1224,62 @@ def build_ticker_page_html(ticker: str) -> str:
       throw new Error("Candlestick series API недоступен в текущей версии lightweight-charts");
     }
 
+    function normalizeChartColor(value, fallback = "#2563eb") {
+      const raw = String(value || "").trim();
+
+      if (!raw) {
+        return fallback;
+      }
+
+      if (/^#[0-9a-f]{3,8}$/i.test(raw) || /^rgba?\(/i.test(raw)) {
+        return raw;
+      }
+
+      const probe = document.createElement("span");
+      probe.style.color = fallback;
+      probe.style.color = raw;
+      probe.style.display = "none";
+
+      document.body.appendChild(probe);
+      const computed = getComputedStyle(probe).color;
+      probe.remove();
+
+      if (!computed || computed === "rgba(0, 0, 0, 0)") {
+        return fallback;
+      }
+
+      return computed;
+    }
+
+    function chartColorWithAlpha(value, alpha, fallback = "#2563eb") {
+      const color = normalizeChartColor(value, fallback);
+      const match = color.match(/^rgba?\(([^)]+)\)$/i);
+
+      if (!match) {
+        return color;
+      }
+
+      const parts = match[1].split(",").map(item => Number.parseFloat(item.trim()));
+      const [r, g, b] = parts;
+
+      if (![r, g, b].every(Number.isFinite)) {
+        return fallback;
+      }
+
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
 
     function createInteractiveChartInstance() {
       const container = document.getElementById("chartContainer");
-      const tooltip = document.getElementById("chartTooltip");
 
-      if (!container || !window.LightweightCharts) return null;
+      if (!container || !window.LightweightCharts) {
+        return null;
+      }
 
       const styles = getComputedStyle(document.documentElement);
-      const accent = styles.getPropertyValue("--accent").trim() || "#2563eb";
+      const rawAccent = styles.getPropertyValue("--accent").trim() || "#2563eb";
+      const accent = normalizeChartColor(rawAccent, "#2563eb");
 
       destroyInteractiveChart();
 
@@ -1292,62 +1342,15 @@ def build_ticker_page_html(ticker: str) -> str:
           priceLineVisible: true,
         });
       } else {
-        tvSeries = addCompatibleAreaSeries(tvChart, {
+        tvSeries = addCompatibleLineSeries(tvChart, {
+          color: accent,
           lineColor: accent,
-          topColor: `${accent}33`,
-          bottomColor: `${accent}04`,
           lineWidth: 3,
           priceLineVisible: true,
+          lastValueVisible: true,
+          crosshairMarkerVisible: true,
         });
       }
-
-      tvChart.subscribeCrosshairMove(param => {
-        if (!tooltip || !param || !param.point || !param.time || !param.seriesData) {
-          if (tooltip) tooltip.style.display = "none";
-          return;
-        }
-
-        const data = param.seriesData.get(tvSeries);
-
-        if (!data) {
-          tooltip.style.display = "none";
-          return;
-        }
-
-        if (chartType === "candles") {
-          tooltip.innerHTML = `
-            <b>${escapeHtml(String(param.time))}</b>
-            O: ${formatNumber(data.open)}<br>
-            H: ${formatNumber(data.high)}<br>
-            L: ${formatNumber(data.low)}<br>
-            C: ${formatNumber(data.close)}
-          `;
-        } else {
-          tooltip.innerHTML = `
-            <b>${escapeHtml(String(param.time))}</b>
-            Цена: ${formatNumber(data.value)}
-          `;
-        }
-
-        tooltip.style.display = "block";
-
-        const tooltipWidth = 210;
-        const tooltipHeight = 110;
-
-        let left = param.point.x + 16;
-        let top = param.point.y + 16;
-
-        if (left + tooltipWidth > container.clientWidth) {
-          left = param.point.x - tooltipWidth - 16;
-        }
-
-        if (top + tooltipHeight > container.clientHeight) {
-          top = param.point.y - tooltipHeight - 16;
-        }
-
-        tooltip.style.left = `${Math.max(8, left)}px`;
-        tooltip.style.top = `${Math.max(8, top)}px`;
-      });
 
       tvResizeObserver = new ResizeObserver(entries => {
         const entry = entries[0];
@@ -1388,9 +1391,26 @@ def build_ticker_page_html(ticker: str) -> str:
         return;
       }
 
-      const data = chartType === "candles"
-        ? buildInteractiveCandleData(candles)
-        : buildInteractiveLineData(candles);
+      const lineData = buildInteractiveLineData(candles);
+      const candleData = buildInteractiveCandleData(candles);
+      const data = chartType === "candles" ? candleData : lineData;
+
+      window.__tickerChartDebug = {
+        ticker: TICKER,
+        chartType,
+        chartPeriod,
+        rawCandlesCount: candles.length,
+        lineDataCount: lineData.length,
+        candleDataCount: candleData.length,
+        firstRaw: candles[0],
+        lastRaw: candles[candles.length - 1],
+        firstLine: lineData[0],
+        lastLine: lineData[lineData.length - 1],
+        firstCandle: candleData[0],
+        lastCandle: candleData[candleData.length - 1],
+      };
+
+      console.log("ticker chart debug", window.__tickerChartDebug);
 
       if (!data.length || data.length < 2) {
         destroyInteractiveChart();
@@ -1407,23 +1427,6 @@ def build_ticker_page_html(ticker: str) -> str:
       tvChart.timeScale().fitContent();
     }
 
-    async function setChartPeriod(period, button) {
-      chartPeriod = period;
-
-      document.querySelectorAll("[data-period]").forEach(item => item.classList.remove("active"));
-      if (button) button.classList.add("active");
-
-      await loadChartData();
-    }
-
-    function setChartType(type, button) {
-      chartType = type;
-
-      document.querySelectorAll("[data-chart]").forEach(item => item.classList.remove("active"));
-      if (button) button.classList.add("active");
-
-      drawChart();
-    }
 
     async function loadChartData() {
       const empty = document.getElementById("chartEmpty");
