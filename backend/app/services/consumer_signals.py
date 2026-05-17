@@ -299,8 +299,8 @@ def _build_explanation(
     events: list[dict[str, Any]],
     probability: float | None,
     probability_assessment: dict[str, Any] | None = None,
-
-    ml_probability_result: dict[str, Any] | None = None,) -> dict[str, Any]:
+    ml_probability_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     technical_factors = []
 
     if technical.get("trend"):
