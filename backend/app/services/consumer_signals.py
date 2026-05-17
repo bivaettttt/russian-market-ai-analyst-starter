@@ -21,9 +21,10 @@ ACTION_RANK = {
     "watch_ml_rejected": 4,
     "watch": 5,
     "watch_bad_rr": 6,
-    "avoid_bad_target": 7,
-    "avoid_bad_rr": 8,
-    "avoid_ml_veto": 9,
+    "avoid_downside_signal": 7,
+    "avoid_bad_target": 8,
+    "avoid_bad_rr": 9,
+    "avoid_ml_veto": 10,
     "avoid_ml_filter": 9,
     "avoid_risk": 10,
     "avoid": 11,
@@ -694,6 +695,7 @@ def _consumer_signal_decision_gate(
     ml_probability_pct: float | None,
     risk_reward_ratio: float | None = None,
     target_distance_pct: float | None = None,
+    scenario_direction: str | None = None,
 ) -> dict[str, Any]:
     probability_value = _to_float(probability)
     ml_adjustment = _to_float(ml_adjustment_pct)
@@ -728,6 +730,17 @@ def _consumer_signal_decision_gate(
 
     rr_value = _to_float(risk_reward_ratio)
     target_distance = _to_float(target_distance_pct)
+    scenario = str(scenario_direction or "").lower()
+
+    if scenario == "downside" and target_distance is not None and target_distance <= 0:
+        return {
+            "action": "avoid_downside_signal",
+            "recommendation": "Не покупать",
+            "decision": "Исходная модель видит downside-сценарий",
+            "decision_level": "negative",
+            "decision_reason": "Базовый сигнал указывает на цель ниже текущей цены. Для consumer long-сигнала покупка запрещена.",
+            "is_buy_candidate": False,
+        }
 
     if target_distance is not None and target_distance <= 0 and probability_value >= 45:
         return {
@@ -839,6 +852,28 @@ def _consumer_signal_decision_gate(
     }
 
 
+
+
+def _infer_source_scenario_direction(
+    signal: dict[str, Any],
+    price: float | None,
+) -> tuple[str, str]:
+    source_action = str(signal.get("action") or "").strip()
+    source_target = _to_float(signal.get("target_price"))
+
+    if source_action == "risk_sell_watch":
+        return "downside", "Исходная модель пометила сигнал как risk/downside."
+
+    if price is not None and price > 0 and source_target is not None:
+        if source_target < price:
+            return "downside", "Исходная целевая цена ниже текущей цены."
+        if source_target > price:
+            return "long", "Исходная целевая цена выше текущей цены."
+
+    if source_action in {"buy_watch", "watch_buy"}:
+        return "long", "Исходная модель допускает long-сценарий."
+
+    return "neutral", "Направление исходного сценария не определено."
 
 def _build_position_sizing(
     *,
@@ -1049,6 +1084,10 @@ def build_consumer_forecast(
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
     regime_features = _build_consumer_regime_features(candles)
+    source_signal_action = signal.get("action")
+    source_signal_type = signal.get("signal_type")
+    source_target_price = _to_float(signal.get("target_price"))
+    scenario_direction, scenario_reason = _infer_source_scenario_direction(signal, price)
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
     stop_loss_value = _to_float(signal.get("stop_loss"))
@@ -1106,6 +1145,7 @@ def build_consumer_forecast(
         ml_probability_pct=ml_probability,
         risk_reward_ratio=preliminary_risk_reward_ratio,
         target_distance_pct=preliminary_target_distance_pct,
+        scenario_direction=scenario_direction,
     )
     recommendation, tone = _recommendation_from_action(signal.get("action"), probability)
 
@@ -1174,6 +1214,11 @@ def build_consumer_forecast(
         "probability_source": probability_source,
         "ml_regime_multiplier": regime_multiplier,
         "ml_regime_reason": regime_reason,
+        "source_signal_action": source_signal_action,
+        "source_signal_type": source_signal_type,
+        "source_target_price": _round(source_target_price),
+        "scenario_direction": scenario_direction,
+        "scenario_reason": scenario_reason,
         "consumer_action": decision_gate.get("action"),
         "recommendation": decision_gate.get("recommendation"),
         "decision": decision_gate.get("decision"),
@@ -1202,6 +1247,11 @@ def build_consumer_forecast(
             "confidence_pct": _round(signal.get("confidence_pct"), 0),
             "quality_score": _round(signal.get("quality_score"), 0),
             "risk_reward_ratio": _round(signal.get("risk_reward_ratio"), 2),
+            "source_signal_action": source_signal_action,
+            "source_signal_type": source_signal_type,
+            "source_target_price": _round(source_target_price),
+            "scenario_direction": scenario_direction,
+            "scenario_reason": scenario_reason,
         },
     }
 
@@ -1379,6 +1429,11 @@ def build_consumer_signal_for_ticker(
             "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
             "ml_regime_reason": forecast.get("ml_regime_reason"),
             "probability_source": forecast.get("probability_source"),
+            "source_signal_action": forecast.get("source_signal_action"),
+            "source_signal_type": forecast.get("source_signal_type"),
+            "source_target_price": forecast.get("source_target_price"),
+            "scenario_direction": forecast.get("scenario_direction"),
+            "scenario_reason": forecast.get("scenario_reason"),
             "consumer_action": forecast.get("consumer_action"),
             "recommendation": forecast.get("recommendation"),
             "decision": forecast.get("decision"),
@@ -1461,6 +1516,11 @@ def list_consumer_signals(
                 "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
                 "ml_regime_reason": forecast.get("ml_regime_reason"),
                 "probability_source": forecast.get("probability_source"),
+                "source_signal_action": forecast.get("source_signal_action"),
+                "source_signal_type": forecast.get("source_signal_type"),
+                "source_target_price": forecast.get("source_target_price"),
+                "scenario_direction": forecast.get("scenario_direction"),
+                "scenario_reason": forecast.get("scenario_reason"),
                 "target_price": forecast.get("target_price"),
                 "forecast_price": forecast.get("forecast_price"),
                 "forecast_range": forecast.get("forecast_range"),
@@ -1487,7 +1547,7 @@ def list_consumer_signals(
 
     positive_actions = {"buy", "consider_buy", "buy_watch", "watch_buy"}
     watch_actions = {"watch", "watch_ml_confirmed", "watch_ml_rejected", "watch_bad_rr", "hold_watch"}
-    risk_actions = {"avoid", "avoid_bad_target", "avoid_bad_rr", "avoid_ml_filter", "avoid_ml_veto", "avoid_risk", "risk_sell_watch"}
+    risk_actions = {"avoid", "avoid_downside_signal", "avoid_bad_target", "avoid_bad_rr", "avoid_ml_filter", "avoid_ml_veto", "avoid_risk", "risk_sell_watch"}
 
     summary = {
         "total": len(rows),
@@ -1499,6 +1559,7 @@ def list_consumer_signals(
         "watch_ml_confirmed": sum(1 for row in rows if row.get("action") == "watch_ml_confirmed"),
         "avoid_ml_filter": sum(1 for row in rows if row.get("action") == "avoid_ml_filter"),
         "avoid_ml_veto": sum(1 for row in rows if row.get("action") == "avoid_ml_veto"),
+        "avoid_downside_signal": sum(1 for row in rows if row.get("action") == "avoid_downside_signal"),
         "avoid_bad_target": sum(1 for row in rows if row.get("action") == "avoid_bad_target"),
         "avoid_bad_rr": sum(1 for row in rows if row.get("action") == "avoid_bad_rr"),
         "watch_bad_rr": sum(1 for row in rows if row.get("action") == "watch_bad_rr"),
@@ -1513,6 +1574,8 @@ def list_consumer_signals(
         action_value = row.get("action")
         sizing = row.get("position_sizing") or {}
 
+        if action_value == "avoid_downside_signal":
+            return "Исходный сигнал является downside/risk-сценарием, покупка запрещена."
         if action_value == "avoid_bad_target":
             return "Целевая цена не выше текущей цены — long-вход запрещён."
         if action_value == "avoid_bad_rr":
@@ -1540,6 +1603,8 @@ def list_consumer_signals(
         action_value = row.get("action")
         sizing = row.get("position_sizing") or {}
 
+        if action_value == "avoid_downside_signal":
+            return "Не чинить как long: это downside-сценарий, его нужно показывать как риск/не покупать."
         if action_value == "avoid_bad_target":
             return "Проверить target generation: цель должна быть выше текущей цены для long-сигнала."
         if action_value == "avoid_bad_rr":
@@ -1557,6 +1622,7 @@ def list_consumer_signals(
 
     rejection_actions = {
         "avoid",
+        "avoid_downside_signal",
         "avoid_bad_target",
         "avoid_bad_rr",
         "avoid_ml_filter",
@@ -1606,6 +1672,11 @@ def list_consumer_signals(
                 "ml_probability_pct": row.get("ml_probability_pct"),
                 "ml_weight": row.get("ml_weight"),
                 "ml_regime_multiplier": row.get("ml_regime_multiplier"),
+                "source_signal_action": row.get("source_signal_action"),
+                "source_signal_type": row.get("source_signal_type"),
+                "source_target_price": row.get("source_target_price"),
+                "scenario_direction": row.get("scenario_direction"),
+                "scenario_reason": row.get("scenario_reason"),
                 "target_price": row.get("target_price"),
                 "target_distance_pct": sizing.get("target_distance_pct"),
                 "stop_distance_pct": sizing.get("stop_distance_pct"),
