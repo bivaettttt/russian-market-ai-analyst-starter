@@ -1974,14 +1974,19 @@ def list_consumer_signals(
     candles_limit: int = 240,
     q: str | None = None,
     scenario: str = "all",
+    news: str = "all",
 ) -> dict[str, Any]:
     from app.services.market_universe import search_instruments
 
     query_text = (q or "").strip()
     scenario_filter = (scenario or "all").strip().lower()
+    news_filter = (news or "all").strip().lower()
 
     if scenario_filter not in {"all", "long", "downside", "neutral"}:
         scenario_filter = "all"
+
+    if news_filter not in {"all", "with_events", "no_events", "boost", "penalty", "veto", "info_only"}:
+        news_filter = "all"
 
     def _matches_scenario_filter(forecast: dict[str, Any]) -> bool:
         if scenario_filter == "all":
@@ -2000,6 +2005,22 @@ def list_consumer_signals(
             return direction == "neutral"
 
         return True
+
+    def _matches_news_filter(forecast: dict[str, Any]) -> bool:
+        if news_filter == "all":
+            return True
+
+        news_assessment = forecast.get("news_assessment") or {}
+        has_events = bool(news_assessment.get("has_events"))
+        effect = str(forecast.get("news_effect") or news_assessment.get("news_effect") or "none").lower()
+
+        if news_filter == "with_events":
+            return has_events
+
+        if news_filter == "no_events":
+            return not has_events
+
+        return has_events and effect == news_filter
 
     search_result = search_instruments(
         db=db,
@@ -2023,6 +2044,9 @@ def list_consumer_signals(
         forecast = data.get("forecast") or {}
 
         if not _matches_scenario_filter(forecast):
+            continue
+
+        if not _matches_news_filter(forecast):
             continue
 
         if action and forecast.get("action") != action:
@@ -2101,10 +2125,21 @@ def list_consumer_signals(
         "unknown": sum(1 for row in rows if not row.get("scenario_direction")),
     }
 
+    news_counts = {
+        "with_events": sum(1 for row in rows if (row.get("news_assessment") or {}).get("has_events")),
+        "no_events": sum(1 for row in rows if not (row.get("news_assessment") or {}).get("has_events")),
+        "boost": sum(1 for row in rows if row.get("news_effect") == "boost"),
+        "penalty": sum(1 for row in rows if row.get("news_effect") == "penalty"),
+        "veto": sum(1 for row in rows if row.get("news_effect") == "veto"),
+        "info_only": sum(1 for row in rows if row.get("news_effect") == "info_only"),
+    }
+
     summary = {
         "total": len(rows),
         "scenario_filter": scenario_filter,
         "scenario_counts": scenario_counts,
+        "news_filter": news_filter,
+        "news_counts": news_counts,
         "positive": sum(1 for row in rows if row.get("action") in positive_actions),
         "watch": sum(1 for row in rows if row.get("action") in watch_actions),
         "risk": sum(1 for row in rows if row.get("action") in risk_actions),
@@ -2275,6 +2310,7 @@ def list_consumer_signals(
         "ok": True,
         "mode": "consumer",
         "scenario": scenario_filter,
+        "news_filter": news_filter,
         "summary": summary,
         "diagnostics": diagnostics,
         "rows": rows,

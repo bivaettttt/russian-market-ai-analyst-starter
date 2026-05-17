@@ -458,6 +458,19 @@ def build_signals_page_html() -> str:
         </label>
 
         <label>
+          Новости
+          <select id="newsFilter">
+            <option value="all">Все</option>
+            <option value="with_events">Есть события</option>
+            <option value="boost">Boost</option>
+            <option value="penalty">Penalty</option>
+            <option value="veto">Veto</option>
+            <option value="info_only">Информационно</option>
+            <option value="no_events">Без событий</option>
+          </select>
+        </label>
+
+        <label>
           Сортировка
           <select id="sortBy">
             <option value="decision_probability">Сначала лучшие сигналы</option>
@@ -951,6 +964,11 @@ def build_signals_page_html() -> str:
       params.set("limit", document.getElementById("limitInput").value || "60");
       params.set("scenario", currentScenario);
 
+      const newsFilter = document.getElementById("newsFilter");
+      if (newsFilter && newsFilter.value && newsFilter.value !== "all") {
+        params.set("news", newsFilter.value);
+      }
+
       const query = document.getElementById("searchInput").value.trim();
       if (query) {
         params.set("q", query);
@@ -985,6 +1003,8 @@ def build_signals_page_html() -> str:
     function clearFilters() {
       document.getElementById("searchInput").value = "";
       document.getElementById("decisionFilter").value = "";
+      const newsFilter = document.getElementById("newsFilter");
+      if (newsFilter) newsFilter.value = "all";
       document.getElementById("sortBy").value = "decision_probability";
       loadSignals();
     }
@@ -994,6 +1014,8 @@ def build_signals_page_html() -> str:
     });
 
     document.getElementById("decisionFilter").addEventListener("change", renderSignals);
+    const newsFilter = document.getElementById("newsFilter");
+    if (newsFilter) newsFilter.addEventListener("change", loadSignals);
     document.getElementById("sortBy").addEventListener("change", renderSignals);
     document.getElementById("limitInput").addEventListener("change", loadSignals);
 
