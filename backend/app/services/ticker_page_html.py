@@ -322,7 +322,7 @@ def build_ticker_page_html(ticker: str) -> str:
 
 
     <section class="card">
-      <h2>Что влияет на прогноз</h2>
+      <h2>Ключевые факторы</h2>
 
       <div class="metrics">
         <div class="metric">
@@ -330,34 +330,34 @@ def build_ticker_page_html(ticker: str) -> str:
           <div class="value" id="technicalTrend">—</div>
         </div>
         <div class="metric">
-          <div class="label">SMA 20</div>
+          <div class="label">Краткосрочная средняя</div>
           <div class="value" id="sma20">—</div>
         </div>
         <div class="metric">
-          <div class="label">SMA 50</div>
+          <div class="label">Среднесрочная средняя</div>
           <div class="value" id="sma50">—</div>
         </div>
         <div class="metric">
-          <div class="label">Волатильность 20 свечей</div>
+          <div class="label">Колебания цены</div>
           <div class="value" id="volatility20d">—</div>
         </div>
       </div>
 
       <div class="metrics">
         <div class="metric">
-          <div class="label">Доходность 1 свеча</div>
+          <div class="label">Движение за день</div>
           <div class="value" id="return1d">—</div>
         </div>
         <div class="metric">
-          <div class="label">Доходность 5 свечей</div>
+          <div class="label">Движение за неделю</div>
           <div class="value" id="return5d">—</div>
         </div>
         <div class="metric">
-          <div class="label">Доходность 20 свечей</div>
+          <div class="label">Движение за месяц</div>
           <div class="value" id="return20d">—</div>
         </div>
         <div class="metric">
-          <div class="label">Объём / средний объём</div>
+          <div class="label">Активность торгов</div>
           <div class="value" id="volumeRatio">—</div>
         </div>
       </div>
@@ -366,6 +366,13 @@ def build_ticker_page_html(ticker: str) -> str:
     </section>
 
 
+    <section class="card">
+      <h2>Дополнительные детали</h2>
+      <p class="muted">Этот раздел нужен для проверки расчёта: сценарий, уровни, графики и последние свечи. По умолчанию он скрыт, чтобы не перегружать страницу.</p>
+      <button class="button secondary" id="advancedDetailsButton" onclick="toggleAdvancedDetails()">Показать технические детали</button>
+    </section>
+
+    <div id="advancedTickerDetails" style="display:none;">
     <section class="card">
       <h2>Технические детали сценария</h2>
 
@@ -449,6 +456,7 @@ def build_ticker_page_html(ticker: str) -> str:
         </tbody>
       </table>
     </section>
+    </div>
   </main>
 
   <script>
@@ -764,6 +772,20 @@ def build_ticker_page_html(ticker: str) -> str:
       }});
     }}
 
+    function toggleAdvancedDetails() {{
+      const box = document.getElementById("advancedTickerDetails");
+      const button = document.getElementById("advancedDetailsButton");
+
+      if (!box) return;
+
+      const isOpen = box.style.display === "block";
+      box.style.display = isOpen ? "none" : "block";
+
+      if (button) {{
+        button.textContent = isOpen ? "Показать технические детали" : "Скрыть технические детали";
+      }}
+    }}
+
     function startAutoRefresh() {{
       if (refreshTimer) {{
         clearInterval(refreshTimer);
@@ -778,6 +800,7 @@ def build_ticker_page_html(ticker: str) -> str:
 
     window.loadTicker = loadTicker;
     window.toggleForecastExplanation = toggleForecastExplanation;
+    window.toggleAdvancedDetails = toggleAdvancedDetails;
 
     loadTicker()
       .then(startAutoRefresh)
