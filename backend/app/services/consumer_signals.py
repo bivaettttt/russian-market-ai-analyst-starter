@@ -346,6 +346,16 @@ def _build_explanation(
         technical_factors.append(
             f"ML-модель оценила вероятность достижения цели в {int(round(ml_probability))}%."
         )
+
+        internal = assessment.get("internal") or {}
+        ml_adjustment = internal.get("ml_adjustment_pct")
+        ml_weight = internal.get("ml_weight")
+
+        if ml_adjustment is not None and ml_weight is not None:
+            direction = "повысила" if ml_adjustment > 0 else "снизила" if ml_adjustment < 0 else "не изменила"
+            technical_factors.append(
+                f"ML-корректировка {direction} итоговую вероятность на {abs(float(ml_adjustment)):.1f} п.п.; вес ML: {int(float(ml_weight) * 100)}%."
+            )
     elif ml_probability_result and ml_probability_result.get("reason") == "model_not_trained":
         risk_factors.append("ML-модель ещё не обучена, используется базовая вероятностная оценка.")
 
@@ -371,6 +381,70 @@ def _build_explanation(
     }
 
 
+def _adaptive_ml_weight(ml_probability: float | None) -> float:
+    if ml_probability is None:
+        return 0.0
+
+    # ML v2 evaluation:
+    # - ниже 30% модель полезна как понижающий фильтр;
+    # - 35–45% даёт лучший исторический lift;
+    # - выше 45% выборка пока маленькая, поэтому не усиливаем агрессивно.
+    if ml_probability < 20:
+        return 0.55
+
+    if ml_probability < 30:
+        return 0.45
+
+    if ml_probability < 35:
+        return 0.30
+
+    if ml_probability < 45:
+        return 0.45
+
+    return 0.25
+
+
+def _blend_rule_and_ml_probability(
+    rule_probability: float | None,
+    ml_probability: float | None,
+) -> dict[str, Any]:
+    if rule_probability is None and ml_probability is None:
+        return {
+            "probability": None,
+            "source": "none",
+            "ml_weight": 0.0,
+            "ml_adjustment_pct": None,
+        }
+
+    if rule_probability is None:
+        return {
+            "probability": round(float(ml_probability), 1) if ml_probability is not None else None,
+            "source": "ml_only",
+            "ml_weight": 1.0,
+            "ml_adjustment_pct": None,
+        }
+
+    if ml_probability is None:
+        return {
+            "probability": round(float(rule_probability), 1),
+            "source": "rule_only",
+            "ml_weight": 0.0,
+            "ml_adjustment_pct": 0.0,
+        }
+
+    ml_weight = _adaptive_ml_weight(ml_probability)
+    rule_weight = 1.0 - ml_weight
+
+    probability = round(rule_probability * rule_weight + ml_probability * ml_weight, 1)
+
+    return {
+        "probability": probability,
+        "source": "rule_ml_adaptive_blend",
+        "ml_weight": round(ml_weight, 2),
+        "ml_adjustment_pct": round(probability - rule_probability, 1),
+    }
+
+
 def build_consumer_forecast(
     ticker: str,
     instrument: dict[str, Any],
@@ -391,15 +465,14 @@ def build_consumer_forecast(
         else None
     )
 
-    if rule_probability is not None and ml_probability is not None:
-        base_probability = round(rule_probability * 0.60 + ml_probability * 0.40, 1)
-        probability_source = "rule_ml_blend"
-    elif ml_probability is not None:
-        base_probability = ml_probability
-        probability_source = "ml_only"
-    else:
-        base_probability = rule_probability
-        probability_source = "rule_only"
+    probability_blend = _blend_rule_and_ml_probability(
+        rule_probability=rule_probability,
+        ml_probability=ml_probability,
+    )
+    base_probability = probability_blend.get("probability")
+    probability_source = probability_blend.get("source")
+    ml_weight = probability_blend.get("ml_weight")
+    ml_adjustment_pct = probability_blend.get("ml_adjustment_pct")
 
     probability_assessment = build_probability_assessment(
         base_probability_pct=base_probability,
@@ -412,6 +485,11 @@ def build_consumer_forecast(
         events=events,
         horizon_days=20,
     )
+    probability_assessment.setdefault("internal", {})
+    probability_assessment["internal"]["ml_weight"] = ml_weight
+    probability_assessment["internal"]["ml_adjustment_pct"] = ml_adjustment_pct
+    probability_assessment["internal"]["probability_source"] = probability_source
+
     probability = probability_assessment.get("probability_pct")
     recommendation, tone = _recommendation_from_action(signal.get("action"), probability)
 
@@ -447,6 +525,8 @@ def build_consumer_forecast(
         "base_probability_pct": probability_assessment.get("base_probability_pct"),
         "rule_probability_pct": _round(rule_probability, 1),
         "ml_probability_pct": _round(ml_probability, 1),
+        "ml_weight": ml_weight,
+        "ml_adjustment_pct": ml_adjustment_pct,
         "probability_source": probability_source,
         "horizon": signal.get("horizon") or "1–4 недели",
         "risk_level": signal.get("risk_level"),
@@ -640,6 +720,8 @@ def build_consumer_signal_for_ticker(
             "target_probability_pct": forecast.get("target_probability_pct"),
             "rule_probability_pct": forecast.get("rule_probability_pct"),
             "ml_probability_pct": forecast.get("ml_probability_pct"),
+            "ml_weight": forecast.get("ml_weight"),
+            "ml_adjustment_pct": forecast.get("ml_adjustment_pct"),
             "probability_source": forecast.get("probability_source"),
             "target_price": forecast.get("target_price"),
             "forecast_range": forecast.get("forecast_range"),
