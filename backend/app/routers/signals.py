@@ -10,6 +10,17 @@ AIReportHTMLResponse = HTMLResponse
 
 router = APIRouter()
 
+
+# --- ML probability engine ---
+
+from app.services.ml_probability_engine import get_ml_probability_status
+
+
+@router.get("/signals/ml/status")
+def market_signals_ml_status():
+    return get_ml_probability_status()
+
+
 # --- Market signals dashboard ---
 
 from app.services.signals_data import list_market_signals

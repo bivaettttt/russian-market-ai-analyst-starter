@@ -50,3 +50,6 @@ backend/data/signal_model_state.json
 
 # Runtime candle update state
 backend/data/candle_update_state.json
+
+# Runtime ML artifacts
+backend/data/ml_probability_model.joblib
