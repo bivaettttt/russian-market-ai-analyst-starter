@@ -195,8 +195,8 @@ def train_ml_probability_model(
 
     model = GradientBoostingClassifier(
         random_state=42,
-        n_estimators=140,
-        learning_rate=0.035,
+        n_estimators=220,
+        learning_rate=0.025,
         max_depth=3,
         subsample=0.85,
     )
@@ -231,6 +231,8 @@ def train_ml_probability_model(
             "max_tickers": max_tickers,
             "max_samples": max_samples,
             "dataset_summary": summary,
+            "feature_set": dataset.get("feature_set"),
+            "feature_count": len(dataset.get("feature_names") or []),
             "train_samples": len(y_train),
             "calibration_samples": len(y_calibration),
             "test_samples": len(y_test),
@@ -290,6 +292,25 @@ def predict_ml_probability_for_ticker(
     artifact = joblib.load(path)
     model = artifact["model"]
     calibration_table = artifact.get("calibration_table") or []
+
+    artifact_features = artifact.get("feature_names") or []
+    current_features = feature_result.get("feature_names") or []
+    expected_count = len(artifact_features) or getattr(model, "n_features_in_", None)
+    actual_count = len(feature_result.get("features") or [])
+
+    if expected_count and actual_count != expected_count:
+        return {
+            "ok": False,
+            "reason": "feature_mismatch",
+            "message": (
+                f"ML artifact expects {expected_count} features, "
+                f"but current feature builder produced {actual_count}. Retrain the model."
+            ),
+            "artifact_feature_count": expected_count,
+            "current_feature_count": actual_count,
+            "artifact_feature_names": artifact_features,
+            "current_feature_names": current_features,
+        }
 
     raw_probability = float(model.predict_proba([feature_result["features"]])[0][1])
     calibrated_probability = _apply_bin_calibration(raw_probability, calibration_table)
