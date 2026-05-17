@@ -285,10 +285,34 @@ def build_ticker_page_html(ticker: str) -> str:
       overflow: hidden;
     }
 
-    .chart-svg {
+    .chart-container {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
+    }
+
+    .chart-tooltip {
+      position: absolute;
+      display: none;
+      z-index: 5;
+      min-width: 190px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 12px 30px rgba(16, 24, 40, 0.14);
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.45;
+      pointer-events: none;
+      backdrop-filter: blur(10px);
+    }
+
+    .chart-tooltip b {
       display: block;
+      font-size: 13px;
+      margin-bottom: 5px;
     }
 
     .chart-empty {
@@ -529,6 +553,7 @@ def build_ticker_page_html(ticker: str) -> str:
       .chart-box { height: 280px; }
     }
   </style>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -581,7 +606,7 @@ def build_ticker_page_html(ticker: str) -> str:
           <button class="active" onclick="scrollToBlock('overview')">Обзор</button>
           <button onclick="scrollToBlock('forecast')">Прогноз</button>
           <button onclick="scrollToBlock('stats')">Показатели</button>
-          <button onclick="scrollToBlock('explain')">Почему?</button>
+          <button onclick="openForecastExplanation()">Почему?</button>
         </div>
 
         <section class="panel">
@@ -602,7 +627,8 @@ def build_ticker_page_html(ticker: str) -> str:
           </div>
 
           <div class="chart-box">
-            <svg id="chartSvg" class="chart-svg" viewBox="0 0 900 360" preserveAspectRatio="none"></svg>
+            <div id="chartContainer" class="chart-container"></div>
+            <div id="chartTooltip" class="chart-tooltip"></div>
             <div id="chartEmpty" class="chart-empty">Недостаточно исторических данных для графика</div>
           </div>
         </section>
@@ -1108,6 +1134,340 @@ def build_ticker_page_html(ticker: str) -> str:
     }
 
 
+
+    let tvChart = null;
+    let tvSeries = null;
+    let tvResizeObserver = null;
+
+    function chartTime(value) {
+      const raw = String(value || "").trim();
+
+      if (!raw) return null;
+
+      if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) {
+        return raw;
+      }
+
+      const parsed = Date.parse(raw.replace(" ", "T"));
+
+      if (Number.isNaN(parsed)) {
+        return null;
+      }
+
+      return Math.floor(parsed / 1000);
+    }
+
+    function buildInteractiveLineData(candles) {
+      return candles
+        .map(item => ({
+          time: chartTime(item.date),
+          value: toNumber(item.close),
+        }))
+        .filter(item => item.time !== null && item.value !== null);
+    }
+
+    function buildInteractiveCandleData(candles) {
+      return candles
+        .map(item => ({
+          time: chartTime(item.date),
+          open: toNumber(item.open ?? item.close),
+          high: toNumber(item.high ?? item.close),
+          low: toNumber(item.low ?? item.close),
+          close: toNumber(item.close),
+        }))
+        .filter(item =>
+          item.time !== null &&
+          item.open !== null &&
+          item.high !== null &&
+          item.low !== null &&
+          item.close !== null
+        );
+    }
+
+    function destroyInteractiveChart() {
+      if (tvResizeObserver) {
+        tvResizeObserver.disconnect();
+        tvResizeObserver = null;
+      }
+
+      if (tvChart) {
+        tvChart.remove();
+        tvChart = null;
+        tvSeries = null;
+      }
+    }
+
+    function addCompatibleAreaSeries(chartInstance, options) {
+      if (typeof chartInstance.addAreaSeries === "function") {
+        return chartInstance.addAreaSeries(options);
+      }
+
+      if (window.LightweightCharts && window.LightweightCharts.AreaSeries && typeof chartInstance.addSeries === "function") {
+        return chartInstance.addSeries(window.LightweightCharts.AreaSeries, options);
+      }
+
+      throw new Error("Area series API недоступен в текущей версии lightweight-charts");
+    }
+
+    function addCompatibleCandlestickSeries(chartInstance, options) {
+      if (typeof chartInstance.addCandlestickSeries === "function") {
+        return chartInstance.addCandlestickSeries(options);
+      }
+
+      if (window.LightweightCharts && window.LightweightCharts.CandlestickSeries && typeof chartInstance.addSeries === "function") {
+        return chartInstance.addSeries(window.LightweightCharts.CandlestickSeries, options);
+      }
+
+      throw new Error("Candlestick series API недоступен в текущей версии lightweight-charts");
+    }
+
+
+    function createInteractiveChartInstance() {
+      const container = document.getElementById("chartContainer");
+      const tooltip = document.getElementById("chartTooltip");
+
+      if (!container || !window.LightweightCharts) return null;
+
+      const styles = getComputedStyle(document.documentElement);
+      const accent = styles.getPropertyValue("--accent").trim() || "#2563eb";
+
+      destroyInteractiveChart();
+
+      tvChart = LightweightCharts.createChart(container, {
+        width: container.clientWidth,
+        height: container.clientHeight,
+        layout: {
+          background: { color: "transparent" },
+          textColor: "#667085",
+          fontSize: 12,
+          fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif",
+        },
+        grid: {
+          vertLines: { color: "rgba(148, 163, 184, 0.12)" },
+          horzLines: { color: "rgba(148, 163, 184, 0.18)" },
+        },
+        crosshair: {
+          mode: LightweightCharts.CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+          borderVisible: false,
+          scaleMargins: {
+            top: 0.12,
+            bottom: 0.14,
+          },
+        },
+        timeScale: {
+          borderVisible: false,
+          timeVisible: chartPeriod === "1D" || chartPeriod === "1W",
+          secondsVisible: false,
+          rightOffset: 8,
+          barSpacing: chartType === "candles" ? 7 : 6,
+        },
+        handleScroll: {
+          mouseWheel: true,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: false,
+        },
+        handleScale: {
+          axisPressedMouseMove: true,
+          mouseWheel: true,
+          pinch: true,
+        },
+        localization: {
+          priceFormatter: price => Number(price).toLocaleString("ru-RU", {
+            maximumFractionDigits: 2,
+          }),
+        },
+      });
+
+      if (chartType === "candles") {
+        tvSeries = addCompatibleCandlestickSeries(tvChart, {
+          upColor: "#12b76a",
+          downColor: "#f04438",
+          borderUpColor: "#12b76a",
+          borderDownColor: "#f04438",
+          wickUpColor: "#12b76a",
+          wickDownColor: "#f04438",
+          priceLineVisible: true,
+        });
+      } else {
+        tvSeries = addCompatibleAreaSeries(tvChart, {
+          lineColor: accent,
+          topColor: `${accent}33`,
+          bottomColor: `${accent}04`,
+          lineWidth: 3,
+          priceLineVisible: true,
+        });
+      }
+
+      tvChart.subscribeCrosshairMove(param => {
+        if (!tooltip || !param || !param.point || !param.time || !param.seriesData) {
+          if (tooltip) tooltip.style.display = "none";
+          return;
+        }
+
+        const data = param.seriesData.get(tvSeries);
+
+        if (!data) {
+          tooltip.style.display = "none";
+          return;
+        }
+
+        if (chartType === "candles") {
+          tooltip.innerHTML = `
+            <b>${escapeHtml(String(param.time))}</b>
+            O: ${formatNumber(data.open)}<br>
+            H: ${formatNumber(data.high)}<br>
+            L: ${formatNumber(data.low)}<br>
+            C: ${formatNumber(data.close)}
+          `;
+        } else {
+          tooltip.innerHTML = `
+            <b>${escapeHtml(String(param.time))}</b>
+            Цена: ${formatNumber(data.value)}
+          `;
+        }
+
+        tooltip.style.display = "block";
+
+        const tooltipWidth = 210;
+        const tooltipHeight = 110;
+
+        let left = param.point.x + 16;
+        let top = param.point.y + 16;
+
+        if (left + tooltipWidth > container.clientWidth) {
+          left = param.point.x - tooltipWidth - 16;
+        }
+
+        if (top + tooltipHeight > container.clientHeight) {
+          top = param.point.y - tooltipHeight - 16;
+        }
+
+        tooltip.style.left = `${Math.max(8, left)}px`;
+        tooltip.style.top = `${Math.max(8, top)}px`;
+      });
+
+      tvResizeObserver = new ResizeObserver(entries => {
+        const entry = entries[0];
+
+        if (!entry || !tvChart) return;
+
+        tvChart.applyOptions({
+          width: Math.floor(entry.contentRect.width),
+          height: Math.floor(entry.contentRect.height),
+        });
+      });
+
+      tvResizeObserver.observe(container);
+
+      return tvChart;
+    }
+
+    function drawChart() {
+      const empty = document.getElementById("chartEmpty");
+      const container = document.getElementById("chartContainer");
+
+      if (!container) {
+        return;
+      }
+
+      if (!window.LightweightCharts) {
+        empty.style.display = "flex";
+        empty.textContent = "Не загрузилась библиотека интерактивного графика.";
+        return;
+      }
+
+      const candles = getVisibleCandles();
+
+      if (!candles.length || candles.length < 2) {
+        destroyInteractiveChart();
+        empty.style.display = "flex";
+        empty.textContent = "Недостаточно исторических данных для графика";
+        return;
+      }
+
+      const data = chartType === "candles"
+        ? buildInteractiveCandleData(candles)
+        : buildInteractiveLineData(candles);
+
+      if (!data.length || data.length < 2) {
+        destroyInteractiveChart();
+        empty.style.display = "flex";
+        empty.textContent = "Недостаточно корректных свечей для графика";
+        return;
+      }
+
+      empty.style.display = "none";
+
+      createInteractiveChartInstance();
+
+      tvSeries.setData(data);
+      tvChart.timeScale().fitContent();
+    }
+
+    async function setChartPeriod(period, button) {
+      chartPeriod = period;
+
+      document.querySelectorAll("[data-period]").forEach(item => item.classList.remove("active"));
+      if (button) button.classList.add("active");
+
+      await loadChartData();
+    }
+
+    function setChartType(type, button) {
+      chartType = type;
+
+      document.querySelectorAll("[data-chart]").forEach(item => item.classList.remove("active"));
+      if (button) button.classList.add("active");
+
+      drawChart();
+    }
+
+    async function loadChartData() {
+      const empty = document.getElementById("chartEmpty");
+      empty.style.display = "flex";
+      empty.textContent = "Загружаю график...";
+
+      try {
+        const chartPayload = await fetchJson(
+          `/tickers/${encodeURIComponent(TICKER)}/chart.json?period=${encodeURIComponent(chartPeriod)}&limit=1500`
+        );
+
+        allCandles = (chartPayload.candles || []).map(normalizeCandle).filter(Boolean);
+
+        if (!allCandles.length) {
+          empty.textContent = "Недостаточно исторических данных для графика";
+        }
+
+        drawChart();
+      } catch (error) {
+        allCandles = [];
+        destroyInteractiveChart();
+        empty.style.display = "flex";
+        empty.textContent = `Не удалось загрузить график: ${error.message}`;
+      }
+    }
+
+
+    function openForecastExplanation() {
+      scrollToBlock("forecast");
+
+      setTimeout(() => {
+        const box = document.getElementById("forecastExplanation");
+
+        if (!box) {
+          return;
+        }
+
+        if (box.style.display !== "block") {
+          toggleForecastExplanation();
+        }
+      }, 260);
+    }
+
+
     async function loadTicker() {
       applyAccent(TICKER);
 
@@ -1135,6 +1495,7 @@ def build_ticker_page_html(ticker: str) -> str:
     }
 
     window.toggleForecastExplanation = toggleForecastExplanation;
+    window.openForecastExplanation = openForecastExplanation;
     window.setChartPeriod = setChartPeriod;
     window.setChartType = setChartType;
     window.scrollToBlock = scrollToBlock;
