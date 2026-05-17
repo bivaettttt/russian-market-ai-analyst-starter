@@ -89,6 +89,7 @@ def consumer_signals_data_api(
     action: str | None = Query(None),
     min_probability: float | None = Query(None, ge=0, le=100),
     q: str | None = Query(None),
+    scenario: str = Query("all", description="all, long, downside или neutral"),
     db: Session = Depends(get_db),
 ):
     return list_consumer_signals(
@@ -98,6 +99,7 @@ def consumer_signals_data_api(
         min_probability=min_probability,
         candles_limit=candles_limit,
         q=q,
+        scenario=scenario,
     )
 
 

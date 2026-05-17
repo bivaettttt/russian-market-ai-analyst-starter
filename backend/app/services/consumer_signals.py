@@ -1461,10 +1461,33 @@ def list_consumer_signals(
     min_probability: float | None = None,
     candles_limit: int = 240,
     q: str | None = None,
+    scenario: str = "all",
 ) -> dict[str, Any]:
     from app.services.market_universe import search_instruments
 
     query_text = (q or "").strip()
+    scenario_filter = (scenario or "all").strip().lower()
+
+    if scenario_filter not in {"all", "long", "downside", "neutral"}:
+        scenario_filter = "all"
+
+    def _matches_scenario_filter(forecast: dict[str, Any]) -> bool:
+        if scenario_filter == "all":
+            return True
+
+        direction = str(forecast.get("scenario_direction") or "neutral").lower()
+        action_value = str(forecast.get("action") or "")
+
+        if scenario_filter == "downside":
+            return direction == "downside" or action_value == "avoid_downside_signal"
+
+        if scenario_filter == "long":
+            return direction in {"long", "neutral"} and action_value != "avoid_downside_signal"
+
+        if scenario_filter == "neutral":
+            return direction == "neutral"
+
+        return True
 
     search_result = search_instruments(
         db=db,
@@ -1486,6 +1509,9 @@ def list_consumer_signals(
             continue
 
         forecast = data.get("forecast") or {}
+
+        if not _matches_scenario_filter(forecast):
+            continue
 
         if action and forecast.get("action") != action:
             continue
@@ -1549,8 +1575,17 @@ def list_consumer_signals(
     watch_actions = {"watch", "watch_ml_confirmed", "watch_ml_rejected", "watch_bad_rr", "hold_watch"}
     risk_actions = {"avoid", "avoid_downside_signal", "avoid_bad_target", "avoid_bad_rr", "avoid_ml_filter", "avoid_ml_veto", "avoid_risk", "risk_sell_watch"}
 
+    scenario_counts = {
+        "long": sum(1 for row in rows if row.get("scenario_direction") == "long"),
+        "downside": sum(1 for row in rows if row.get("scenario_direction") == "downside"),
+        "neutral": sum(1 for row in rows if row.get("scenario_direction") == "neutral"),
+        "unknown": sum(1 for row in rows if not row.get("scenario_direction")),
+    }
+
     summary = {
         "total": len(rows),
+        "scenario_filter": scenario_filter,
+        "scenario_counts": scenario_counts,
         "positive": sum(1 for row in rows if row.get("action") in positive_actions),
         "watch": sum(1 for row in rows if row.get("action") in watch_actions),
         "risk": sum(1 for row in rows if row.get("action") in risk_actions),
@@ -1712,6 +1747,7 @@ def list_consumer_signals(
     return {
         "ok": True,
         "mode": "consumer",
+        "scenario": scenario_filter,
         "summary": summary,
         "diagnostics": diagnostics,
         "rows": rows,
