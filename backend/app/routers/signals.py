@@ -15,6 +15,7 @@ router = APIRouter()
 
 from app.services.ml_probability_engine import get_ml_probability_status
 from app.services.ml_probability_evaluation import evaluate_ml_probability_model
+from app.services.ml_model_report import build_ml_model_report
 
 
 @router.get("/signals/ml/status")
@@ -38,6 +39,29 @@ def market_signals_ml_evaluation(
         db=db,
         thresholds=threshold_values,
         max_samples=max_samples,
+    )
+
+
+
+
+@router.get("/signals/ml/report")
+def market_signals_ml_report(
+    thresholds: str = Query("0.25,0.30,0.35,0.40,0.45,0.50"),
+    max_samples: int | None = Query(12000, ge=1000, le=100000),
+    min_signals: int = Query(30, ge=1, le=10000),
+    db: Session = Depends(get_db),
+):
+    threshold_values = [
+        float(item.strip())
+        for item in thresholds.split(",")
+        if item.strip()
+    ]
+
+    return build_ml_model_report(
+        db=db,
+        thresholds=threshold_values,
+        max_samples=max_samples,
+        min_signals=min_signals,
     )
 
 
