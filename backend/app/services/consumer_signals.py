@@ -445,6 +445,104 @@ def _blend_rule_and_ml_probability(
     }
 
 
+def _consumer_signal_decision_gate(
+    probability: float | None,
+    reliability_level: str | None,
+    risk_level: str | None,
+    ml_adjustment_pct: float | None,
+    ml_probability_pct: float | None,
+) -> dict[str, Any]:
+    probability_value = _to_float(probability)
+    ml_adjustment = _to_float(ml_adjustment_pct)
+    ml_probability = _to_float(ml_probability_pct)
+
+    reliability = (reliability_level or "").lower()
+    risk = (risk_level or "").lower()
+
+    is_high_reliability = "выс" in reliability or "high" in reliability
+    is_medium_reliability = "сред" in reliability or "medium" in reliability
+    is_high_risk = "high" in risk or "выс" in risk or "risk" in risk or "риск" in risk
+
+    if probability_value is None:
+        return {
+            "action": "no_forecast",
+            "recommendation": "Недостаточно данных",
+            "decision": "Прогноз пока не строится",
+            "decision_level": "unknown",
+            "decision_reason": "Недостаточно данных для расчёта вероятности.",
+            "is_buy_candidate": False,
+        }
+
+    if is_high_risk and probability_value < 55:
+        return {
+            "action": "avoid_risk",
+            "recommendation": "Не покупать",
+            "decision": "Риск превышает ожидаемую доходность",
+            "decision_level": "negative",
+            "decision_reason": "Сигнал отфильтрован риск-блоком: вероятность недостаточна для текущего уровня риска.",
+            "is_buy_candidate": False,
+        }
+
+    if ml_adjustment is not None and ml_adjustment <= -10 and probability_value < 45:
+        return {
+            "action": "avoid_ml_filter",
+            "recommendation": "Не покупать",
+            "decision": "ML-фильтр снизил прогноз",
+            "decision_level": "negative",
+            "decision_reason": "ML-модель заметно снизила итоговую вероятность, поэтому сигнал не проходит потребительский фильтр.",
+            "is_buy_candidate": False,
+        }
+
+    if probability_value >= 65 and is_high_reliability:
+        return {
+            "action": "buy",
+            "recommendation": "Покупать",
+            "decision": "Сильный сигнал",
+            "decision_level": "positive",
+            "decision_reason": "Вероятность высокая, надёжность достаточная, риск-фильтр пройден.",
+            "is_buy_candidate": True,
+        }
+
+    if probability_value >= 58 and (is_high_reliability or is_medium_reliability):
+        return {
+            "action": "consider_buy",
+            "recommendation": "Рассмотреть покупку",
+            "decision": "Умеренно положительный сигнал",
+            "decision_level": "positive",
+            "decision_reason": "Вероятность выше среднего, но сигнал требует контроля риска и размера позиции.",
+            "is_buy_candidate": True,
+        }
+
+    if probability_value >= 45:
+        return {
+            "action": "watch",
+            "recommendation": "Наблюдать",
+            "decision": "Нейтральный сигнал",
+            "decision_level": "neutral",
+            "decision_reason": "Вероятность недостаточна для покупки, но инструмент стоит оставить в наблюдении.",
+            "is_buy_candidate": False,
+        }
+
+    if ml_probability is not None and ml_probability >= 40 and probability_value >= 40:
+        return {
+            "action": "watch_ml_confirmed",
+            "recommendation": "Наблюдать",
+            "decision": "Есть ML-подтверждение, но итоговая вероятность пока низкая",
+            "decision_level": "neutral",
+            "decision_reason": "ML показывает исторический lift, но итоговый consumer score ещё не дотягивает до покупки.",
+            "is_buy_candidate": False,
+        }
+
+    return {
+        "action": "avoid",
+        "recommendation": "Не покупать",
+        "decision": "Слабый сигнал",
+        "decision_level": "negative",
+        "decision_reason": "Итоговая вероятность ниже минимального порога для потребительского сигнала.",
+        "is_buy_candidate": False,
+    }
+
+
 def build_consumer_forecast(
     ticker: str,
     instrument: dict[str, Any],
@@ -485,12 +583,15 @@ def build_consumer_forecast(
         events=events,
         horizon_days=20,
     )
-    probability_assessment.setdefault("internal", {})
-    probability_assessment["internal"]["ml_weight"] = ml_weight
-    probability_assessment["internal"]["ml_adjustment_pct"] = ml_adjustment_pct
-    probability_assessment["internal"]["probability_source"] = probability_source
-
     probability = probability_assessment.get("probability_pct")
+
+    decision_gate = _consumer_signal_decision_gate(
+        probability=probability,
+        reliability_level=probability_assessment.get("reliability_level"),
+        risk_level=signal.get("risk_level"),
+        ml_adjustment_pct=ml_adjustment_pct,
+        ml_probability_pct=ml_probability,
+    )
     recommendation, tone = _recommendation_from_action(signal.get("action"), probability)
 
     potential_pct = _round(_pct_change(target_price, price))
@@ -513,9 +614,13 @@ def build_consumer_forecast(
         "is_signal_eligible": instrument.get("is_signal_eligible"),
         "price": _round(price),
         "trade_date": latest.get("trade_date"),
-        "recommendation": recommendation,
+        "recommendation": decision_gate.get("recommendation") or recommendation,
+        "decision": decision_gate.get("decision"),
+        "decision_level": decision_gate.get("decision_level"),
+        "decision_reason": decision_gate.get("decision_reason"),
+        "is_buy_candidate": decision_gate.get("is_buy_candidate"),
         "recommendation_tone": tone,
-        "action": signal.get("action"),
+        "action": decision_gate.get("action") or signal.get("action"),
         "target_price": _round(target_price),
         "forecast_price": _round(forecast_price),
         "forecast_range": forecast_range,
@@ -528,6 +633,12 @@ def build_consumer_forecast(
         "ml_weight": ml_weight,
         "ml_adjustment_pct": ml_adjustment_pct,
         "probability_source": probability_source,
+        "consumer_action": decision_gate.get("action"),
+        "recommendation": decision_gate.get("recommendation"),
+        "decision": decision_gate.get("decision"),
+        "decision_level": decision_gate.get("decision_level"),
+        "decision_reason": decision_gate.get("decision_reason"),
+        "is_buy_candidate": decision_gate.get("is_buy_candidate"),
         "horizon": signal.get("horizon") or "1–4 недели",
         "risk_level": signal.get("risk_level"),
         "reliability_level": probability_assessment.get("reliability_level"),
@@ -723,6 +834,12 @@ def build_consumer_signal_for_ticker(
             "ml_weight": forecast.get("ml_weight"),
             "ml_adjustment_pct": forecast.get("ml_adjustment_pct"),
             "probability_source": forecast.get("probability_source"),
+            "consumer_action": forecast.get("consumer_action"),
+            "recommendation": forecast.get("recommendation"),
+            "decision": forecast.get("decision"),
+            "decision_level": forecast.get("decision_level"),
+            "decision_reason": forecast.get("decision_reason"),
+            "is_buy_candidate": forecast.get("is_buy_candidate"),
             "target_price": forecast.get("target_price"),
             "forecast_range": forecast.get("forecast_range"),
             "horizon": forecast.get("horizon"),
