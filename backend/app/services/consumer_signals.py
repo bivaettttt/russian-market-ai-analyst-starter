@@ -779,6 +779,204 @@ def _consumer_signal_decision_gate(
     }
 
 
+
+def _build_position_sizing(
+    *,
+    action: str | None,
+    price: float | None,
+    target_price: float | None,
+    stop_loss: float | None,
+    probability: float | None,
+    risk_level: str | None,
+    reliability_level: str | None,
+    reliability_score: float | None,
+    ml_probability: float | None,
+    ml_regime_multiplier: float | None,
+    volatility_pct: float | None,
+) -> dict[str, Any]:
+    """Risk-adjusted position sizing for consumer signals.
+
+    This is not portfolio optimization. It is a conservative risk layer that
+    limits position size based on action quality, stop distance, reliability,
+    ML confirmation and volatility.
+    """
+
+    normalized_action = str(action or "").strip()
+    risk_text = str(risk_level or "").lower()
+    reliability_text = str(reliability_level or "").lower()
+
+    no_entry_actions = {
+        "avoid",
+        "avoid_ml_filter",
+        "avoid_ml_veto",
+        "avoid_risk",
+        "no_forecast",
+        "no_data",
+        "no_price",
+        "watch",
+        "watch_ml_confirmed",
+        "watch_ml_rejected",
+    }
+
+    if normalized_action in no_entry_actions:
+        return {
+            "allowed": False,
+            "position_action": "no_entry" if normalized_action.startswith("avoid") else "watch_only",
+            "max_position_pct": 0.0,
+            "risk_per_trade_pct": 0.0,
+            "stop_loss": _round(stop_loss),
+            "stop_distance_pct": None,
+            "target_price": _round(target_price),
+            "target_distance_pct": _round(_pct_change(target_price, price)),
+            "risk_reward_ratio": None,
+            "reason": "Вход запрещён или разрешено только наблюдение по текущему consumer decision gate.",
+            "risk_flags": [f"action={normalized_action}"],
+        }
+
+    if normalized_action == "buy":
+        base_position_pct = 6.0
+        base_risk_pct = 1.0
+        position_action = "buy"
+    elif normalized_action == "consider_buy":
+        base_position_pct = 3.5
+        base_risk_pct = 0.65
+        position_action = "starter_position"
+    else:
+        return {
+            "allowed": False,
+            "position_action": "watch_only",
+            "max_position_pct": 0.0,
+            "risk_per_trade_pct": 0.0,
+            "stop_loss": _round(stop_loss),
+            "stop_distance_pct": None,
+            "target_price": _round(target_price),
+            "target_distance_pct": _round(_pct_change(target_price, price)),
+            "risk_reward_ratio": None,
+            "reason": "Для текущего действия позиция не открывается.",
+            "risk_flags": [f"action={normalized_action}"],
+        }
+
+    risk_flags: list[str] = []
+    factor = 1.0
+
+    if "выс" in risk_text or "high" in risk_text or "risk" in risk_text or "риск" in risk_text:
+        factor *= 0.55
+        risk_flags.append("высокий риск сценария")
+    elif "сред" in risk_text or "medium" in risk_text:
+        factor *= 0.85
+        risk_flags.append("средний риск сценария")
+
+    if "низ" in reliability_text or "low" in reliability_text:
+        factor *= 0.60
+        risk_flags.append("низкая надёжность прогноза")
+    elif "выс" in reliability_text or "high" in reliability_text:
+        factor *= 1.08
+
+    score = _to_float(reliability_score)
+    if score is not None:
+        if score < 45:
+            factor *= 0.65
+            risk_flags.append("низкий reliability_score")
+        elif score >= 75:
+            factor *= 1.05
+
+    ml_value = _to_float(ml_probability)
+    if ml_value is not None:
+        if ml_value < 25:
+            factor *= 0.50
+            risk_flags.append("ML ниже 25%")
+        elif ml_value < 35:
+            factor *= 0.80
+            risk_flags.append("ML не даёт полноценного подтверждения")
+        elif 35 <= ml_value < 45:
+            factor *= 1.05
+        else:
+            factor *= 0.95
+
+    regime = _to_float(ml_regime_multiplier)
+    if regime is not None:
+        if regime >= 1.15:
+            factor *= 1.08
+        elif regime < 1.0:
+            factor *= 0.90
+            risk_flags.append("режим не усиливает ML")
+
+    vol = _to_float(volatility_pct)
+    if vol is not None:
+        if vol >= 4.0:
+            factor *= 0.60
+            risk_flags.append("повышенная волатильность")
+        elif vol >= 2.8:
+            factor *= 0.80
+            risk_flags.append("умеренно высокая волатильность")
+
+    derived_stop = False
+    stop_value = _to_float(stop_loss)
+
+    if price is not None and price > 0 and (stop_value is None or stop_value >= price):
+        default_stop_pct = min(max((vol or 2.0) * 1.8, 2.5), 8.0)
+        stop_value = price * (1 - default_stop_pct / 100)
+        derived_stop = True
+        risk_flags.append("стоп рассчитан автоматически")
+
+    stop_distance_pct = None
+    target_distance_pct = _pct_change(target_price, price)
+    risk_reward_ratio = None
+
+    if price is not None and price > 0 and stop_value is not None and stop_value < price:
+        stop_distance_pct = (price - stop_value) / price * 100
+
+    if (
+        stop_distance_pct is not None
+        and stop_distance_pct > 0
+        and target_distance_pct is not None
+        and target_distance_pct > 0
+    ):
+        risk_reward_ratio = target_distance_pct / stop_distance_pct
+
+        if risk_reward_ratio < 0.8:
+            factor *= 0.45
+            risk_flags.append("слабое соотношение цель/риск")
+        elif risk_reward_ratio < 1.2:
+            factor *= 0.70
+            risk_flags.append("умеренное соотношение цель/риск")
+        elif risk_reward_ratio >= 2.0:
+            factor *= 1.08
+
+    position_cap_pct = base_position_pct * factor
+    risk_per_trade_pct = base_risk_pct * min(factor, 1.0)
+
+    if stop_distance_pct is not None and stop_distance_pct > 0:
+        max_by_risk_pct = risk_per_trade_pct / stop_distance_pct * 100
+        position_cap_pct = min(position_cap_pct, max_by_risk_pct)
+
+    position_cap_pct = max(0.25, min(position_cap_pct, 7.0))
+    risk_per_trade_pct = max(0.10, min(risk_per_trade_pct, 1.0))
+
+    reason_parts = [
+        f"Базовый режим: {position_action}.",
+        f"Размер позиции ограничен до {position_cap_pct:.2f}% портфеля.",
+        f"Риск на сделку: {risk_per_trade_pct:.2f}% портфеля.",
+    ]
+
+    if risk_flags:
+        reason_parts.append("Факторы снижения: " + "; ".join(risk_flags[:5]) + ".")
+
+    return {
+        "allowed": True,
+        "position_action": position_action,
+        "max_position_pct": _round(position_cap_pct, 2),
+        "risk_per_trade_pct": _round(risk_per_trade_pct, 2),
+        "stop_loss": _round(stop_value),
+        "stop_source": "derived" if derived_stop else "signal",
+        "stop_distance_pct": _round(stop_distance_pct, 2),
+        "target_price": _round(target_price),
+        "target_distance_pct": _round(target_distance_pct, 2),
+        "risk_reward_ratio": _round(risk_reward_ratio, 2),
+        "reason": " ".join(reason_parts),
+        "risk_flags": risk_flags,
+    }
+
 def build_consumer_forecast(
     ticker: str,
     instrument: dict[str, Any],
@@ -793,6 +991,7 @@ def build_consumer_forecast(
     regime_features = _build_consumer_regime_features(candles)
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
+    stop_loss_value = _to_float(signal.get("stop_loss"))
     rule_probability = _calculate_target_probability(signal, technical, price, target_price, events)
     ml_probability = (
         _to_float((ml_probability_result or {}).get("ml_probability_pct"))
@@ -818,7 +1017,7 @@ def build_consumer_forecast(
         technical=technical,
         price=price,
         target_price=target_price,
-        stop_loss=_to_float(signal.get("stop_loss")),
+        stop_loss=stop_loss_value,
         events=events,
         horizon_days=20,
     )
@@ -844,6 +1043,20 @@ def build_consumer_forecast(
         high = _to_float(forecast_range.get("high"))
         low = _to_float(forecast_range.get("low"))
         forecast_price = _round((high + low) / 2) if high is not None and low is not None else target_price
+
+    position_sizing = _build_position_sizing(
+        action=decision_gate.get("action"),
+        price=price,
+        target_price=target_price,
+        stop_loss=stop_loss_value,
+        probability=probability,
+        risk_level=signal.get("risk_level"),
+        reliability_level=probability_assessment.get("reliability_level"),
+        reliability_score=probability_assessment.get("reliability_score"),
+        ml_probability=ml_probability,
+        ml_regime_multiplier=regime_multiplier,
+        volatility_pct=_to_float(technical.get("volatility_20d_pct")),
+    )
 
     return {
         "ticker": ticker,
@@ -884,7 +1097,9 @@ def build_consumer_forecast(
         "risk_level": signal.get("risk_level"),
         "reliability_level": probability_assessment.get("reliability_level"),
         "reliability_score": probability_assessment.get("reliability_score"),
-        "stop_loss": _round(signal.get("stop_loss")),
+        "stop_loss": _round(position_sizing.get("stop_loss")),
+        "position_sizing": position_sizing,
+        "risk_reward_ratio": position_sizing.get("risk_reward_ratio"),
         "explanation": _build_explanation(
             signal,
             technical,
@@ -1089,6 +1304,8 @@ def build_consumer_signal_for_ticker(
             "risk_level": forecast.get("risk_level"),
             "reliability_level": forecast.get("reliability_level"),
             "reliability_score": forecast.get("reliability_score"),
+            "position_sizing": forecast.get("position_sizing"),
+            "risk_reward_ratio": forecast.get("risk_reward_ratio"),
             "probability_assessment": forecast.get("probability_assessment"),
             "explanation": forecast.get("explanation"),
         },
@@ -1166,6 +1383,8 @@ def list_consumer_signals(
                 "risk_level": forecast.get("risk_level"),
                 "reliability_level": forecast.get("reliability_level"),
                 "reliability_score": forecast.get("reliability_score"),
+                "position_sizing": forecast.get("position_sizing"),
+                "risk_reward_ratio": forecast.get("risk_reward_ratio"),
                 "explanation": forecast.get("explanation"),
                 "ticker_url": f"/tickers/{ticker}",
             }
