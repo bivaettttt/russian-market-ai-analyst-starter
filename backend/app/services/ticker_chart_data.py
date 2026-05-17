@@ -329,3 +329,32 @@ def build_ticker_chart_data(
             "Если локальной истории мало, backend пробует загрузить свечи напрямую из MOEX ISS."
         ),
     }
+
+# --- Ticker alias resolver wrapper ---
+from app.services.ticker_aliases import apply_alias_metadata, resolve_ticker_alias
+
+_build_ticker_chart_data_without_alias = build_ticker_chart_data
+
+
+def build_ticker_chart_data(
+    db: Session,
+    ticker: str,
+    period: str = "1Y",
+    limit: int = 1000,
+) -> dict[str, Any]:
+    resolution = resolve_ticker_alias(ticker)
+    result = _build_ticker_chart_data_without_alias(
+        db=db,
+        ticker=resolution["resolved_ticker"],
+        period=period,
+        limit=limit,
+    )
+
+    if isinstance(result, dict):
+        apply_alias_metadata(result, resolution)
+
+    return result
+
+
+_ALIAS_AWARE_TICKER_CHART_WRAPPER = True
+

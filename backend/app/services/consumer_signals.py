@@ -945,3 +945,30 @@ def list_consumer_signals(
             "Вероятность — это оценка достижения указанной цели в заданном горизонте, а не гарантия результата.",
         ],
     }
+
+# --- Ticker alias resolver wrapper ---
+from app.services.ticker_aliases import apply_alias_metadata, resolve_ticker_alias
+
+_build_consumer_signal_for_ticker_without_alias = build_consumer_signal_for_ticker
+
+
+def build_consumer_signal_for_ticker(
+    db: Session,
+    ticker: str,
+    candles_limit: int = 240,
+) -> dict[str, Any]:
+    resolution = resolve_ticker_alias(ticker)
+    result = _build_consumer_signal_for_ticker_without_alias(
+        db=db,
+        ticker=resolution["resolved_ticker"],
+        candles_limit=candles_limit,
+    )
+
+    if isinstance(result, dict):
+        apply_alias_metadata(result, resolution)
+
+    return result
+
+
+_ALIAS_AWARE_CONSUMER_SIGNAL_WRAPPER = True
+

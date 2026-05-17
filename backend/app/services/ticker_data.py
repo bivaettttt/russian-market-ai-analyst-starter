@@ -441,3 +441,32 @@ def get_ticker_snapshot(
         "candles_count": len(candles),
         "auto_refresh_seconds": 60,
     }
+
+# --- Ticker alias resolver wrapper ---
+from typing import Any as _AliasAny
+
+from app.services.ticker_aliases import apply_alias_metadata, resolve_ticker_alias
+
+_get_ticker_snapshot_without_alias = get_ticker_snapshot
+
+
+def get_ticker_snapshot(
+    db,
+    ticker: str,
+    limit: int = 240,
+) -> dict[str, _AliasAny]:
+    resolution = resolve_ticker_alias(ticker)
+    result = _get_ticker_snapshot_without_alias(
+        db=db,
+        ticker=resolution["resolved_ticker"],
+        limit=limit,
+    )
+
+    if isinstance(result, dict):
+        apply_alias_metadata(result, resolution)
+
+    return result
+
+
+_ALIAS_AWARE_TICKER_DATA_WRAPPER = True
+
