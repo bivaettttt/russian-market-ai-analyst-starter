@@ -150,36 +150,58 @@ def _derive_target_price(
     technical: dict[str, Any],
 ) -> float | None:
     explicit_target = _to_float(signal.get("target_price"))
-    if explicit_target is not None:
-        return round(explicit_target, 2)
 
     if price is None:
-        return None
+        return round(explicit_target, 2) if explicit_target is not None else None
 
     action = signal.get("action")
     recent_high = _to_float(technical.get("recent_high"))
     recent_low = _to_float(technical.get("recent_low"))
     sma_20 = _to_float(technical.get("sma_20"))
+    sma_50 = _to_float(technical.get("sma_50"))
     volatility = _to_float(technical.get("volatility_20d_pct")) or 1.5
 
-    if action in {"buy_watch", "watch_buy"}:
-        candidate = max(
-            price * 1.035,
-            recent_high or price,
-            sma_20 or price,
-        )
-        return round(candidate, 2)
+    normalized_volatility = min(max(volatility, 1.0), 4.0)
 
     if action == "risk_sell_watch":
+        if explicit_target is not None and explicit_target < price:
+            return round(explicit_target, 2)
+
         candidate = min(
-            price * (1 - min(max(volatility, 1.0), 4.0) / 100 * 2),
+            price * (1 - normalized_volatility / 100 * 2),
             recent_low or price,
         )
         return round(candidate, 2)
 
-    spread = min(max(volatility, 1.0), 3.5) / 100 * 1.5
-    candidate = max(price * (1 + spread), recent_high or price)
-    return round(candidate, 2)
+    # Consumer long targets must not be almost equal to current price.
+    # If an upstream model gives a tiny target like +0.2%, normalize it
+    # using volatility and nearby technical levels.
+    min_upside_pct = max(2.8, min(5.5, normalized_volatility * 1.8))
+    minimum_consumer_target = price * (1 + min_upside_pct / 100)
+
+    candidates = [minimum_consumer_target]
+
+    if explicit_target is not None and explicit_target > price * 1.02:
+        candidates.append(explicit_target)
+
+    if recent_high is not None and recent_high > price * 1.01:
+        candidates.append(recent_high)
+
+    if sma_20 is not None and sma_20 > price * 1.01:
+        candidates.append(sma_20)
+
+    if sma_50 is not None and sma_50 > price * 1.01:
+        candidates.append(sma_50)
+
+    if action in {"buy_watch", "watch_buy"}:
+        candidates.append(price * 1.035)
+
+    candidate = max(candidates)
+
+    # Do not create unrealistic consumer targets from a single noisy level.
+    max_reasonable_target = price * (1 + max(8.0, normalized_volatility * 3.2) / 100)
+
+    return round(min(candidate, max_reasonable_target), 2)
 
 
 def _derive_forecast_range(
