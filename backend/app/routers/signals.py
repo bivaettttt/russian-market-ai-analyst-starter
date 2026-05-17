@@ -16,6 +16,7 @@ router = APIRouter()
 from app.services.ml_probability_engine import get_ml_probability_status
 from app.services.ml_probability_evaluation import evaluate_ml_probability_model
 from app.services.ml_model_report import build_ml_model_report
+from app.services.ml_model_report_page_html import build_ml_model_report_page_html
 
 
 @router.get("/signals/ml/status")
@@ -63,6 +64,13 @@ def market_signals_ml_report(
         max_samples=max_samples,
         min_signals=min_signals,
     )
+
+
+
+
+@router.get("/signals/ml/report-page", response_class=AIReportHTMLResponse)
+def market_signals_ml_report_page():
+    return build_ml_model_report_page_html()
 
 
 # --- Market signals dashboard ---
