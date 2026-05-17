@@ -14,11 +14,31 @@ router = APIRouter()
 # --- ML probability engine ---
 
 from app.services.ml_probability_engine import get_ml_probability_status
+from app.services.ml_probability_evaluation import evaluate_ml_probability_model
 
 
 @router.get("/signals/ml/status")
 def market_signals_ml_status():
     return get_ml_probability_status()
+
+
+@router.get("/signals/ml/evaluation")
+def market_signals_ml_evaluation(
+    thresholds: str = Query("0.30,0.35,0.40,0.45,0.50,0.55,0.60"),
+    max_samples: int | None = Query(None, ge=1000, le=100000),
+    db: Session = Depends(get_db),
+):
+    threshold_values = [
+        float(item.strip())
+        for item in thresholds.split(",")
+        if item.strip()
+    ]
+
+    return evaluate_ml_probability_model(
+        db=db,
+        thresholds=threshold_values,
+        max_samples=max_samples,
+    )
 
 
 # --- Market signals dashboard ---
