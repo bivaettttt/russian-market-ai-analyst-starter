@@ -657,6 +657,7 @@ def build_ticker_page_html(ticker: str) -> str:
         <section id="forecast" class="section panel">
           <h2>Сводный прогноз</h2>
           <div id="forecastNotice" class="notice"></div>
+          <div id="tickerAliasSuggestion" class="notice" style="display:none;"></div>
 
           <div class="forecast-grid">
             <div class="forecast-cell">
@@ -716,6 +717,17 @@ def build_ticker_page_html(ticker: str) -> str:
 
   <script>
     const TICKER = "__TICKER__";
+    const TICKER_ALIASES = {
+      YNDX: {
+        ticker: "YDEX",
+        reason: "Старый тикер Яндекса. В локальном справочнике найден актуальный тикер МКПАО ЯНДЕКС."
+      },
+      PAZL: {
+        ticker: "PAZA",
+        reason: "Найден похожий актуальный тикер в локальном справочнике MOEX."
+      }
+    };
+
     let latestPayload = null;
     let allCandles = [];
     let chartPeriod = "1Y";
@@ -936,7 +948,7 @@ def build_ticker_page_html(ticker: str) -> str:
       ).trim();
     }
 
-    function setPortfolioCtaEnabled(enabled, label) {
+    function setPortfolioCtaEnabled(enabled, label, href = "/portfolio/construct/demo") {
       const button = document.getElementById("portfolioCta");
 
       if (!button) return;
@@ -946,7 +958,7 @@ def build_ticker_page_html(ticker: str) -> str:
 
       if (enabled) {
         button.onclick = () => {
-          window.location.href = "/portfolio/construct/demo";
+          window.location.href = href;
         };
       } else {
         button.onclick = event => {
@@ -955,6 +967,31 @@ def build_ticker_page_html(ticker: str) -> str:
         };
       }
     }
+
+    function renderTickerAliasSuggestion(ticker) {
+      const box = document.getElementById("tickerAliasSuggestion");
+
+      if (!box) return;
+
+      const normalizedTicker = String(ticker || "").toUpperCase();
+      const alias = TICKER_ALIASES[normalizedTicker];
+
+      if (!alias) {
+        box.style.display = "block";
+        box.innerHTML = "Актуальный тикер-замена в локальной базе не найден. Попробуйте поиск по названию компании или обновите справочник инструментов.";
+        return;
+      }
+
+      box.style.display = "block";
+      box.innerHTML = `
+        Возможно, вы искали <b>${escapeHtml(alias.ticker)}</b>.
+        <div style="margin-top:10px;">
+          <a class="btn primary" href="/ticker/${encodeURIComponent(alias.ticker)}">Открыть ${escapeHtml(alias.ticker)}</a>
+        </div>
+        <div class="muted" style="margin-top:8px;">${escapeHtml(alias.reason || "")}</div>
+      `;
+    }
+
 
     function renderUnavailableTicker(payload) {
       latestPayload = payload;
@@ -983,10 +1020,16 @@ def build_ticker_page_html(ticker: str) -> str:
       setText("sideChange", "—");
 
       setText("companyTitle", `О компании ${ticker}`);
-      setText(
-        "companyDescription",
-        `${ticker} (${ticker}) — инструмент не найден в локальном справочнике MOEX. Для анализа нужно обновить справочник инструментов и исторические свечи.`
-      );
+
+      const aliasText = TICKER_ALIASES[ticker]
+        ? ` Возможно, актуальный тикер: ${TICKER_ALIASES[ticker].ticker}.`
+        : "";
+
+      const unavailableAboutText =
+        `${ticker} (${ticker}) — инструмент не найден в локальном справочнике MOEX. Для анализа нужно обновить справочник инструментов и исторические свечи.${aliasText}`;
+
+      setText("companyDescription", unavailableAboutText);
+      setText("aboutText", unavailableAboutText);
 
       setText("forecastPrice", "—");
       setText("forecastPotential", "—");
@@ -1000,7 +1043,19 @@ def build_ticker_page_html(ticker: str) -> str:
       setText("stat20Change", "—");
       setText("statHorizon", "—");
 
-      setPortfolioCtaEnabled(false, "Недоступно");
+      const alias = TICKER_ALIASES[ticker];
+
+      if (alias) {
+        setPortfolioCtaEnabled(
+          true,
+          `Открыть ${alias.ticker}`,
+          `/ticker/${encodeURIComponent(alias.ticker)}`
+        );
+      } else {
+        setPortfolioCtaEnabled(false, "Недоступно");
+      }
+
+      renderTickerAliasSuggestion(ticker);
 
       const notice = document.getElementById("forecastNotice");
       if (notice) {
@@ -1029,6 +1084,12 @@ def build_ticker_page_html(ticker: str) -> str:
       }
 
       setPortfolioCtaEnabled(true, "Добавить в портфель");
+
+      const aliasBox = document.getElementById("tickerAliasSuggestion");
+      if (aliasBox) {
+        aliasBox.style.display = "none";
+        aliasBox.innerHTML = "";
+      }
 
       const forecast = extractForecast(payload);
       const latest = extractLatest(payload);
