@@ -535,7 +535,7 @@ def build_ticker_page_html(ticker: str) -> str:
     <div class="topbar-inner">
       <a class="brand" href="/signals">
         <span class="brand-mark">AI</span>
-        <span>StockPilot AI</span>
+        <span>AI Аналитик рынка</span>
       </a>
       <nav class="nav">
         <a href="/dashboard">Обзор</a>
