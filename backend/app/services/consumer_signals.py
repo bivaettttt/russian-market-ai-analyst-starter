@@ -393,6 +393,267 @@ def _event_direction_score(event: dict[str, Any]) -> int:
     return 0
 
 
+
+def _as_text_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    if isinstance(value, tuple | set):
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    raw = str(value).replace(";", ",").replace("|", ",")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _event_blob(event: dict[str, Any]) -> str:
+    parts = [
+        event.get("title"),
+        event.get("event_type"),
+        event.get("impact"),
+        event.get("source"),
+        event.get("reasoning"),
+        event.get("affected_assets"),
+        event.get("sectors"),
+    ]
+
+    return " ".join(str(part or "") for part in parts).lower()
+
+
+def _source_reliability_score(event: dict[str, Any]) -> int:
+    source = str(event.get("source") or "").lower()
+    url = str(event.get("url") or "").lower()
+    blob = f"{source} {url}"
+
+    official_sources = [
+        "cbr.ru",
+        "moex.com",
+        "e-disclosure",
+        "e-disclosure.ru",
+        "disclosure",
+        "минфин",
+        "minfin",
+        "government",
+        "правительство",
+    ]
+
+    strong_media = [
+        "interfax",
+        "tass",
+        "rbc",
+        "vedomosti",
+        "kommersant",
+        "forbes",
+    ]
+
+    if any(marker in blob for marker in official_sources):
+        return 95
+
+    if any(marker in blob for marker in strong_media):
+        return 82
+
+    if "company" in blob or "issuer" in blob or "эмитент" in blob:
+        return 88
+
+    if source:
+        return 65
+
+    return 45
+
+
+def _event_scope(
+    event: dict[str, Any],
+    *,
+    ticker: str | None,
+    instrument: dict[str, Any] | None,
+) -> str:
+    ticker_text = str(ticker or "").upper().strip()
+    name_text = str((instrument or {}).get("name") or "").lower().strip()
+    blob = _event_blob(event)
+    event_type = str(event.get("event_type") or "").lower()
+
+    affected_assets = [item.upper() for item in _as_text_list(event.get("affected_assets"))]
+    sectors = _as_text_list(event.get("sectors"))
+
+    if ticker_text and ticker_text in affected_assets:
+        return "company"
+
+    if ticker_text and ticker_text.lower() in blob:
+        return "company"
+
+    if name_text and len(name_text) >= 4 and name_text in blob:
+        return "company"
+
+    if sectors or event_type in {"banking", "consumer_finance", "commodities", "oil", "gas", "metals"}:
+        return "sector"
+
+    if event_type in {"rates", "bonds", "fx", "macro", "regulation", "sanctions"}:
+        return "macro"
+
+    return "market"
+
+
+def _ticker_relevance_score(
+    event: dict[str, Any],
+    *,
+    ticker: str | None,
+    instrument: dict[str, Any] | None,
+) -> int:
+    ticker_text = str(ticker or "").upper().strip()
+    name_text = str((instrument or {}).get("name") or "").lower().strip()
+    blob = _event_blob(event)
+    event_type = str(event.get("event_type") or "").lower()
+
+    affected_assets = [item.upper() for item in _as_text_list(event.get("affected_assets"))]
+    sectors = [item.lower() for item in _as_text_list(event.get("sectors"))]
+
+    if ticker_text and ticker_text in affected_assets:
+        return 98
+
+    if ticker_text and ticker_text.lower() in blob:
+        return 90
+
+    if name_text and len(name_text) >= 4 and name_text in blob:
+        return 86
+
+    if affected_assets and any(item in {"IMOEX", "MOEX", "RUB", "USD", "CNY", "ALL", "MARKET"} for item in affected_assets):
+        return 48
+
+    if event_type in {"rates", "fx", "bonds", "macro"}:
+        return 45
+
+    if event_type in {"regulation", "sanctions"}:
+        return 55
+
+    if event_type in {"banking", "consumer_finance"}:
+        instrument_name = name_text
+        if any(marker in instrument_name for marker in ["банк", "bank", "сбер", "втб", "тинькофф"]):
+            return 72
+        return 46
+
+    if sectors:
+        return 58
+
+    return 35
+
+
+def _apply_news_relevance_scoring(
+    *,
+    news_assessment: dict[str, Any],
+    events: list[dict[str, Any]],
+    ticker: str | None,
+    instrument: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not news_assessment.get("has_events") or not events:
+        news_assessment.update(
+            {
+                "ticker_relevance_score": 0,
+                "source_reliability_score": 0,
+                "event_scope": "none",
+                "news_effect": "none",
+                "relevance_events": [],
+            }
+        )
+        return news_assessment
+
+    enriched_events: list[dict[str, Any]] = []
+    relevance_weighted = 0.0
+    reliability_weighted = 0.0
+    total_weight = 0.0
+    scopes: dict[str, int] = {}
+
+    for event in events[:8]:
+        importance = _to_float(event.get("importance")) or 5.0
+        importance = min(max(importance, 1.0), 10.0)
+
+        relevance = _ticker_relevance_score(
+            event,
+            ticker=ticker,
+            instrument=instrument,
+        )
+        reliability = _source_reliability_score(event)
+        scope = _event_scope(
+            event,
+            ticker=ticker,
+            instrument=instrument,
+        )
+
+        total_weight += importance
+        relevance_weighted += relevance * importance
+        reliability_weighted += reliability * importance
+        scopes[scope] = scopes.get(scope, 0) + 1
+
+        enriched_events.append(
+            {
+                "title": event.get("title"),
+                "source": event.get("source"),
+                "impact": event.get("impact"),
+                "importance": event.get("importance"),
+                "scope": scope,
+                "ticker_relevance_score": relevance,
+                "source_reliability_score": reliability,
+            }
+        )
+
+    ticker_relevance = int(round(relevance_weighted / total_weight, 0)) if total_weight else 0
+    source_reliability = int(round(reliability_weighted / total_weight, 0)) if total_weight else 0
+    event_scope = max(scopes.items(), key=lambda item: item[1])[0] if scopes else "market"
+
+    original_adjustment = _to_float(news_assessment.get("adjustment_pct")) or 0.0
+
+    relevance_factor = _clamp(ticker_relevance / 100.0, 0.15, 1.0)
+    reliability_factor = _clamp(source_reliability / 100.0, 0.45, 1.0)
+
+    adjusted = round(original_adjustment * relevance_factor * reliability_factor, 1)
+
+    sentiment = str(news_assessment.get("sentiment") or "none")
+    impact_score = _to_float(news_assessment.get("impact_score")) or 0
+    confidence = _to_float(news_assessment.get("confidence")) or 0
+
+    if ticker_relevance < 35:
+        adjusted = round(_clamp(adjusted, -0.8, 0.8), 1)
+        news_effect = "info_only"
+    elif sentiment == "negative" and impact_score >= 80 and confidence >= 70 and ticker_relevance >= 65:
+        news_effect = "veto"
+    elif adjusted >= 0.8:
+        news_effect = "boost"
+    elif adjusted <= -0.8:
+        news_effect = "penalty"
+    else:
+        news_effect = "info_only"
+
+    news_assessment["adjustment_pct"] = adjusted
+    news_assessment["ticker_relevance_score"] = ticker_relevance
+    news_assessment["source_reliability_score"] = source_reliability
+    news_assessment["event_scope"] = event_scope
+    news_assessment["news_effect"] = news_effect
+    news_assessment["relevance_events"] = enriched_events[:5]
+
+    base_summary = str(news_assessment.get("summary") or "").strip()
+    relevance_summary = (
+        f" Релевантность к тикеру: {ticker_relevance}/100; "
+        f"надёжность источников: {source_reliability}/100; "
+        f"scope={event_scope}; effect={news_effect}."
+    )
+
+    news_assessment["summary"] = (base_summary + relevance_summary).strip()
+
+    risk_flags = list(news_assessment.get("risk_flags") or [])
+
+    if news_effect == "veto":
+        risk_flags.append("новостной veto: сильный релевантный негатив")
+    elif news_effect == "penalty":
+        risk_flags.append("релевантный негативный новостной фон")
+    elif news_effect == "info_only":
+        risk_flags.append("новость учитывается информационно, влияние ограничено")
+
+    news_assessment["risk_flags"] = risk_flags
+
+    return news_assessment
+
+
 def _build_news_assessment(
     *,
     events: list[dict[str, Any]],
@@ -1315,6 +1576,12 @@ def build_consumer_forecast(
         events=events,
         scenario_direction=scenario_direction,
     )
+    news_assessment = _apply_news_relevance_scoring(
+        news_assessment=news_assessment,
+        events=events,
+        ticker=str((instrument or {}).get("ticker") or ""),
+        instrument=instrument,
+    )
     ml_probability = (
         _to_float((ml_probability_result or {}).get("ml_probability_pct"))
         if ml_probability_result and ml_probability_result.get("ok")
@@ -1444,6 +1711,10 @@ def build_consumer_forecast(
         "ml_adjustment_pct": ml_adjustment_pct,
         "probability_source": f"{probability_source}_news" if news_assessment.get("has_events") else probability_source,
         "news_adjustment_pct": _round(news_adjustment_pct, 1),
+        "news_effect": news_assessment.get("news_effect"),
+        "news_relevance_score": news_assessment.get("ticker_relevance_score"),
+        "news_source_reliability_score": news_assessment.get("source_reliability_score"),
+        "news_event_scope": news_assessment.get("event_scope"),
         "news_assessment": news_assessment,
         "news_risk_flags": news_assessment.get("risk_flags") or [],
         "ml_regime_multiplier": regime_multiplier,
@@ -1664,6 +1935,10 @@ def build_consumer_signal_for_ticker(
             "ml_regime_reason": forecast.get("ml_regime_reason"),
             "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
+            "news_effect": forecast.get("news_effect"),
+            "news_relevance_score": forecast.get("news_relevance_score"),
+            "news_source_reliability_score": forecast.get("news_source_reliability_score"),
+            "news_event_scope": forecast.get("news_event_scope"),
             "news_assessment": forecast.get("news_assessment"),
             "news_risk_flags": forecast.get("news_risk_flags"),
             "source_signal_action": forecast.get("source_signal_action"),
@@ -1780,6 +2055,10 @@ def list_consumer_signals(
                 "ml_regime_reason": forecast.get("ml_regime_reason"),
                 "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
+            "news_effect": forecast.get("news_effect"),
+            "news_relevance_score": forecast.get("news_relevance_score"),
+            "news_source_reliability_score": forecast.get("news_source_reliability_score"),
+            "news_event_scope": forecast.get("news_event_scope"),
             "news_assessment": forecast.get("news_assessment"),
             "news_risk_flags": forecast.get("news_risk_flags"),
                 "source_signal_action": forecast.get("source_signal_action"),
@@ -1948,6 +2227,10 @@ def list_consumer_signals(
                 "ml_weight": row.get("ml_weight"),
                 "ml_regime_multiplier": row.get("ml_regime_multiplier"),
                 "news_adjustment_pct": row.get("news_adjustment_pct"),
+                "news_effect": row.get("news_effect"),
+                "news_relevance_score": row.get("news_relevance_score"),
+                "news_source_reliability_score": row.get("news_source_reliability_score"),
+                "news_event_scope": row.get("news_event_scope"),
                 "news_sentiment": (row.get("news_assessment") or {}).get("sentiment"),
                 "news_sentiment_score": (row.get("news_assessment") or {}).get("sentiment_score"),
                 "news_summary": (row.get("news_assessment") or {}).get("summary"),
