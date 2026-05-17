@@ -97,3 +97,53 @@ class MoexClient:
                 }
             )
         return result
+
+    async def get_all_share_securities(
+        self,
+        market: str = "shares",
+        engine: str = "stock",
+    ) -> list[dict[str, Any]]:
+        """Fetch a broad MOEX shares universe across market boards.
+
+        MOEX returns many rows because the same SECID may be traded on several boards.
+        The universe service later chooses the preferred board per ticker.
+        """
+        url = f"{self.base_url}/engines/{engine}/markets/{market}/securities.json"
+        params: dict[str, Any] = {"iss.meta": "off"}
+
+        result: list[dict[str, Any]] = []
+        start = 0
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            while True:
+                response = await client.get(url, params={**params, "start": start})
+                response.raise_for_status()
+                payload = response.json()
+
+                block = payload.get("securities", {})
+                columns = block.get("columns", [])
+                data = block.get("data", [])
+
+                if not data:
+                    break
+
+                for item in data:
+                    raw = dict(zip(columns, item, strict=False))
+                    board = raw.get("BOARDID") or raw.get("BOARDID_LIST") or raw.get("PRIMARY_BOARDID") or ""
+                    result.append(
+                        {
+                            "ticker": raw.get("SECID"),
+                            "short_name": raw.get("SHORTNAME"),
+                            "name": raw.get("SECNAME") or raw.get("NAME"),
+                            "isin": raw.get("ISIN"),
+                            "board": board or "TQBR",
+                            "lot_size": raw.get("LOTSIZE") or raw.get("LOTVALUE") or 1,
+                        }
+                    )
+
+                if len(data) < 100:
+                    break
+                start += len(data)
+
+        return result
+

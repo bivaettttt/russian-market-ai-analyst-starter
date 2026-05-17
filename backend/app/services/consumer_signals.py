@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models import MarketEvent
 from app.services.ticker_data import get_ticker_snapshot
+from app.services.consumer_probability import build_probability_assessment
 
 CONSUMER_SIGNAL_MODEL_VERSION = "tech_v4_quality_rr"
 
@@ -295,6 +296,7 @@ def _build_explanation(
     technical: dict[str, Any],
     events: list[dict[str, Any]],
     probability: float | None,
+    probability_assessment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     technical_factors = []
 
@@ -329,10 +331,27 @@ def _build_explanation(
     if signal.get("risk_reward_ratio") is not None:
         risk_factors.append(f"Соотношение потенциальной цели и риска: {signal.get('risk_reward_ratio')}.")
 
+    assessment = probability_assessment or {}
+    reliability_level = assessment.get("reliability_level")
+    reliability_reasons = assessment.get("reliability_reasons") or []
+    calibration = assessment.get("calibration") or {}
+    liquidity = assessment.get("liquidity") or {}
+
+    if reliability_level:
+        risk_factors.append(f"Надёжность прогноза: {reliability_level}.")
+    for reason in reliability_reasons[:3]:
+        risk_factors.append(str(reason).capitalize() + ".")
+    if calibration.get("samples"):
+        risk_factors.append(
+            f"Историческая проверка похожей цели: {calibration.get('success')} из {calibration.get('samples')} сценариев дошли до цели раньше стопа."
+        )
+    if liquidity.get("liquidity_bucket") == "low":
+        risk_factors.append("Ликвидность ниже комфортной — возможны проскальзывание и резкие движения.")
+
     return {
         "summary": (
             f"Вероятность {int(probability) if probability is not None else '—'}% рассчитана по технической картине, "
-            "объёму, близости цели, риску сценария и доступным событиям по компании."
+            "исторической проверке достижения цели раньше стопа, ликвидности, объёму, риску сценария и доступным событиям."
         ),
         "technical": technical_factors or ["Технических факторов недостаточно."],
         "news": news_factors,
@@ -352,7 +371,19 @@ def build_consumer_forecast(
     price = _to_float(latest.get("close"))
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
-    probability = _calculate_target_probability(signal, technical, price, target_price, events)
+    base_probability = _calculate_target_probability(signal, technical, price, target_price, events)
+    probability_assessment = build_probability_assessment(
+        base_probability_pct=base_probability,
+        candles=candles,
+        signal=signal,
+        technical=technical,
+        price=price,
+        target_price=target_price,
+        stop_loss=_to_float(signal.get("stop_loss")),
+        events=events,
+        horizon_days=20,
+    )
+    probability = probability_assessment.get("probability_pct")
     recommendation, tone = _recommendation_from_action(signal.get("action"), probability)
 
     potential_pct = _round(_pct_change(target_price, price))
@@ -382,10 +413,14 @@ def build_consumer_forecast(
         "potential_abs": potential_abs,
         "potential_pct": potential_pct,
         "target_probability_pct": probability,
+        "base_probability_pct": probability_assessment.get("base_probability_pct"),
         "horizon": signal.get("horizon") or "1–4 недели",
         "risk_level": signal.get("risk_level"),
+        "reliability_level": probability_assessment.get("reliability_level"),
+        "reliability_score": probability_assessment.get("reliability_score"),
         "stop_loss": _round(signal.get("stop_loss")),
-        "explanation": _build_explanation(signal, technical, events, probability),
+        "explanation": _build_explanation(signal, technical, events, probability, probability_assessment),
+        "probability_assessment": probability_assessment,
         "events": events,
         "internal": {
             "engine": CONSUMER_SIGNAL_MODEL_VERSION,
@@ -457,6 +492,9 @@ def build_consumer_signal_for_ticker(
             "forecast_range": forecast.get("forecast_range"),
             "horizon": forecast.get("horizon"),
             "risk_level": forecast.get("risk_level"),
+            "reliability_level": forecast.get("reliability_level"),
+            "reliability_score": forecast.get("reliability_score"),
+            "probability_assessment": forecast.get("probability_assessment"),
             "explanation": forecast.get("explanation"),
         },
     }
@@ -468,10 +506,18 @@ def list_consumer_signals(
     action: str | None = None,
     min_probability: float | None = None,
     candles_limit: int = 240,
+    q: str | None = None,
 ) -> dict[str, Any]:
     from app.services.signals_data import list_market_tickers
+    from app.services.market_universe import search_instruments
 
-    tickers = list_market_tickers(db=db, limit=limit)
+    query_text = (q or "").strip()
+
+    if query_text:
+        search_result = search_instruments(db=db, q=query_text, limit=limit, only_with_candles=True)
+        tickers = [row.get("ticker") for row in search_result.get("rows") or [] if row.get("ticker")]
+    else:
+        tickers = list_market_tickers(db=db, limit=limit)
     rows: list[dict[str, Any]] = []
 
     for ticker in tickers:
@@ -506,6 +552,8 @@ def list_consumer_signals(
                 "potential_pct": forecast.get("potential_pct"),
                 "horizon": forecast.get("horizon"),
                 "risk_level": forecast.get("risk_level"),
+                "reliability_level": forecast.get("reliability_level"),
+                "reliability_score": forecast.get("reliability_score"),
                 "explanation": forecast.get("explanation"),
                 "ticker_url": f"/tickers/{ticker}",
             }

@@ -511,6 +511,12 @@ from fastapi.responses import RedirectResponse as AIReportRedirectResponse
 
 
 
+# --- Market universe / ticker search router ---
+
+from app.routers.market_universe import router as market_universe_router
+
+app.include_router(market_universe_router)
+
 # --- Ticker pages and live-ish data ---
 
 from app.services.ticker_data import get_ticker_snapshot

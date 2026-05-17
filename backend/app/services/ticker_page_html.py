@@ -148,7 +148,7 @@ def build_ticker_page_html(ticker: str) -> str:
 
     .forecast-grid {{
       display: grid;
-      grid-template-columns: 1.3fr 1fr 1fr 1fr;
+      grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr;
       gap: 14px;
       margin-top: 16px;
     }}
@@ -212,6 +212,7 @@ def build_ticker_page_html(ticker: str) -> str:
     <h1 id="pageTitle">{ticker}</h1>
     <nav>
       <a href="/dashboard">← Рынок</a> ·
+      <a href="/signals">Сигналы</a> ·
       <a href="/ai/report/demo">AI Report</a> ·
       <a href="/ai/reports/dashboard">История отчётов</a>
     </nav>
@@ -249,7 +250,7 @@ def build_ticker_page_html(ticker: str) -> str:
 
     <section class="card forecast-card">
       <h2>Сводный прогноз</h2>
-      <p class="muted" id="forecastSubtitle">Прогноз строится автоматически по цене, объёму, технической картине и доступным событиям.</p>
+      <p class="muted" id="forecastSubtitle">Прогноз строится автоматически по цене, объёму, технической картине, исторической проверке достижения цели и доступным событиям.</p>
 
       <div class="forecast-grid">
         <div class="metric">
@@ -263,6 +264,10 @@ def build_ticker_page_html(ticker: str) -> str:
         <div class="metric">
           <div class="label">Прогнозная цена</div>
           <div class="forecast-value" id="forecastPrice">—</div>
+        </div>
+        <div class="metric">
+          <div class="label">Надёжность</div>
+          <div class="forecast-value" id="forecastReliability">—</div>
         </div>
         <div class="metric">
           <div class="label">Диапазон</div>
@@ -582,6 +587,7 @@ def build_ticker_page_html(ticker: str) -> str:
 
       setText("forecastProbability", forecast.target_probability_pct ? formatPct(forecast.target_probability_pct) : "—");
       setText("forecastPrice", formatRub(forecast.forecast_price));
+      setText("forecastReliability", forecast.reliability_level || "—");
       setText("forecastRange", range.low && range.high ? `${{formatRub(range.low)}} — ${{formatRub(range.high)}}` : "—");
       setText("forecastPotential", `${{formatRub(forecast.potential_abs)}} / ${{formatPct(forecast.potential_pct)}}`);
       setText("forecastTarget", formatRub(forecast.target_price));

@@ -221,3 +221,27 @@ GET /signals/consumer/{ticker}.json
 
 Внутренние лабораторные модели остаются в проекте для разработки и сравнения, но не усложняют основной пользовательский сценарий.
 
+
+## Market universe, search and calibrated forecast
+
+Проект поддерживает потребительский сценарий для всего доступного universe MOEX, а не только для списка bluechips.
+
+### Universe endpoints
+
+```text
+GET  /tickers/search?q=SBER
+GET  /tickers/universe
+POST /system/update-universe
+POST /system/update-candles/all
+```
+
+### CLI обновление universe
+
+```bash
+cd backend
+python3 -m app.tasks.update_universe --boards TQBR,TQTF,TQIF,TQPI
+python3 -m app.tasks.update_all_candles --days 420 --max-tickers 100
+```
+
+`/signals` и `/tickers/{ticker}` используют единый consumer forecast. Вероятность теперь корректируется исторической проверкой сценария `target раньше stop`, ликвидностью, глубиной истории и доступными событиями. Пользователь видит итоговую вероятность и надёжность прогноза, а внутренние модели остаются developer/admin-инструментами.
+

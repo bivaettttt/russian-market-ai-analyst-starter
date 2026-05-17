@@ -25,6 +25,7 @@ def consumer_signals_data_api(
     candles_limit: int = Query(240, ge=20, le=1000),
     action: str | None = Query(None),
     min_probability: float | None = Query(None, ge=0, le=100),
+    q: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     return list_consumer_signals(
@@ -33,6 +34,7 @@ def consumer_signals_data_api(
         action=action,
         min_probability=min_probability,
         candles_limit=candles_limit,
+        q=q,
     )
 
 

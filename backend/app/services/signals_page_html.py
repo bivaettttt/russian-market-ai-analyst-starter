@@ -152,6 +152,9 @@ def build_signals_page_html() -> str:
         <button id="filterPositive" class="button light" onclick="setFilter('positive')">Покупка / интерес</button>
         <button id="filterWatch" class="button light" onclick="setFilter('hold_watch')">Наблюдать</button>
         <button id="filterRisk" class="button light" onclick="setFilter('risk_sell_watch')">Высокий риск</button>
+        <label class="control small muted">Поиск тикера
+          <input id="tickerSearch" type="search" placeholder="SBER, Газпром, Лукойл" onkeydown="handleSearchKey(event)" />
+        </label>
         <label class="control small muted">Мин. вероятность
           <input id="minProbability" type="number" min="0" max="100" step="1" placeholder="например 60" onchange="loadSignals()" />
         </label>
@@ -249,6 +252,11 @@ def build_signals_page_html() -> str:
       currentFilter = filter;
       loadSignals();
     }
+    function handleSearchKey(event) {
+      if (event.key === "Enter") {
+        loadSignals();
+      }
+    }
     function getApiAction() {
       if (currentFilter === "positive") return "";
       return currentFilter;
@@ -260,6 +268,8 @@ def build_signals_page_html() -> str:
       if (action) params.set("action", action);
       const minProbability = document.getElementById("minProbability")?.value;
       if (minProbability) params.set("min_probability", minProbability);
+      const search = document.getElementById("tickerSearch")?.value?.trim();
+      if (search) params.set("q", search);
       return "/signals/consumer.json?" + params.toString();
     }
     function filteredRows() {
@@ -317,7 +327,11 @@ def build_signals_page_html() -> str:
             <td><div class="probability ${probClass}">${formatPct(row.target_probability_pct, 0)}</div><div class="muted small">достижения цели</div></td>
             <td><b>${formatRub(row.target_price)}</b><div class="muted small">${rangeText}</div></td>
             <td class="${Number(row.potential_pct) >= 0 ? 'good' : 'bad'}"><b>${formatPct(row.potential_pct)}</b><div class="muted small">${formatRub(row.potential_abs)}</div></td>
-            <td>${escapeHtml(row.horizon || "—")}<div class="muted small">риск: ${escapeHtml(row.risk_level || "—")}</div></td>
+            <td>
+              ${escapeHtml(row.horizon || "—")}
+              <div class="muted small">риск: ${escapeHtml(row.risk_level || "—")}</div>
+              <div class="muted small">надёжность: ${escapeHtml(row.reliability_level || "—")}</div>
+            </td>
             <td><button class="button light" onclick="toggleExplanation('${escapeHtml(row.ticker)}')">Почему?</button></td>
           </tr>
           ${explanationHtml(row)}
@@ -338,9 +352,11 @@ def build_signals_page_html() -> str:
       setText("avgProbability", formatPct(summary.avg_probability_pct, 1));
       renderCurrentSignals();
       const now = new Date().toLocaleTimeString("ru-RU");
-      setText("status", `Готово. Показано сигналов: ${currentRows.length}. Обновлено: ${now}.`);
+      const query = data.query ? ` Поиск: ${data.query}.` : "";
+      setText("status", `Готово. Показано сигналов: ${currentRows.length}.${query} Обновлено: ${now}.`);
     }
     window.setFilter = setFilter;
+    window.handleSearchKey = handleSearchKey;
     window.loadSignals = loadSignals;
     window.renderCurrentSignals = renderCurrentSignals;
     window.toggleExplanation = toggleExplanation;
