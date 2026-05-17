@@ -10,6 +10,7 @@ from app.models import MarketEvent
 from app.services.ticker_data import get_ticker_snapshot
 from app.models import Candle, Instrument
 from app.services.consumer_probability import build_probability_assessment
+from app.services.ml_probability_engine import predict_ml_probability_for_ticker
 
 CONSUMER_SIGNAL_MODEL_VERSION = "tech_v4_quality_rr"
 
@@ -298,7 +299,8 @@ def _build_explanation(
     events: list[dict[str, Any]],
     probability: float | None,
     probability_assessment: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+
+    ml_probability_result: dict[str, Any] | None = None,) -> dict[str, Any]:
     technical_factors = []
 
     if technical.get("trend"):
@@ -338,6 +340,15 @@ def _build_explanation(
     calibration = assessment.get("calibration") or {}
     liquidity = assessment.get("liquidity") or {}
 
+    ml_probability = _to_float((ml_probability_result or {}).get("ml_probability_pct")) if ml_probability_result else None
+
+    if ml_probability_result and ml_probability_result.get("ok") and ml_probability is not None:
+        technical_factors.append(
+            f"ML-модель оценила вероятность достижения цели в {int(round(ml_probability))}%."
+        )
+    elif ml_probability_result and ml_probability_result.get("reason") == "model_not_trained":
+        risk_factors.append("ML-модель ещё не обучена, используется базовая вероятностная оценка.")
+
     if reliability_level:
         risk_factors.append(f"Надёжность прогноза: {reliability_level}.")
     for reason in reliability_reasons[:3]:
@@ -368,11 +379,28 @@ def build_consumer_forecast(
     candles: list[dict[str, Any]],
     signal: dict[str, Any],
     events: list[dict[str, Any]],
+    ml_probability_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
-    base_probability = _calculate_target_probability(signal, technical, price, target_price, events)
+    rule_probability = _calculate_target_probability(signal, technical, price, target_price, events)
+    ml_probability = (
+        _to_float((ml_probability_result or {}).get("ml_probability_pct"))
+        if ml_probability_result and ml_probability_result.get("ok")
+        else None
+    )
+
+    if rule_probability is not None and ml_probability is not None:
+        base_probability = round(rule_probability * 0.60 + ml_probability * 0.40, 1)
+        probability_source = "rule_ml_blend"
+    elif ml_probability is not None:
+        base_probability = ml_probability
+        probability_source = "ml_only"
+    else:
+        base_probability = rule_probability
+        probability_source = "rule_only"
+
     probability_assessment = build_probability_assessment(
         base_probability_pct=base_probability,
         candles=candles,
@@ -417,12 +445,22 @@ def build_consumer_forecast(
         "potential_pct": potential_pct,
         "target_probability_pct": probability,
         "base_probability_pct": probability_assessment.get("base_probability_pct"),
+        "rule_probability_pct": _round(rule_probability, 1),
+        "ml_probability_pct": _round(ml_probability, 1),
+        "probability_source": probability_source,
         "horizon": signal.get("horizon") or "1–4 недели",
         "risk_level": signal.get("risk_level"),
         "reliability_level": probability_assessment.get("reliability_level"),
         "reliability_score": probability_assessment.get("reliability_score"),
         "stop_loss": _round(signal.get("stop_loss")),
-        "explanation": _build_explanation(signal, technical, events, probability, probability_assessment),
+        "explanation": _build_explanation(
+            signal,
+            technical,
+            events,
+            probability,
+            probability_assessment,
+            ml_probability_result=ml_probability_result,
+        ),
         "probability_assessment": probability_assessment,
         "events": events,
         "internal": {
@@ -569,6 +607,19 @@ def build_consumer_signal_for_ticker(
 
     events = list_related_events(db=db, ticker=ticker, limit=3)
 
+    try:
+        ml_probability_result = predict_ml_probability_for_ticker(
+            db=db,
+            ticker=ticker,
+            min_history=60,
+        )
+    except Exception as exc:  # noqa: BLE001
+        ml_probability_result = {
+            "ok": False,
+            "reason": "ml_prediction_error",
+            "message": str(exc),
+        }
+
     forecast = build_consumer_forecast(
         ticker=ticker,
         instrument=instrument,
@@ -577,6 +628,7 @@ def build_consumer_signal_for_ticker(
         candles=candles,
         signal=signal,
         events=events,
+        ml_probability_result=ml_probability_result,
     )
 
     return {
@@ -586,6 +638,9 @@ def build_consumer_signal_for_ticker(
         "signal": {
             "recommendation": forecast.get("recommendation"),
             "target_probability_pct": forecast.get("target_probability_pct"),
+            "rule_probability_pct": forecast.get("rule_probability_pct"),
+            "ml_probability_pct": forecast.get("ml_probability_pct"),
+            "probability_source": forecast.get("probability_source"),
             "target_price": forecast.get("target_price"),
             "forecast_range": forecast.get("forecast_range"),
             "horizon": forecast.get("horizon"),
