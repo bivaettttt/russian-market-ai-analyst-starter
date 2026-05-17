@@ -2296,7 +2296,9 @@ def build_consumer_signal_for_ticker(
         fallback_signal=fallback_signal,
     )
 
-    events = list_related_events(db=db, ticker=ticker, limit=3)
+    related_events = list_related_events(db=db, ticker=ticker, limit=3)
+    global_events = list_global_market_events(db=db, limit=12)
+    events = _merge_events(related_events, global_events)
 
     try:
         ml_probability_result = predict_ml_probability_for_ticker(
@@ -2318,7 +2320,8 @@ def build_consumer_signal_for_ticker(
         technical=technical,
         candles=candles,
         signal=signal,
-        events=events,
+        events=related_events,
+        global_events=global_events,
         ml_probability_result=ml_probability_result,
     )
 
