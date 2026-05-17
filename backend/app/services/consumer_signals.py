@@ -381,7 +381,196 @@ def _build_explanation(
     }
 
 
-def _adaptive_ml_weight(ml_probability: float | None) -> float:
+
+def _average(values: list[float]) -> float | None:
+    clean = [float(value) for value in values if value is not None]
+
+    if not clean:
+        return None
+
+    return sum(clean) / len(clean)
+
+
+def _stddev(values: list[float]) -> float | None:
+    clean = [float(value) for value in values if value is not None]
+
+    if len(clean) < 2:
+        return None
+
+    avg = sum(clean) / len(clean)
+    variance = sum((value - avg) ** 2 for value in clean) / (len(clean) - 1)
+
+    return variance ** 0.5
+
+
+def _build_consumer_regime_features(candles: list[dict[str, Any]]) -> dict[str, float | None]:
+    """Lightweight regime features for adaptive ML weighting.
+
+    These features intentionally mirror the regime evaluation layer, but are
+    computed locally from the latest candle history so consumer scoring does
+    not need to rebuild the ML dataset.
+    """
+
+    if not candles or len(candles) < 25:
+        return {}
+
+    closes = [_to_float(row.get("close")) for row in candles]
+    highs = [_to_float(row.get("high")) for row in candles]
+    lows = [_to_float(row.get("low")) for row in candles]
+    volumes = [_to_float(row.get("volume")) for row in candles]
+    values = [_to_float(row.get("value")) for row in candles]
+
+    closes = [value for value in closes if value is not None]
+
+    if len(closes) < 25:
+        return {}
+
+    current = closes[-1]
+
+    if current is None or current <= 0:
+        return {}
+
+    recent_20 = closes[-20:]
+    prev_20 = closes[-40:-20] if len(closes) >= 40 else []
+
+    returns_20: list[float] = []
+
+    for previous, current_close in zip(recent_20[:-1], recent_20[1:]):
+        if previous and previous > 0:
+            returns_20.append((current_close / previous - 1.0) * 100)
+
+    volatility_20_pct = _stddev(returns_20)
+
+    true_ranges: list[float] = []
+    clean_highs = [value for value in highs if value is not None]
+    clean_lows = [value for value in lows if value is not None]
+
+    for index in range(max(1, len(candles) - 20), len(candles)):
+        high = _to_float(candles[index].get("high"))
+        low = _to_float(candles[index].get("low"))
+        prev_close = _to_float(candles[index - 1].get("close"))
+
+        if high is None or low is None or prev_close is None:
+            continue
+
+        true_ranges.append(
+            max(
+                high - low,
+                abs(high - prev_close),
+                abs(low - prev_close),
+            )
+        )
+
+    atr_20 = _average(true_ranges)
+    atr_20_pct = (atr_20 / current * 100) if atr_20 is not None and current else None
+
+    recent_high_60 = max(clean_highs[-60:]) if len(clean_highs) >= 5 else None
+    recent_low_60 = min(clean_lows[-60:]) if len(clean_lows) >= 5 else None
+
+    if recent_high_60 is not None and recent_low_60 is not None and recent_high_60 > recent_low_60:
+        range_position_60_pct = (current - recent_low_60) / (recent_high_60 - recent_low_60) * 100
+    else:
+        range_position_60_pct = None
+
+    dist_low_60_pct = (
+        (current - recent_low_60) / current * 100
+        if recent_low_60 is not None and current
+        else None
+    )
+
+    dist_high_60_pct = (
+        (recent_high_60 - current) / current * 100
+        if recent_high_60 is not None and current
+        else None
+    )
+
+    ma_50 = _average(closes[-50:]) if len(closes) >= 50 else None
+    ma_50_gap_pct = (
+        (current / ma_50 - 1.0) * 100
+        if ma_50 is not None and ma_50 > 0
+        else None
+    )
+
+    ret_20 = (
+        (current / closes[-21] - 1.0) * 100
+        if len(closes) >= 21 and closes[-21] > 0
+        else None
+    )
+
+    recent_values = [_to_float(row.get("value")) for row in candles[-20:]]
+    previous_values = [_to_float(row.get("value")) for row in candles[-40:-20]]
+
+    recent_value_avg = _average([value for value in recent_values if value is not None])
+    previous_value_avg = _average([value for value in previous_values if value is not None])
+
+    value_ratio_20 = (
+        recent_value_avg / previous_value_avg
+        if recent_value_avg is not None
+        and previous_value_avg is not None
+        and previous_value_avg > 0
+        else None
+    )
+
+    return {
+        "volatility_20_pct": volatility_20_pct,
+        "atr_20_pct": atr_20_pct,
+        "range_position_60_pct": range_position_60_pct,
+        "dist_low_60_pct": dist_low_60_pct,
+        "dist_high_60_pct": dist_high_60_pct,
+        "ma_50_gap_pct": ma_50_gap_pct,
+        "ret_20": ret_20,
+        "value_ratio_20": value_ratio_20,
+    }
+
+
+def _regime_ml_multiplier(regime: dict[str, float | None]) -> tuple[float, str]:
+    """Return ML weight multiplier and human-readable regime reason."""
+
+    range_position = regime.get("range_position_60_pct")
+    ma_50_gap = regime.get("ma_50_gap_pct")
+    ret_20 = regime.get("ret_20")
+    value_ratio = regime.get("value_ratio_20")
+    dist_low = regime.get("dist_low_60_pct")
+    volatility = regime.get("volatility_20_pct")
+    atr = regime.get("atr_20_pct")
+
+    strong_reasons: list[str] = []
+
+    if range_position is not None and range_position >= 50:
+        strong_reasons.append("цена находится в верхней части 60-дневного диапазона")
+
+    if ma_50_gap is not None and ma_50_gap > 0:
+        strong_reasons.append("цена выше MA50")
+
+    if ret_20 is not None and ret_20 > 0:
+        strong_reasons.append("20-дневный momentum положительный")
+
+    if value_ratio is not None and value_ratio >= 1.02:
+        strong_reasons.append("оборот выше среднего за предыдущий период")
+
+    if dist_low is not None and 2.8 <= dist_low <= 7.7:
+        strong_reasons.append("цена не у экстремального минимума, но близко к зоне восстановления")
+
+    cautious_reasons: list[str] = []
+
+    if volatility is not None and volatility <= 0.9:
+        cautious_reasons.append("низкая 20-дневная волатильность")
+
+    if atr is not None and atr <= 1.7:
+        cautious_reasons.append("низкий ATR")
+
+    if len(strong_reasons) >= 2:
+        return 1.18, "regime boost: " + "; ".join(strong_reasons[:3])
+
+    if len(strong_reasons) == 1:
+        return 1.08, "regime mild boost: " + strong_reasons[0]
+
+    if cautious_reasons:
+        return 0.95, "regime cautious: " + "; ".join(cautious_reasons[:2])
+
+    return 0.90, "regime neutral/unknown: ML не усиливается без подтверждающего режима"
+
+def _adaptive_ml_weight(ml_probability: float | None, regime: dict[str, float | None] | None = None) -> float:
     """
     Evaluation-aware ML weight.
 
@@ -410,14 +599,18 @@ def _adaptive_ml_weight(ml_probability: float | None) -> float:
         return 0.14
 
     if ml_probability < 45:
-        return 0.10
+        base_weight = 0.10
+    else:
+        base_weight = 0.02
 
-    return 0.02
+    multiplier, _reason = _regime_ml_multiplier(regime or {})
+    return round(max(0.02, min(0.18, base_weight * multiplier)), 4)
 
 
 def _blend_rule_and_ml_probability(
     rule_probability: float | None,
     ml_probability: float | None,
+    regime: dict[str, float | None] | None = None,
 ) -> dict[str, Any]:
     if rule_probability is None and ml_probability is None:
         return {
@@ -443,7 +636,7 @@ def _blend_rule_and_ml_probability(
             "ml_adjustment_pct": 0.0,
         }
 
-    ml_weight = _adaptive_ml_weight(ml_probability)
+    ml_weight = _adaptive_ml_weight(ml_probability, regime=regime)
     rule_weight = 1.0 - ml_weight
 
     probability = round(rule_probability * rule_weight + ml_probability * ml_weight, 1)
@@ -565,6 +758,7 @@ def build_consumer_forecast(
     ml_probability_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
+    regime_features = _build_consumer_regime_features(candles)
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
     rule_probability = _calculate_target_probability(signal, technical, price, target_price, events)
@@ -577,11 +771,13 @@ def build_consumer_forecast(
     probability_blend = _blend_rule_and_ml_probability(
         rule_probability=rule_probability,
         ml_probability=ml_probability,
+        regime=regime_features,
     )
     base_probability = probability_blend.get("probability")
     probability_source = probability_blend.get("source")
     ml_weight = probability_blend.get("ml_weight")
     ml_adjustment_pct = probability_blend.get("ml_adjustment_pct")
+    regime_multiplier, regime_reason = _regime_ml_multiplier(regime_features)
 
     probability_assessment = build_probability_assessment(
         base_probability_pct=base_probability,
@@ -644,6 +840,8 @@ def build_consumer_forecast(
         "ml_weight": ml_weight,
         "ml_adjustment_pct": ml_adjustment_pct,
         "probability_source": probability_source,
+        "ml_regime_multiplier": regime_multiplier,
+        "ml_regime_reason": regime_reason,
         "consumer_action": decision_gate.get("action"),
         "recommendation": decision_gate.get("recommendation"),
         "decision": decision_gate.get("decision"),
