@@ -2328,6 +2328,9 @@ def build_consumer_signal_for_ticker(
     return {
         "ok": True,
         "ticker": ticker,
+        "events": events,
+        "related_events": related_events,
+        "global_events": global_events,
         "forecast": forecast,
         "signal": {
             "recommendation": forecast.get("recommendation"),
