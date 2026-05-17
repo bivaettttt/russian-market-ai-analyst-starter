@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -66,22 +67,44 @@ def _pct_change(current: float | None, previous: float | None) -> float | None:
     return (current - previous) / previous * 100
 
 
-def _event_to_dict(event: MarketEvent) -> dict[str, Any]:
+def _event_to_dict(event: MarketEvent, relation_scope: str = "related") -> dict[str, Any]:
     created_at = getattr(event, "created_at", None)
     if isinstance(created_at, datetime):
         created_value = created_at.isoformat()
     else:
         created_value = str(created_at) if created_at else None
 
+    raw_analysis = getattr(event, "raw_analysis", None)
+    analysis: dict[str, Any] = {}
+
+    if raw_analysis:
+        try:
+            parsed = json.loads(raw_analysis)
+            if isinstance(parsed, dict):
+                analysis = parsed
+        except Exception:
+            analysis = {}
+
+    affected_assets = getattr(event, "affected_assets", None) or analysis.get("affected_assets")
+    affected_sectors = analysis.get("affected_sectors") or analysis.get("sectors") or []
+
     return {
         "id": getattr(event, "id", None),
-        "title": getattr(event, "title", None) or "Событие рынка",
+        "title": getattr(event, "title", None) or analysis.get("title") or "Событие рынка",
+        "text": getattr(event, "text", None),
         "source": getattr(event, "source", None),
         "url": getattr(event, "url", None),
-        "importance": getattr(event, "importance", None),
-        "impact": getattr(event, "impact", None),
+        "importance": getattr(event, "importance", None) or analysis.get("importance"),
+        "impact": getattr(event, "impact", None) or analysis.get("impact"),
+        "event_type": analysis.get("event_type") or "other",
+        "affected_assets": affected_assets,
+        "affected_sectors": affected_sectors,
+        "time_horizon": analysis.get("time_horizon"),
+        "confidence": analysis.get("confidence"),
+        "watch_next": analysis.get("watch_next") or [],
         "created_at": created_value,
-        "reasoning": getattr(event, "reasoning", None),
+        "reasoning": getattr(event, "reasoning", None) or analysis.get("reasoning"),
+        "relation_scope": relation_scope,
     }
 
 
@@ -107,6 +130,39 @@ def list_related_events(
 
     return [_event_to_dict(row) for row in rows]
 
+
+
+def list_global_market_events(
+    db: Session,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    rows = db.scalars(
+        select(MarketEvent)
+        .order_by(MarketEvent.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    return [_event_to_dict(row, relation_scope="global") for row in rows]
+
+
+def _merge_events(
+    related_events: list[dict[str, Any]],
+    global_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for event in [*(related_events or []), *(global_events or [])]:
+        key = str(event.get("id") or event.get("url") or event.get("title") or "")
+        if key and key in seen:
+            continue
+
+        if key:
+            seen.add(key)
+
+        result.append(event)
+
+    return result
 
 def _build_unified_signal(
     candles: list[dict[str, Any]],
@@ -652,6 +708,317 @@ def _apply_news_relevance_scoring(
     news_assessment["risk_flags"] = risk_flags
 
     return news_assessment
+
+
+
+def _instrument_impact_groups(
+    *,
+    ticker: str | None,
+    instrument: dict[str, Any] | None,
+) -> set[str]:
+    ticker_text = str(ticker or "").upper().strip()
+    name = str((instrument or {}).get("name") or "").lower()
+    sector = str((instrument or {}).get("sector") or "").lower()
+    asset_type = str((instrument or {}).get("asset_type") or "").lower()
+
+    groups: set[str] = {"market"}
+
+    if asset_type in {"stock", "share", "equity", "unknown"}:
+        groups.add("equity")
+
+    if asset_type in {"bond", "ofz"} or "офз" in name or ticker_text.startswith("SU"):
+        groups.add("ofz")
+        groups.add("bonds")
+
+    banks = {"SBER", "SBERP", "VTBR", "T", "TCSG", "BSPB", "BSPBP", "CBOM", "MOEX", "SPBE"}
+    oil_gas = {"LKOH", "ROSN", "TATN", "TATNP", "SNGS", "SNGSP", "GAZP", "NVTK", "TRNFP"}
+    airlines = {"AFLT"}
+    gold = {"PLZL", "POLY", "SELG"}
+    developers = {"PIKK", "SMLT", "LSRG", "ETLN"}
+    metals = {"GMKN", "RUAL", "CHMF", "NLMK", "MAGN", "MTLR", "MTLRP"}
+    fertilizers = {"PHOR", "AKRN"}
+    retailers = {"MGNT", "FIVE", "LENT", "OZON", "WUSH"}
+    exporters = oil_gas | metals | fertilizers | {"ALRS"}
+
+    if ticker_text in banks or "банк" in name or "bank" in name or "финанс" in sector:
+        groups.add("banks")
+
+    if ticker_text in {"MOEX", "SPBE"}:
+        groups.add("exchanges")
+
+    if ticker_text in oil_gas or "нефт" in name or "газ" in name or "нефт" in sector or "газ" in sector:
+        groups.add("oil_gas")
+        groups.add("exporters")
+
+    if ticker_text in airlines or "аэрофлот" in name or "авиа" in name:
+        groups.add("airlines")
+        groups.add("importers")
+
+    if ticker_text in gold or "золот" in name:
+        groups.add("gold")
+
+    if ticker_text in developers or "девел" in name or "строит" in name:
+        groups.add("developers")
+        groups.add("rate_sensitive")
+
+    if ticker_text in metals:
+        groups.add("metals")
+        groups.add("exporters")
+
+    if ticker_text in fertilizers:
+        groups.add("fertilizers")
+        groups.add("exporters")
+
+    if ticker_text in retailers:
+        groups.add("retail")
+        groups.add("consumer")
+
+    if ticker_text in exporters:
+        groups.add("exporters")
+
+    return groups
+
+
+def _global_event_tags(event: dict[str, Any]) -> set[str]:
+    blob = _event_blob(event)
+    event_type = str(event.get("event_type") or "").lower()
+    tags: set[str] = set()
+
+    if event_type in {"rates", "bonds"} or "ключев" in blob or "ставк" in blob or "офз" in blob:
+        if any(word in blob for word in ["сниз", "пониз", "смягч", "ниже"]):
+            tags.add("rates_down")
+        elif any(word in blob for word in ["повыс", "ужесточ", "выше"]):
+            tags.add("rates_up")
+        else:
+            tags.add("rates_mixed")
+
+    if event_type in {"sanctions", "regulation"} or "санкц" in blob:
+        if any(word in blob for word in ["сняти", "снял", "смягч", "отмен", "послаб"]):
+            tags.add("sanctions_easing")
+        else:
+            tags.add("sanctions_tightening")
+
+    if (
+        "иран" in blob
+        or "сша" in blob and "иран" in blob
+        or "ормуз" in blob
+        or "персид" in blob
+        or "ближн" in blob
+        or "военн" in blob
+        or "удар" in blob
+        or "геополит" in blob
+    ):
+        tags.add("geopolitical_risk")
+
+        if "нефт" in blob or "brent" in blob or "баррел" in blob or "ормуз" in blob:
+            tags.add("oil_shock")
+
+    if event_type in {"fx"} or "рубл" in blob or "курс" in blob or "usd" in blob or "доллар" in blob:
+        if any(word in blob for word in ["ослаб", "слаб", "дешев", "девальв"]):
+            tags.add("ruble_weak")
+        elif any(word in blob for word in ["укреп", "сильн", "дороже"]):
+            tags.add("ruble_strong")
+        else:
+            tags.add("fx_mixed")
+
+    if event_type in {"commodities"} or "нефт" in blob or "газ" in blob or "металл" in blob or "золото" in blob:
+        tags.add("commodities")
+
+        if "нефт" in blob or "brent" in blob:
+            tags.add("oil_market")
+
+        if "золото" in blob:
+            tags.add("gold_market")
+
+    if event_type in {"macro"}:
+        tags.add("macro")
+
+    return tags
+
+
+def _impact_from_global_tags(
+    *,
+    tags: set[str],
+    groups: set[str],
+) -> tuple[float, list[str], list[str]]:
+    score = 0.0
+    reasons: list[str] = []
+    affected_groups: list[str] = []
+
+    def add(value: float, reason: str, group: str) -> None:
+        nonlocal score
+        score += value
+        reasons.append(reason)
+        affected_groups.append(group)
+
+    if "rates_down" in tags:
+        if "ofz" in groups or "bonds" in groups:
+            add(1.2, "снижение ставки поддерживает ОФЗ/облигации", "bonds")
+        if "developers" in groups or "rate_sensitive" in groups:
+            add(0.8, "снижение ставки поддерживает чувствительные к кредиту сектора", "rate_sensitive")
+        if "banks" in groups:
+            add(0.35, "снижение ставки умеренно поддерживает кредитный спрос банков", "banks")
+        if "equity" in groups:
+            add(0.25, "снижение ставки снижает дисконтирование акций", "equity")
+
+    if "rates_up" in tags:
+        if "ofz" in groups or "bonds" in groups:
+            add(-1.1, "рост ставки давит на облигации", "bonds")
+        if "developers" in groups or "rate_sensitive" in groups:
+            add(-0.8, "рост ставки ухудшает условия для кредитозависимых секторов", "rate_sensitive")
+        if "equity" in groups:
+            add(-0.25, "рост ставки повышает дисконтирование акций", "equity")
+
+    if "oil_shock" in tags or "oil_market" in tags:
+        if "oil_gas" in groups:
+            add(1.1, "геополитический/сырьевой риск поддерживает нефтегаз", "oil_gas")
+        if "airlines" in groups:
+            add(-1.0, "рост нефтяных рисков ухудшает картину для авиаперевозчиков", "airlines")
+        if "gold" in groups:
+            add(0.35, "геополитический risk-off поддерживает защитные активы", "gold")
+        if "equity" in groups:
+            add(-0.15, "геополитический риск давит на широкий рынок", "market")
+
+    if "geopolitical_risk" in tags and "oil_shock" not in tags:
+        if "gold" in groups:
+            add(0.55, "геополитический риск поддерживает защитные активы", "gold")
+        if "equity" in groups:
+            add(-0.35, "risk-off ухудшает фон для широкого рынка", "market")
+        if "airlines" in groups:
+            add(-0.65, "геополитический риск ухудшает фон для авиаперевозчиков", "airlines")
+
+    if "sanctions_easing" in tags:
+        if "banks" in groups:
+            add(1.0, "смягчение санкций поддерживает банки", "banks")
+        if "exchanges" in groups:
+            add(0.9, "смягчение санкций поддерживает биржевую инфраструктуру", "exchanges")
+        if "equity" in groups:
+            add(0.55, "смягчение санкций поддерживает широкий рынок РФ", "market")
+
+    if "sanctions_tightening" in tags:
+        if "banks" in groups:
+            add(-1.0, "санкционное давление негативно для банков", "banks")
+        if "exchanges" in groups:
+            add(-0.9, "санкционные риски негативны для биржевой инфраструктуры", "exchanges")
+        if "equity" in groups:
+            add(-0.5, "санкционное давление ухудшает фон широкого рынка", "market")
+        if "exporters" in groups:
+            add(-0.25, "санкции могут ухудшать операционные условия экспортёров", "exporters")
+
+    if "ruble_weak" in tags:
+        if "exporters" in groups:
+            add(0.65, "слабый рубль поддерживает экспортёров", "exporters")
+        if "importers" in groups or "airlines" in groups:
+            add(-0.65, "слабый рубль давит на импортозависимые компании", "importers")
+        if "retail" in groups or "consumer" in groups:
+            add(-0.25, "слабый рубль может усиливать инфляционное давление", "consumer")
+
+    if "ruble_strong" in tags:
+        if "exporters" in groups:
+            add(-0.45, "сильный рубль ухудшает рублёвую выручку экспортёров", "exporters")
+        if "importers" in groups or "airlines" in groups:
+            add(0.45, "сильный рубль поддерживает импортозависимые компании", "importers")
+
+    return score, reasons[:6], sorted(set(affected_groups))
+
+
+def _build_global_event_assessment(
+    *,
+    events: list[dict[str, Any]],
+    ticker: str | None,
+    instrument: dict[str, Any] | None,
+    scenario_direction: str | None,
+) -> dict[str, Any]:
+    groups = _instrument_impact_groups(ticker=ticker, instrument=instrument)
+    scenario = str(scenario_direction or "long").lower()
+
+    if not events:
+        return {
+            "has_global_events": False,
+            "adjustment_pct": 0.0,
+            "tags": [],
+            "affected_groups": sorted(groups),
+            "macro_regime_flags": [],
+            "reason": "Глобальных событий в базе нет.",
+            "events": [],
+        }
+
+    total_score = 0.0
+    used_events: list[dict[str, Any]] = []
+    all_tags: set[str] = set()
+    all_reasons: list[str] = []
+    affected: set[str] = set()
+
+    for event in events[:12]:
+        tags = _global_event_tags(event)
+
+        if not tags:
+            continue
+
+        score, reasons, affected_groups = _impact_from_global_tags(
+            tags=tags,
+            groups=groups,
+        )
+
+        if abs(score) < 0.05:
+            continue
+
+        importance = _to_float(event.get("importance")) or 5.0
+        importance_factor = min(max(importance / 10.0, 0.25), 1.0)
+
+        reliability = _source_reliability_score(event) / 100.0
+        event_score = score * importance_factor * reliability
+
+        total_score += event_score
+        all_tags.update(tags)
+        all_reasons.extend(reasons)
+        affected.update(affected_groups)
+
+        used_events.append(
+            {
+                "title": event.get("title"),
+                "event_type": event.get("event_type"),
+                "impact": event.get("impact"),
+                "importance": event.get("importance"),
+                "source": event.get("source"),
+                "tags": sorted(tags),
+                "score": _round(event_score, 3),
+                "reasons": reasons,
+            }
+        )
+
+    # score > 0 поддерживает long. Для downside-сценария знак разворачиваем:
+    # негативный фон повышает вероятность downside, позитивный снижает.
+    if scenario == "downside":
+        total_score *= -1
+
+    adjustment = _round(_clamp(total_score * 2.2, -5.0, 5.0), 1)
+
+    if adjustment > 0:
+        direction_text = "поддерживает текущий сценарий"
+    elif adjustment < 0:
+        direction_text = "ослабляет текущий сценарий"
+    else:
+        direction_text = "существенно не меняет сценарий"
+
+    reason = (
+        f"Глобальный событийный фон {direction_text}: "
+        f"adjustment={adjustment:+.1f} п.п.; "
+        f"tags={', '.join(sorted(all_tags)) or 'none'}."
+    )
+
+    if all_reasons:
+        reason += " " + "; ".join(dict.fromkeys(all_reasons[:5])) + "."
+
+    return {
+        "has_global_events": bool(used_events),
+        "adjustment_pct": adjustment,
+        "tags": sorted(all_tags),
+        "affected_groups": sorted(affected or groups),
+        "macro_regime_flags": sorted(all_tags),
+        "reason": reason,
+        "events": used_events[:8],
+    }
 
 
 def _build_news_assessment(
@@ -1560,6 +1927,7 @@ def build_consumer_forecast(
     candles: list[dict[str, Any]],
     signal: dict[str, Any],
     events: list[dict[str, Any]],
+    global_events: list[dict[str, Any]] | None = None,
     ml_probability_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
@@ -1568,6 +1936,7 @@ def build_consumer_forecast(
     source_signal_type = signal.get("signal_type")
     source_target_price = _to_float(signal.get("target_price"))
     scenario_direction, scenario_reason = _infer_source_scenario_direction(signal, price)
+    global_events = global_events or []
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
     stop_loss_value = _to_float(signal.get("stop_loss"))
@@ -1581,6 +1950,12 @@ def build_consumer_forecast(
         events=events,
         ticker=str((instrument or {}).get("ticker") or ""),
         instrument=instrument,
+    )
+    global_news_assessment = _build_global_event_assessment(
+        events=global_events,
+        ticker=str((instrument or {}).get("ticker") or ticker or ""),
+        instrument=instrument,
+        scenario_direction=scenario_direction,
     )
     ml_probability = (
         _to_float((ml_probability_result or {}).get("ml_probability_pct"))
@@ -1611,14 +1986,35 @@ def build_consumer_forecast(
         horizon_days=20,
     )
     base_probability = probability_assessment.get("probability_pct")
-    probability = _apply_news_adjustment(base_probability, news_assessment)
-    news_adjustment_pct = _to_float(news_assessment.get("adjustment_pct")) or 0.0
+    ticker_news_adjustment_pct = _to_float(news_assessment.get("adjustment_pct")) or 0.0
+    global_event_adjustment_pct = _to_float(global_news_assessment.get("adjustment_pct")) or 0.0
+    news_adjustment_pct = _round(
+        _clamp(ticker_news_adjustment_pct + global_event_adjustment_pct, -10.0, 10.0),
+        1,
+    )
+
+    probability = _round(_clamp(float(base_probability or 0) + news_adjustment_pct, 1, 99), 0)
+
+    news_assessment["ticker_news_adjustment_pct"] = _round(ticker_news_adjustment_pct, 1)
+    news_assessment["global_event_adjustment_pct"] = _round(global_event_adjustment_pct, 1)
+    news_assessment["adjustment_pct"] = news_adjustment_pct
+    news_assessment["global_news_assessment"] = global_news_assessment
+
+    if global_news_assessment.get("has_global_events"):
+        news_assessment["summary"] = (
+            str(news_assessment.get("summary") or "").strip()
+            + " "
+            + str(global_news_assessment.get("reason") or "").strip()
+        ).strip()
 
     probability_assessment["probability_pct"] = probability
     probability_assessment.setdefault("internal", {})
     probability_assessment["internal"]["pre_news_probability_pct"] = _round(base_probability, 0)
     probability_assessment["internal"]["news_adjustment_pct"] = _round(news_adjustment_pct, 1)
+    probability_assessment["internal"]["ticker_news_adjustment_pct"] = _round(ticker_news_adjustment_pct, 1)
+    probability_assessment["internal"]["global_event_adjustment_pct"] = _round(global_event_adjustment_pct, 1)
     probability_assessment["internal"]["news_assessment"] = news_assessment
+    probability_assessment["internal"]["global_news_assessment"] = global_news_assessment
 
     preliminary_target_distance_pct = _pct_change(target_price, price)
     preliminary_stop_distance_pct = None
@@ -1711,6 +2107,12 @@ def build_consumer_forecast(
         "ml_adjustment_pct": ml_adjustment_pct,
         "probability_source": f"{probability_source}_news" if news_assessment.get("has_events") else probability_source,
         "news_adjustment_pct": _round(news_adjustment_pct, 1),
+        "ticker_news_adjustment_pct": _round(ticker_news_adjustment_pct, 1),
+        "global_event_adjustment_pct": _round(global_event_adjustment_pct, 1),
+        "global_news_assessment": global_news_assessment,
+        "global_event_tags": global_news_assessment.get("tags") or [],
+        "global_event_reason": global_news_assessment.get("reason"),
+        "macro_regime_flags": global_news_assessment.get("macro_regime_flags") or [],
         "news_effect": news_assessment.get("news_effect"),
         "news_relevance_score": news_assessment.get("ticker_relevance_score"),
         "news_source_reliability_score": news_assessment.get("source_reliability_score"),
@@ -1935,6 +2337,12 @@ def build_consumer_signal_for_ticker(
             "ml_regime_reason": forecast.get("ml_regime_reason"),
             "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
+            "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
+            "global_event_adjustment_pct": forecast.get("global_event_adjustment_pct"),
+            "global_news_assessment": forecast.get("global_news_assessment"),
+            "global_event_tags": forecast.get("global_event_tags"),
+            "global_event_reason": forecast.get("global_event_reason"),
+            "macro_regime_flags": forecast.get("macro_regime_flags"),
             "news_effect": forecast.get("news_effect"),
             "news_relevance_score": forecast.get("news_relevance_score"),
             "news_source_reliability_score": forecast.get("news_source_reliability_score"),
@@ -2079,6 +2487,12 @@ def list_consumer_signals(
                 "ml_regime_reason": forecast.get("ml_regime_reason"),
                 "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
+            "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
+            "global_event_adjustment_pct": forecast.get("global_event_adjustment_pct"),
+            "global_news_assessment": forecast.get("global_news_assessment"),
+            "global_event_tags": forecast.get("global_event_tags"),
+            "global_event_reason": forecast.get("global_event_reason"),
+            "macro_regime_flags": forecast.get("macro_regime_flags"),
             "news_effect": forecast.get("news_effect"),
             "news_relevance_score": forecast.get("news_relevance_score"),
             "news_source_reliability_score": forecast.get("news_source_reliability_score"),
@@ -2263,6 +2677,10 @@ def list_consumer_signals(
                 "ml_regime_multiplier": row.get("ml_regime_multiplier"),
                 "news_adjustment_pct": row.get("news_adjustment_pct"),
                 "news_effect": row.get("news_effect"),
+                "ticker_news_adjustment_pct": row.get("ticker_news_adjustment_pct"),
+                "global_event_adjustment_pct": row.get("global_event_adjustment_pct"),
+                "global_event_tags": row.get("global_event_tags"),
+                "macro_regime_flags": row.get("macro_regime_flags"),
                 "news_relevance_score": row.get("news_relevance_score"),
                 "news_source_reliability_score": row.get("news_source_reliability_score"),
                 "news_event_scope": row.get("news_event_scope"),
