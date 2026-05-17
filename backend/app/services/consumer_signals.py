@@ -15,12 +15,22 @@ from app.services.ml_probability_engine import predict_ml_probability_for_ticker
 CONSUMER_SIGNAL_MODEL_VERSION = "tech_v4_quality_rr"
 
 ACTION_RANK = {
-    "buy_watch": 1,
-    "watch_buy": 2,
-    "hold_watch": 3,
-    "risk_sell_watch": 4,
+    "buy": 1,
+    "consider_buy": 2,
+    "watch_ml_confirmed": 3,
+    "watch": 4,
+    "avoid_ml_filter": 5,
+    "avoid_risk": 6,
+    "avoid": 7,
+    "no_forecast": 9,
     "no_data": 9,
     "no_price": 9,
+
+    # legacy actions
+    "buy_watch": 2,
+    "watch_buy": 2,
+    "hold_watch": 4,
+    "risk_sell_watch": 6,
 }
 
 
@@ -1042,6 +1052,8 @@ def build_consumer_signal_for_ticker(
             "ml_probability_pct": forecast.get("ml_probability_pct"),
             "ml_weight": forecast.get("ml_weight"),
             "ml_adjustment_pct": forecast.get("ml_adjustment_pct"),
+            "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
+            "ml_regime_reason": forecast.get("ml_regime_reason"),
             "probability_source": forecast.get("probability_source"),
             "consumer_action": forecast.get("consumer_action"),
             "recommendation": forecast.get("recommendation"),
@@ -1110,7 +1122,19 @@ def list_consumer_signals(
                 "recommendation": forecast.get("recommendation"),
                 "recommendation_tone": forecast.get("recommendation_tone"),
                 "action": forecast.get("action"),
+                "consumer_action": forecast.get("consumer_action"),
+                "decision": forecast.get("decision"),
+                "decision_level": forecast.get("decision_level"),
+                "decision_reason": forecast.get("decision_reason"),
+                "is_buy_candidate": forecast.get("is_buy_candidate"),
                 "target_probability_pct": forecast.get("target_probability_pct"),
+                "rule_probability_pct": forecast.get("rule_probability_pct"),
+                "ml_probability_pct": forecast.get("ml_probability_pct"),
+                "ml_weight": forecast.get("ml_weight"),
+                "ml_adjustment_pct": forecast.get("ml_adjustment_pct"),
+                "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
+                "ml_regime_reason": forecast.get("ml_regime_reason"),
+                "probability_source": forecast.get("probability_source"),
                 "target_price": forecast.get("target_price"),
                 "forecast_price": forecast.get("forecast_price"),
                 "forecast_range": forecast.get("forecast_range"),
@@ -1133,11 +1157,19 @@ def list_consumer_signals(
         )
     )
 
+    positive_actions = {"buy", "consider_buy", "buy_watch", "watch_buy"}
+    watch_actions = {"watch", "watch_ml_confirmed", "hold_watch"}
+    risk_actions = {"avoid", "avoid_ml_filter", "avoid_risk", "risk_sell_watch"}
+
     summary = {
         "total": len(rows),
-        "positive": sum(1 for row in rows if row.get("action") in {"buy_watch", "watch_buy"}),
-        "watch": sum(1 for row in rows if row.get("action") == "hold_watch"),
-        "risk": sum(1 for row in rows if row.get("action") == "risk_sell_watch"),
+        "positive": sum(1 for row in rows if row.get("action") in positive_actions),
+        "watch": sum(1 for row in rows if row.get("action") in watch_actions),
+        "risk": sum(1 for row in rows if row.get("action") in risk_actions),
+        "buy": sum(1 for row in rows if row.get("action") == "buy"),
+        "consider_buy": sum(1 for row in rows if row.get("action") == "consider_buy"),
+        "watch_ml_confirmed": sum(1 for row in rows if row.get("action") == "watch_ml_confirmed"),
+        "avoid_ml_filter": sum(1 for row in rows if row.get("action") == "avoid_ml_filter"),
         "avg_probability_pct": _round(
             sum(float(row.get("target_probability_pct") or 0) for row in rows) / len(rows),
             1,
