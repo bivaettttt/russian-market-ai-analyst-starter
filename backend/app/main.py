@@ -26,6 +26,10 @@ from app.services.signal_model_registry import PRODUCTION_SIGNAL_MODEL_VERSION
 
 Base.metadata.create_all(bind=engine)
 
+from app.services.market_universe import ensure_instrument_classification_schema
+
+ensure_instrument_classification_schema(engine)
+
 app = FastAPI(
     title="Russian Market AI Analyst",
     description="Local-first AI analyst for Russian stock market data and events.",

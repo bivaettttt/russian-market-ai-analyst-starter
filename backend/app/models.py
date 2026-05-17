@@ -1,7 +1,7 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text
+from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, Text
 from datetime import date, datetime
-from sqlalchemy import Date, DateTime, Float, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -15,6 +15,8 @@ class Instrument(Base):
     name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     board: Mapped[str] = mapped_column(String(16), default="TQBR", index=True)
     sector: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    asset_type: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown", index=True)
+    is_signal_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     lot_size: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -71,11 +73,11 @@ class MacroValue(Base):
 # --- AI Report history ---
 
 from datetime import datetime as _AIReportDatetime
-from sqlalchemy import Column as _AIReportColumn
-from sqlalchemy import DateTime as _AIReportDateTime
-from sqlalchemy import Integer as _AIReportInteger
-from sqlalchemy import String as _AIReportString
-from sqlalchemy import Text as _AIReportText
+from sqlalchemy import Boolean, Column as _AIReportColumn
+from sqlalchemy import Boolean, DateTime as _AIReportDateTime
+from sqlalchemy import Boolean, Integer as _AIReportInteger
+from sqlalchemy import Boolean, String as _AIReportString
+from sqlalchemy import Boolean, Text as _AIReportText
 from sqlalchemy import Boolean as _AIReportBoolean
 
 
@@ -95,7 +97,7 @@ class AIReportSnapshot(Base):
 
 # --- User portfolio ---
 
-from sqlalchemy import Float as _PortfolioFloat
+from sqlalchemy import Boolean, Float as _PortfolioFloat
 
 
 class PortfolioPosition(Base):

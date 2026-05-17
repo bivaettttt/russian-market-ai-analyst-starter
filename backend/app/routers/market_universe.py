@@ -19,6 +19,8 @@ def tickers_search(
     q: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     only_with_candles: bool = Query(False),
+    eligible_only: bool = Query(False),
+    asset_type: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     return search_instruments(
@@ -26,6 +28,8 @@ def tickers_search(
         q=q,
         limit=limit,
         only_with_candles=only_with_candles,
+        eligible_only=eligible_only,
+        asset_type=asset_type,
     )
 
 
