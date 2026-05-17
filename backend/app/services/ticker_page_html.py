@@ -167,6 +167,17 @@ def build_ticker_page_html(ticker: str) -> str:
     .forecast-pill.neutral {{ background: #f1f5f9; color: #334155; }}
     .forecast-pill.negative {{ background: #fee2e2; color: #991b1b; }}
 
+    .forecast-notice {{
+      display: none;
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid #fde68a;
+      background: #fffbeb;
+      color: #92400e;
+      font-weight: 750;
+    }}
+
     .forecast-value {{
       font-size: 30px;
       font-weight: 950;
@@ -251,6 +262,7 @@ def build_ticker_page_html(ticker: str) -> str:
     <section class="card forecast-card">
       <h2>Сводный прогноз</h2>
       <p class="muted" id="forecastSubtitle">Прогноз строится автоматически по цене, объёму, технической картине, исторической проверке достижения цели и доступным событиям.</p>
+      <div id="forecastNotice" class="forecast-notice"></div>
 
       <div class="forecast-grid">
         <div class="metric">
@@ -574,8 +586,76 @@ def build_ticker_page_html(ticker: str) -> str:
       box.style.display = box.style.display === "block" ? "none" : "block";
     }}
 
+    function renderUnavailableForecast(data) {{
+      const payload = data || {{}};
+      const signal = payload.signal || {{}};
+      const instrument = payload.instrument || {{}};
+      const explanation = signal.explanation || {{}};
+      const message = payload.message || explanation.summary || "Прогноз по этому инструменту пока не строится.";
+
+      const reasonLabels = {{
+        instrument_not_found: "Инструмент не найден",
+        unsupported_asset_type: "Тип инструмента пока не поддерживается",
+        not_enough_candles: "Недостаточно исторических данных"
+      }};
+
+      const rec = document.getElementById("forecastRecommendation");
+      if (rec) {{
+        rec.textContent = reasonLabels[payload.reason] || signal.recommendation || "Прогноз недоступен";
+        rec.className = "forecast-pill neutral";
+      }}
+
+      const notice = document.getElementById("forecastNotice");
+      if (notice) {{
+        const assetType = instrument.asset_type ? ` Тип: ${{instrument.asset_type}}.` : "";
+        notice.textContent = message + assetType;
+        notice.style.display = "block";
+      }}
+
+      setText("forecastSubtitle", "Система не показывает вероятность там, где модель неприменима или данных недостаточно.");
+      setText("forecastProbability", "—");
+      setText("forecastPrice", "—");
+      setText("forecastReliability", signal.reliability_level || "Низкая");
+      setText("forecastRange", "—");
+      setText("forecastPotential", "—");
+      setText("forecastTarget", "—");
+      setText("forecastHorizon", "—");
+      setText("forecastStop", "—");
+
+      setText("forecastExplanationSummary", message);
+      document.getElementById("forecastTechnical").innerHTML = listHtml(
+        explanation.technical || ["Прогноз не построен: инструмент не проходит базовые условия модели."]
+      );
+      document.getElementById("forecastNews").innerHTML = listHtml(
+        explanation.news || ["Новостной фон не анализировался для неподдерживаемого прогноза."]
+      );
+      document.getElementById("forecastRisks").innerHTML = listHtml(
+        explanation.risks || ["Не выдаём вероятность, если данных недостаточно или модель не подходит для типа инструмента."]
+      );
+
+      const explanationBox = document.getElementById("forecastExplanation");
+      if (explanationBox) {{
+        explanationBox.style.display = "block";
+      }}
+    }}
+
     function renderForecast(data) {{
-      const forecast = (data || {{}}).forecast || {{}};
+      const payload = data || {{}};
+      const forecast = payload.forecast || {{}};
+
+      if (!payload.ok || !forecast || !Object.keys(forecast).length) {{
+        renderUnavailableForecast(payload);
+        return;
+      }}
+
+      const notice = document.getElementById("forecastNotice");
+      if (notice) {{
+        notice.style.display = "none";
+        notice.textContent = "";
+      }}
+
+      setText("forecastSubtitle", "Прогноз строится автоматически по цене, объёму, технической картине, исторической проверке достижения цели и доступным событиям.");
+
       const explanation = forecast.explanation || {{}};
       const range = forecast.forecast_range || {{}};
       const rec = document.getElementById("forecastRecommendation");
