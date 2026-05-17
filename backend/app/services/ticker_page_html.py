@@ -1,812 +1,909 @@
 from __future__ import annotations
 
+import html
+
 
 def build_ticker_page_html(ticker: str) -> str:
-    ticker = ticker.upper().strip()
+    safe_ticker = html.escape((ticker or "").upper().strip())
 
-    return f"""<!doctype html>
+    page = """<!doctype html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <title>{ticker} · Тикер</title>
+  <title>__TICKER__ — прогноз</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    * {{
-      box-sizing: border-box;
-    }}
+    :root {
+      --bg: #ffffff;
+      --page: #f7f8fb;
+      --text: #202124;
+      --muted: #70757a;
+      --border: #e5e7eb;
+      --soft: #f3f4f6;
+      --green: #0a9f38;
+      --green-bg: #e7f7ed;
+      --red: #d93025;
+      --red-bg: #fde8e7;
+      --yellow: #ffd429;
+      --blue: #0b57d0;
+      --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+    }
 
-    body {{
+    * { box-sizing: border-box; }
+
+    body {
       margin: 0;
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #eef0f3;
+      color: var(--text);
+      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+
+    .topbar {
+      height: 64px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: white;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .topbar-inner {
+      width: min(1180px, calc(100% - 32px));
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 950;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: var(--yellow);
       color: #111827;
-    }}
-
-    header {{
-      background: #111827;
-      color: #fff;
-      padding: 42px 32px;
-    }}
-
-    header h1 {{
-      margin: 0 0 12px;
-      font-size: 34px;
-    }}
-
-    header a {{
-      color: #93c5fd;
-      text-decoration: none;
-      font-weight: 700;
-    }}
-
-    main {{
-      padding: 28px 32px;
-    }}
-
-    .card {{
-      background: #fff;
-      border-radius: 18px;
-      padding: 24px;
-      margin-bottom: 22px;
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-    }}
-
-    .muted {{
-      color: #64748b;
-    }}
-
-    .metrics {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(160px, 1fr));
-      gap: 14px;
-      margin-top: 16px;
-    }}
+      place-items: center;
+      font-weight: 950;
+    }
 
-    .metric {{
-      background: #f8fafc;
-      border-radius: 14px;
-      padding: 14px;
-    }}
-
-    .metric .label {{
-      color: #64748b;
-      font-size: 13px;
-      font-weight: 700;
-    }}
-
-    .metric .value {{
-      font-size: 24px;
-      font-weight: 850;
-      margin-top: 6px;
-    }}
-
-    .good {{
-      color: #15803d;
-      font-weight: 800;
-    }}
-
-    .bad {{
-      color: #dc2626;
-      font-weight: 800;
-    }}
-
-    .grid {{
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+    .nav {
+      display: flex;
       gap: 22px;
-    }}
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+    }
 
-    svg {{
-      width: 100%;
-      height: 320px;
-      background: #f8fafc;
-      border-radius: 16px;
-      margin-top: 14px;
-    }}
+    .nav a {
+      color: var(--muted);
+    }
 
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 14px;
-    }}
+    .nav a.active {
+      color: var(--text);
+      border-bottom: 2px solid #111827;
+      padding-bottom: 20px;
+    }
 
-    th, td {{
-      text-align: left;
-      border-bottom: 1px solid #e5e7eb;
-      padding: 10px;
-      vertical-align: top;
-    }}
+    .wrap {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
 
-    th {{
-      color: #64748b;
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 44px;
+      align-items: start;
+    }
+
+    .main-col {
+      min-width: 0;
+    }
+
+    .side-col {
+      position: sticky;
+      top: 92px;
+    }
+
+    .instrument-card {
+      background: linear-gradient(135deg, #18a300, #0f7d00);
+      color: white;
+      border-radius: 24px;
+      min-height: 168px;
+      padding: 26px 28px;
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      overflow: hidden;
+    }
+
+    .instrument-title {
+      font-size: 30px;
+      line-height: 1.05;
+      font-weight: 950;
+      letter-spacing: -0.05em;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .ticker-code {
+      font-size: 14px;
+      font-weight: 700;
+      opacity: 0.72;
+      letter-spacing: 0;
+    }
+
+    .instrument-meta {
+      display: flex;
+      gap: 48px;
+      margin-top: 54px;
+    }
+
+    .meta-label {
       font-size: 13px;
-    }}
+      opacity: 0.76;
+      margin-bottom: 8px;
+    }
 
-    .button {{
+    .meta-value {
+      font-size: 19px;
+      font-weight: 900;
+    }
+
+    .logo-circle {
+      width: 92px;
+      height: 92px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.9);
+      color: var(--green);
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+      font-weight: 950;
+      margin-top: 18px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 26px;
+      border-bottom: 1px solid var(--border);
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .tab {
+      padding: 0 0 14px;
+      cursor: default;
+    }
+
+    .tab.active {
+      color: var(--text);
+      border-bottom: 2px solid var(--yellow);
+    }
+
+    .chart-card {
+      margin-top: 40px;
+    }
+
+    .periods {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+
+    .periods button {
+      border: 1px solid var(--border);
+      background: white;
+      border-radius: 9px;
+      min-width: 44px;
+      height: 34px;
+      cursor: default;
+      color: #3c4043;
+    }
+
+    .periods button.active {
+      border-color: #fbbc04;
+      box-shadow: inset 0 0 0 1px #fbbc04;
+    }
+
+    .chart-box {
+      height: 290px;
+      border-bottom: 1px solid #d9dce1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .chart-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .chart-price-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 48%;
+      border-top: 1px dotted #111827;
+      pointer-events: none;
+    }
+
+    .price-tag {
+      position: absolute;
+      right: 0;
+      top: calc(48% - 12px);
+      background: #111827;
+      color: white;
+      padding: 4px 7px;
+      font-size: 12px;
+      font-weight: 800;
+      border-radius: 2px;
+    }
+
+    .price-card {
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 28px 22px;
+      text-align: center;
+      background: white;
+    }
+
+    .price-card .caption {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+
+    .price-card .price {
+      font-size: 30px;
+      font-weight: 950;
+      letter-spacing: -0.04em;
+      margin-bottom: 24px;
+    }
+
+    .open-account {
+      width: 100%;
+      border: 0;
+      background: var(--yellow);
+      border-radius: 12px;
+      min-height: 54px;
+      font-weight: 850;
+      cursor: default;
+      font-size: 15px;
+    }
+
+    .login-text {
+      margin-top: 20px;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #3c4043;
+    }
+
+    .section {
+      margin-top: 54px;
+    }
+
+    .section h2 {
+      font-size: 24px;
+      letter-spacing: -0.03em;
+      margin: 0 0 22px;
+    }
+
+    .about {
+      font-size: 16px;
+      line-height: 1.65;
+      color: #3c4043;
+      max-width: 760px;
+    }
+
+    .company-meta {
+      display: flex;
+      gap: 70px;
+      margin-top: 28px;
+      color: #3c4043;
+    }
+
+    .forecast-card {
+      background: var(--soft);
+      border-radius: 24px;
+      padding: 24px 30px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 22px;
+      align-items: center;
+    }
+
+    .forecast-item .label {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    .forecast-item .value {
+      font-size: 19px;
+      font-weight: 950;
+      letter-spacing: -0.02em;
+    }
+
+    .forecast-item .value.big {
+      font-size: 24px;
+    }
+
+    .forecast-item .value.positive { color: var(--green); }
+    .forecast-item .value.negative { color: var(--red); }
+
+    .recommendation-pill {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 38px;
-      border-radius: 10px;
-      padding: 10px 14px;
-      background: #2563eb;
-      color: #fff;
-      text-decoration: none;
-      font-weight: 800;
-      border: 0;
-      cursor: pointer;
-      margin-right: 8px;
-    }}
-
-    .button.secondary {{
-      background: #334155;
-    }}
-
-    .forecast-card {{
-      border: 1px solid #dbeafe;
-      background: linear-gradient(135deg, #ffffff, #f8fbff);
-    }}
-
-    .forecast-grid {{
-      display: grid;
-      grid-template-columns: 1.2fr 1fr 1fr 1fr 1fr;
-      gap: 14px;
-      margin-top: 16px;
-    }}
-
-    .forecast-pill {{
-      display: inline-flex;
+      min-height: 42px;
+      padding: 10px 16px;
       border-radius: 999px;
-      padding: 6px 10px;
-      font-size: 13px;
-      font-weight: 850;
-      background: #eef2ff;
-      color: #3730a3;
-    }}
-
-    .forecast-pill.positive {{ background: #dcfce7; color: #166534; }}
-    .forecast-pill.neutral {{ background: #f1f5f9; color: #334155; }}
-    .forecast-pill.negative {{ background: #fee2e2; color: #991b1b; }}
-
-    .forecast-notice {{
-      display: none;
-      margin-top: 14px;
-      padding: 14px 16px;
-      border-radius: 14px;
-      border: 1px solid #fde68a;
-      background: #fffbeb;
-      color: #92400e;
-      font-weight: 750;
-    }}
-
-    .forecast-value {{
-      font-size: 30px;
       font-weight: 950;
-      margin-top: 6px;
-      letter-spacing: -0.04em;
-    }}
+      background: var(--green-bg);
+      color: #047857;
+    }
 
-    .forecast-explanation {{
+    .recommendation-pill.negative {
+      background: var(--red-bg);
+      color: #991b1b;
+    }
+
+    .recommendation-pill.neutral {
+      background: #eef2ff;
+      color: #1e40af;
+    }
+
+    .forecast-actions {
+      margin-top: 16px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid var(--border);
+      background: white;
+      color: var(--text);
+      border-radius: 12px;
+      min-height: 42px;
+      padding: 0 16px;
+      font-weight: 850;
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      background: #eef2ff;
+      color: #1e40af;
+      border-color: #dbeafe;
+    }
+
+    .explanation {
       display: none;
       margin-top: 16px;
-      border-top: 1px solid #e5e7eb;
-      padding-top: 16px;
-    }}
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+      background: white;
+      line-height: 1.55;
+      color: #3c4043;
+    }
 
-    .explanation-grid {{
+    .explanation h3 {
+      margin: 14px 0 8px;
+      font-size: 16px;
+    }
+
+    .explanation ul {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+
+    .stats-card {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 14px;
-    }}
+      grid-template-columns: 1fr 1fr;
+      gap: 44px;
+      margin-top: 20px;
+    }
 
-    .explanation-box {{
-      background: #f8fafc;
-      border: 1px solid #e5e7eb;
-      border-radius: 14px;
-      padding: 14px;
-    }}
+    .stats-table {
+      border-collapse: collapse;
+      width: 100%;
+    }
 
-    .explanation-box h4 {{ margin: 0 0 8px; }}
-    .explanation-box ul {{ margin: 0; padding-left: 18px; color: #475569; }}
+    .stats-table td {
+      border-bottom: 1px solid var(--border);
+      padding: 17px 0;
+      font-size: 15px;
+    }
 
-    @media (max-width: 900px) {{
-      .metrics,
-      .grid,
-      .forecast-grid,
-      .explanation-grid {{
+    .stats-table td:first-child {
+      color: var(--muted);
+    }
+
+    .stats-table td:last-child {
+      text-align: right;
+      font-weight: 700;
+    }
+
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .muted { color: var(--muted); }
+
+    .notice {
+      display: none;
+      margin-top: 16px;
+      border-radius: 16px;
+      padding: 14px 16px;
+      background: #fff7ed;
+      color: #9a3412;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 980px) {
+      .layout {
         grid-template-columns: 1fr;
-      }}
-    }}
+      }
+
+      .side-col {
+        position: static;
+        order: -1;
+      }
+
+      .forecast-card {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .stats-card {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .topbar { position: static; height: auto; padding: 12px 0; }
+      .nav { display: none; }
+      .wrap { width: calc(100% - 20px); padding-top: 14px; }
+      .instrument-card { border-radius: 18px; padding: 22px; }
+      .instrument-title { font-size: 25px; }
+      .instrument-meta { margin-top: 34px; gap: 24px; flex-direction: column; }
+      .logo-circle { display: none; }
+      .forecast-card { grid-template-columns: 1fr; }
+      .chart-box { height: 230px; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1 id="pageTitle">{ticker}</h1>
-    <nav>
-      <a href="/dashboard">← Рынок</a> ·
-      <a href="/signals">Сигналы</a> ·
-      <a href="/ai/report/demo">AI Report</a> ·
-      <a href="/ai/reports/dashboard">История отчётов</a>
-    </nav>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-icon">AI</div>
+        <span>AI Аналитик рынка</span>
+      </div>
+      <nav class="nav">
+        <a href="/dashboard">Обзор</a>
+        <a href="/signals" class="active">Сигналы</a>
+        <a href="/portfolio/construct/demo">Портфель</a>
+        <a href="/ai/report/demo">AI Report</a>
+      </nav>
+    </div>
   </header>
 
-  <main>
-    <section class="card">
-      <h2>Сводка по тикеру</h2>
-      <p class="muted" id="status">Загружаю данные...</p>
+  <main class="wrap">
+    <div class="layout">
+      <section class="main-col">
+        <div class="instrument-card">
+          <div>
+            <div class="instrument-title">
+              <span id="instrumentName">__TICKER__</span>
+              <span class="ticker-code" id="tickerCode">__TICKER__</span>
+            </div>
 
-      <div class="metrics">
-        <div class="metric">
-          <div class="label">Цена</div>
-          <div class="value" id="lastPrice">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Изменение</div>
-          <div class="value" id="change">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Оборот</div>
-          <div class="value" id="turnover">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Последняя дата</div>
-          <div class="value" id="tradeDate">—</div>
-        </div>
-      </div>
+            <div class="instrument-meta">
+              <div>
+                <div class="meta-label">Вероятность цели</div>
+                <div class="meta-value" id="heroProbability">—</div>
+              </div>
+              <div>
+                <div class="meta-label">Сектор</div>
+                <div class="meta-value" id="heroSector">—</div>
+              </div>
+            </div>
+          </div>
 
-      <p style="margin-top:18px;">
-        <button class="button" onclick="loadTicker()">Обновить</button>
-        <a class="button secondary" href="/tickers/{ticker}/data">JSON</a>
-      </p>
-    </section>
+          <div class="logo-circle" id="logoCircle">__TICKER__</div>
+        </div>
 
-    <section class="card forecast-card">
-      <h2>Сводный прогноз</h2>
-      <p class="muted" id="forecastSubtitle">Прогноз строится автоматически по цене, объёму, технической картине, исторической проверке достижения цели и доступным событиям.</p>
-      <div id="forecastNotice" class="forecast-notice"></div>
+        <div class="tabs">
+          <div class="tab active">Обзор</div>
+          <div class="tab">Прогноз</div>
+          <div class="tab">Дивиденды</div>
+          <div class="tab">Новости</div>
+          <div class="tab">Идеи</div>
+        </div>
 
-      <div class="forecast-grid">
-        <div class="metric">
-          <div class="label">Рекомендация</div>
-          <div class="forecast-value"><span id="forecastRecommendation" class="forecast-pill neutral">—</span></div>
-        </div>
-        <div class="metric">
-          <div class="label">Вероятность достижения цели</div>
-          <div class="forecast-value" id="forecastProbability">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Прогнозная цена</div>
-          <div class="forecast-value" id="forecastPrice">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Надёжность</div>
-          <div class="forecast-value" id="forecastReliability">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Диапазон</div>
-          <div class="forecast-value" id="forecastRange">—</div>
-        </div>
-      </div>
+        <section class="chart-card">
+          <div class="periods">
+            <button>М5</button>
+            <button>М15</button>
+            <button>М30</button>
+            <button>Ч1</button>
+            <button>Ч4</button>
+            <button>Д</button>
+            <button>Н</button>
+            <button class="active">Мес</button>
+          </div>
 
-      <div class="metrics">
-        <div class="metric">
-          <div class="label">Потенциал</div>
-          <div class="value" id="forecastPotential">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Целевая цена</div>
-          <div class="value" id="forecastTarget">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Горизонт</div>
-          <div class="value" id="forecastHorizon">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Уровень пересмотра</div>
-          <div class="value" id="forecastStop">—</div>
-        </div>
-      </div>
+          <div class="chart-box">
+            <div class="chart-price-line"></div>
+            <div class="price-tag" id="chartPriceTag">—</div>
+            <svg id="chartSvg" class="chart-svg" viewBox="0 0 760 290" preserveAspectRatio="none"></svg>
+          </div>
+        </section>
 
-      <p style="margin-top:18px;">
-        <button class="button" onclick="toggleForecastExplanation()">Почему такой прогноз?</button>
-      </p>
+        <section class="section">
+          <h2 id="aboutTitle">О компании</h2>
+          <div class="about" id="aboutText">
+            Загружаю описание инструмента и рыночные данные...
+          </div>
+          <div class="company-meta">
+            <div>
+              <div class="muted">Страна эмитента</div>
+              <div style="margin-top:10px;">🇷🇺 Россия</div>
+            </div>
+            <div>
+              <div class="muted">Биржа торгов</div>
+              <div style="margin-top:10px;">Московская биржа</div>
+            </div>
+          </div>
+        </section>
 
-      <div id="forecastExplanation" class="forecast-explanation">
-        <p class="muted" id="forecastExplanationSummary">—</p>
-        <div class="explanation-grid">
-          <div class="explanation-box"><h4>Техническая картина</h4><ul id="forecastTechnical"><li>—</li></ul></div>
-          <div class="explanation-box"><h4>Новости и события</h4><ul id="forecastNews"><li>—</li></ul></div>
-          <div class="explanation-box"><h4>Риски</h4><ul id="forecastRisks"><li>—</li></ul></div>
-        </div>
-      </div>
-    </section>
+        <section class="section">
+          <h2>Сводный прогноз</h2>
 
+          <div id="forecastNotice" class="notice"></div>
 
-    <section class="card">
-      <h2>Ключевые факторы</h2>
+          <div class="forecast-card">
+            <div class="forecast-item">
+              <div class="label">Прогнозная цена</div>
+              <div class="value big" id="forecastPrice">—</div>
+            </div>
+            <div class="forecast-item">
+              <div class="label">Потенциал</div>
+              <div class="value" id="forecastPotential">—</div>
+            </div>
+            <div class="forecast-item">
+              <div class="label">Диапазон</div>
+              <div class="value" id="forecastRange">—</div>
+            </div>
+            <div class="forecast-item">
+              <div class="label">Рекомендация</div>
+              <div id="forecastRecommendation" class="recommendation-pill neutral">—</div>
+            </div>
+          </div>
 
-      <div class="metrics">
-        <div class="metric">
-          <div class="label">Тренд</div>
-          <div class="value" id="technicalTrend">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Краткосрочная средняя</div>
-          <div class="value" id="sma20">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Среднесрочная средняя</div>
-          <div class="value" id="sma50">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Колебания цены</div>
-          <div class="value" id="volatility20d">—</div>
-        </div>
-      </div>
+          <div class="forecast-actions">
+            <button class="btn primary" onclick="toggleForecastExplanation()">Почему такой прогноз?</button>
+            <a class="btn" href="/signals">Все сигналы</a>
+          </div>
 
-      <div class="metrics">
-        <div class="metric">
-          <div class="label">Движение за день</div>
-          <div class="value" id="return1d">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Движение за неделю</div>
-          <div class="value" id="return5d">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Движение за месяц</div>
-          <div class="value" id="return20d">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Активность торгов</div>
-          <div class="value" id="volumeRatio">—</div>
-        </div>
-      </div>
+          <div id="forecastExplanation" class="explanation"></div>
+        </section>
 
-      <p class="muted" id="technicalSummary" style="margin-top:18px;">—</p>
-    </section>
+        <section class="section">
+          <h2>Показатели акции</h2>
+          <div class="stats-card">
+            <table class="stats-table">
+              <tbody>
+                <tr><td>Цена открытия</td><td id="statOpen">—</td></tr>
+                <tr><td>Цена закрытия</td><td id="statClose">—</td></tr>
+                <tr><td>Дневной диапазон</td><td id="statDayRange">—</td></tr>
+              </tbody>
+            </table>
+            <table class="stats-table">
+              <tbody>
+                <tr><td>Изменение за день</td><td id="statDayChange">—</td></tr>
+                <tr><td>Изменение за 20 дней</td><td id="stat20Change">—</td></tr>
+                <tr><td>Горизонт прогноза</td><td id="statHorizon">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
 
-
-    <section class="card">
-      <h2>Дополнительные детали</h2>
-      <p class="muted">Этот раздел нужен для проверки расчёта: сценарий, уровни, графики и последние свечи. По умолчанию он скрыт, чтобы не перегружать страницу.</p>
-      <button class="button secondary" id="advancedDetailsButton" onclick="toggleAdvancedDetails()">Показать технические детали</button>
-    </section>
-
-    <div id="advancedTickerDetails" style="display:none;">
-    <section class="card">
-      <h2>Технические детали сценария</h2>
-
-      <div class="metrics">
-        <div class="metric">
-          <div class="label">Сценарий</div>
-          <div class="value" id="signalAction">—</div>
+      <aside class="side-col">
+        <div class="price-card">
+          <div class="caption" id="priceDate">Цена инструмента</div>
+          <div class="price" id="sidePrice">—</div>
+          <button class="open-account">Открыть счёт</button>
+          <div class="login-text">
+            Если у вас уже есть счёт,<br>
+            <a href="#">войдите в личный кабинет</a>
+          </div>
         </div>
-        <div class="metric">
-          <div class="label">Уверенность</div>
-          <div class="value" id="signalConfidence">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Риск</div>
-          <div class="value" id="signalRisk">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Горизонт</div>
-          <div class="value" id="signalHorizon">—</div>
-        </div>
-      </div>
-
-      <div class="metrics">
-        <div class="metric">
-          <div class="label">Цена входа / условие</div>
-          <div class="value" id="signalEntry">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Цель</div>
-          <div class="value" id="signalTarget">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Стоп / отмена сценария</div>
-          <div class="value" id="signalStop">—</div>
-        </div>
-        <div class="metric">
-          <div class="label">Последний диапазон</div>
-          <div class="value" id="signalRange">—</div>
-        </div>
-      </div>
-
-      <p class="muted" id="signalSummary" style="margin-top:18px;">—</p>
-
-      <h3>Факторы сигнала</h3>
-      <ul id="signalReasons">
-        <li>—</li>
-      </ul>
-
-      <p class="muted" id="signalDisclaimer">—</p>
-    </section>
-
-    <section class="grid">
-      <div class="card">
-        <h2>Цена</h2>
-        <svg id="priceChart" viewBox="0 0 900 320" preserveAspectRatio="none"></svg>
-      </div>
-
-      <div class="card">
-        <h2>Объём</h2>
-        <svg id="volumeChart" viewBox="0 0 900 320" preserveAspectRatio="none"></svg>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Последние свечи</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Дата</th>
-            <th>Open</th>
-            <th>High</th>
-            <th>Low</th>
-            <th>Close</th>
-            <th>Изм.</th>
-            <th>Объём</th>
-            <th>Оборот</th>
-          </tr>
-        </thead>
-        <tbody id="candlesRows">
-          <tr><td colspan="8">Загрузка...</td></tr>
-        </tbody>
-      </table>
-    </section>
+      </aside>
     </div>
   </main>
 
   <script>
-    const ticker = "{ticker}";
-    let refreshTimer = null;
+    const TICKER = "__TICKER__";
+    let latestPayload = null;
 
-    function formatNumber(value, digits = 2) {{
-      if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
-
-      return Number(value).toLocaleString("ru-RU", {{
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits
-      }});
-    }}
-
-    function formatRub(value) {{
-      if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
-
-      return Number(value).toLocaleString("ru-RU", {{
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1
-      }}) + " руб.";
-    }}
-
-    function formatPct(value) {{
-      if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
-
-      return Number(value).toLocaleString("ru-RU", {{
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      }}) + "%";
-    }}
-
-    function valueClass(value) {{
-      const n = Number(value);
-
-      if (Number.isNaN(n) || n === 0) return "";
-
-      return n > 0 ? "good" : "bad";
-    }}
-
-    function setText(id, value) {{
-      document.getElementById(id).textContent =
-        value === null || value === undefined || value === "" ? "—" : value;
-    }}
-
-    function drawLineChart(svgId, rows, field, labelFormatter) {{
-      const svg = document.getElementById(svgId);
-      svg.innerHTML = "";
-
-      const data = rows
-        .filter(row => row[field] !== null && row[field] !== undefined && !Number.isNaN(Number(row[field])))
-        .slice(-120);
-
-      if (data.length < 2) {{
-        svg.innerHTML = '<text x="30" y="50" fill="#64748b">Недостаточно данных</text>';
-        return;
-      }}
-
-      const width = 900;
-      const height = 320;
-      const pad = 42;
-
-      const values = data.map(row => Number(row[field]));
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const range = max - min || 1;
-
-      const points = data.map((row, index) => {{
-        const x = pad + index * ((width - pad * 2) / (data.length - 1));
-        const y = height - pad - ((Number(row[field]) - min) / range) * (height - pad * 2);
-
-        return {{x, y, row}};
-      }});
-
-      const polyline = points.map(p => `${{p.x}},${{p.y}}`).join(" ");
-
-      svg.innerHTML = `
-        <line x1="${{pad}}" y1="${{pad}}" x2="${{pad}}" y2="${{height - pad}}" stroke="#cbd5e1" />
-        <line x1="${{pad}}" y1="${{height - pad}}" x2="${{width - pad}}" y2="${{height - pad}}" stroke="#cbd5e1" />
-
-        <text x="${{pad}}" y="24" fill="#64748b" font-size="13">${{labelFormatter(max)}}</text>
-        <text x="${{pad}}" y="${{height - 10}}" fill="#64748b" font-size="13">${{labelFormatter(min)}}</text>
-
-        <polyline points="${{polyline}}" fill="none" stroke="#2563eb" stroke-width="4" />
-
-        ${{points.map(p => `
-          <circle cx="${{p.x}}" cy="${{p.y}}" r="4" fill="#2563eb">
-            <title>${{p.row.trade_date}}: ${{labelFormatter(p.row[field])}}</title>
-          </circle>
-        `).join("")}}
-      `;
-    }}
-
-    function renderCandles(candles) {{
-      const recent = candles.slice(-20).reverse();
-
-      document.getElementById("candlesRows").innerHTML = recent.map(row => `
-        <tr>
-          <td>${{row.trade_date || "—"}}</td>
-          <td>${{formatNumber(row.open)}}</td>
-          <td>${{formatNumber(row.high)}}</td>
-          <td>${{formatNumber(row.low)}}</td>
-          <td><b>${{formatNumber(row.close)}}</b></td>
-          <td class="${{valueClass(row.change_pct)}}">${{formatPct(row.change_pct)}}</td>
-          <td>${{formatNumber(row.volume, 0)}}</td>
-          <td>${{formatRub(row.value_rub)}}</td>
-        </tr>
-      `).join("");
-    }}
-
-
-    function escapeHtml(value) {{
+    function escapeHtml(value) {
       return String(value ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
-    }}
+    }
 
-    function forecastToneClass(tone) {{
-      if (tone === "positive") return "positive";
-      if (tone === "negative") return "negative";
+    function toNumber(value) {
+      const n = Number(value);
+      return Number.isNaN(n) ? null : n;
+    }
+
+    function setText(id, value) {
+      const element = document.getElementById(id);
+      if (!element) return;
+      element.textContent = value === null || value === undefined || value === "" ? "—" : value;
+    }
+
+    function formatNumber(value, digits = 2) {
+      const n = toNumber(value);
+      if (n === null) return "—";
+      return n.toLocaleString("ru-RU", {
+        maximumFractionDigits: digits,
+        minimumFractionDigits: digits === 0 ? 0 : 0
+      });
+    }
+
+    function formatRub(value) {
+      const n = toNumber(value);
+      if (n === null) return "—";
+      return `${formatNumber(n)} ₽`;
+    }
+
+    function formatPct(value, digits = 1) {
+      const n = toNumber(value);
+      if (n === null) return "—";
+      const sign = n > 0 ? "+" : "";
+      return `${sign}${formatNumber(n, digits)}%`;
+    }
+
+    function recommendationClass(value, level) {
+      const text = `${value || ""} ${level || ""}`.toLowerCase();
+      if (text.includes("не покуп") || text.includes("negative") || text.includes("risk") || text.includes("риск")) return "negative";
+      if (text.includes("покуп") || text.includes("рассмотреть") || text.includes("positive")) return "";
       return "neutral";
-    }}
+    }
 
-    function listHtml(items) {{
-      return (items || []).map(item => `<li>${{escapeHtml(item)}}</li>`).join("") || "<li>Факторы не выделены.</li>";
-    }}
+    function extractForecast(payload) {
+      return payload.forecast || payload.signal || {};
+    }
 
-    function toggleForecastExplanation() {{
-      const box = document.getElementById("forecastExplanation");
-      if (!box) return;
-      box.style.display = box.style.display === "block" ? "none" : "block";
-    }}
+    function extractLatest(payload) {
+      const forecast = extractForecast(payload);
+      return payload.latest || forecast.latest || forecast || {};
+    }
 
-    function renderUnavailableForecast(data) {{
-      const payload = data || {{}};
-      const signal = payload.signal || {{}};
-      const instrument = payload.instrument || {{}};
-      const explanation = signal.explanation || {{}};
-      const message = payload.message || explanation.summary || "Прогноз по этому инструменту пока не строится.";
+    function extractCandles(payload) {
+      return payload.candles || payload.history || payload.rows || [];
+    }
 
-      const reasonLabels = {{
-        instrument_not_found: "Инструмент не найден",
-        unsupported_asset_type: "Тип инструмента пока не поддерживается",
-        not_enough_candles: "Недостаточно исторических данных"
-      }};
+    function listHtml(items) {
+      const values = Array.isArray(items) ? items.filter(Boolean) : [];
+      if (!values.length) return "<p class='muted'>Нет дополнительных факторов.</p>";
+      return `<ul>${values.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+    }
 
-      const rec = document.getElementById("forecastRecommendation");
-      if (rec) {{
-        rec.textContent = reasonLabels[payload.reason] || signal.recommendation || "Прогноз недоступен";
-        rec.className = "forecast-pill neutral";
-      }}
+    function drawChart(candles, currentPrice) {
+      const svg = document.getElementById("chartSvg");
+      const width = 760;
+      const height = 290;
+      const pad = 16;
 
-      const notice = document.getElementById("forecastNotice");
-      if (notice) {{
-        const assetType = instrument.asset_type ? ` Тип: ${{instrument.asset_type}}.` : "";
-        notice.textContent = message + assetType;
-        notice.style.display = "block";
-      }}
+      const points = candles
+        .map(item => ({
+          close: toNumber(item.close || item.price || item.value),
+          date: item.trade_date || item.date
+        }))
+        .filter(item => item.close !== null)
+        .slice(-180);
 
-      setText("forecastSubtitle", "Система не показывает вероятность там, где модель неприменима или данных недостаточно.");
-      setText("forecastProbability", "—");
-      setText("forecastPrice", "—");
-      setText("forecastReliability", signal.reliability_level || "Низкая");
-      setText("forecastRange", "—");
-      setText("forecastPotential", "—");
-      setText("forecastTarget", "—");
-      setText("forecastHorizon", "—");
-      setText("forecastStop", "—");
+      if (!points.length && currentPrice !== null) {
+        points.push({ close: currentPrice, date: "" });
+      }
 
-      setText("forecastExplanationSummary", message);
-      document.getElementById("forecastTechnical").innerHTML = listHtml(
-        explanation.technical || ["Прогноз не построен: инструмент не проходит базовые условия модели."]
-      );
-      document.getElementById("forecastNews").innerHTML = listHtml(
-        explanation.news || ["Новостной фон не анализировался для неподдерживаемого прогноза."]
-      );
-      document.getElementById("forecastRisks").innerHTML = listHtml(
-        explanation.risks || ["Не выдаём вероятность, если данных недостаточно или модель не подходит для типа инструмента."]
-      );
-
-      const explanationBox = document.getElementById("forecastExplanation");
-      if (explanationBox) {{
-        explanationBox.style.display = "block";
-      }}
-    }}
-
-    function renderForecast(data) {{
-      const payload = data || {{}};
-      const forecast = payload.forecast || {{}};
-
-      if (!payload.ok || !forecast || !Object.keys(forecast).length) {{
-        renderUnavailableForecast(payload);
+      if (points.length < 2) {
+        svg.innerHTML = `<text x="20" y="145" fill="#70757a">Недостаточно данных для графика</text>`;
         return;
-      }}
+      }
 
+      const values = points.map(item => item.close);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const span = max - min || 1;
+
+      const coords = points.map((item, index) => {
+        const x = pad + index * ((width - pad * 2) / Math.max(1, points.length - 1));
+        const y = height - pad - ((item.close - min) / span) * (height - pad * 2);
+        return [x, y];
+      });
+
+      const d = coords.map((point, index) => `${index === 0 ? "M" : "L"} ${point[0].toFixed(2)} ${point[1].toFixed(2)}`).join(" ");
+
+      const last = coords[coords.length - 1];
+      const area = `${d} L ${last[0]} ${height - pad} L ${coords[0][0]} ${height - pad} Z`;
+
+      svg.innerHTML = `
+        <path d="${area}" fill="#f1f3f4"></path>
+        <path d="${d}" fill="none" stroke="#111827" stroke-width="2.4" vector-effect="non-scaling-stroke"></path>
+        <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="#111827"></circle>
+        <text x="12" y="${height - 8}" fill="#70757a" font-size="12">${escapeHtml(points[0].date || "")}</text>
+        <text x="${width - 96}" y="${height - 8}" fill="#70757a" font-size="12">${escapeHtml(points[points.length - 1].date || "")}</text>
+      `;
+    }
+
+    function renderUnavailable(payload) {
+      const message = payload.message || payload.reason || "Для инструмента пока недостаточно данных.";
       const notice = document.getElementById("forecastNotice");
-      if (notice) {{
-        notice.style.display = "none";
-        notice.textContent = "";
-      }}
+      notice.style.display = "block";
+      notice.textContent = message;
 
-      setText("forecastSubtitle", "Прогноз строится автоматически по цене, объёму, технической картине, исторической проверке достижения цели и доступным событиям.");
+      setText("forecastPrice", "—");
+      setText("forecastPotential", "—");
+      setText("forecastRange", "—");
+      setText("forecastRecommendation", "Недостаточно данных");
+      setText("heroProbability", "—");
+    }
 
-      const explanation = forecast.explanation || {{}};
-      const range = forecast.forecast_range || {{}};
-      const rec = document.getElementById("forecastRecommendation");
+    function renderForecast(payload) {
+      latestPayload = payload;
 
-      if (rec) {{
-        rec.textContent = forecast.recommendation || "—";
-        rec.className = "forecast-pill " + forecastToneClass(forecast.recommendation_tone);
-      }}
+      if (!payload.ok) {
+        renderUnavailable(payload);
+      }
 
-      setText("forecastProbability", forecast.target_probability_pct ? formatPct(forecast.target_probability_pct) : "—");
-      setText("forecastPrice", formatRub(forecast.forecast_price));
-      setText("forecastReliability", forecast.reliability_level || "—");
-      setText("forecastRange", range.low && range.high ? `${{formatRub(range.low)}} — ${{formatRub(range.high)}}` : "—");
-      setText("forecastPotential", `${{formatRub(forecast.potential_abs)}} / ${{formatPct(forecast.potential_pct)}}`);
-      setText("forecastTarget", formatRub(forecast.target_price));
-      setText("forecastHorizon", forecast.horizon);
-      setText("forecastStop", formatRub(forecast.stop_loss));
-      setText("forecastExplanationSummary", explanation.summary);
-      document.getElementById("forecastTechnical").innerHTML = listHtml(explanation.technical);
-      document.getElementById("forecastNews").innerHTML = listHtml(explanation.news);
-      document.getElementById("forecastRisks").innerHTML = listHtml(explanation.risks);
-    }}
+      const forecast = extractForecast(payload);
+      const latest = extractLatest(payload);
+      const instrument = payload.instrument || forecast.instrument || {};
 
-    async function loadForecast() {{
-      const response = await fetch(`/signals/consumer/${{ticker}}.json?candles_limit=240`);
-      if (!response.ok) {{
-        throw new Error("Forecast HTTP " + response.status + ": " + await response.text());
-      }}
-      const data = await response.json();
-      renderForecast(data);
-    }}
+      const ticker = forecast.ticker || payload.ticker || TICKER;
+      const name = forecast.name || instrument.name || ticker;
+      const price = toNumber(forecast.price || forecast.current_price || latest.close || latest.price);
+      const target = toNumber(forecast.forecast_price || forecast.target_price);
+      const probability = toNumber(forecast.target_probability_pct);
+      const potential = toNumber(forecast.potential_pct);
+      const range = forecast.forecast_range || {};
+      const recommendation = forecast.recommendation || "Наблюдать";
+      const decisionLevel = forecast.decision_level || "neutral";
 
-    function renderTicker(data) {{
-      const latest = data.latest || {{}};
-      const instrument = data.instrument || {{}};
-      const technical = data.technical || {{}};
-      const signal = data.signal || {{}};
-      const candles = data.candles || [];
+      setText("instrumentName", name);
+      setText("tickerCode", ticker);
+      setText("logoCircle", ticker.slice(0, 5));
+      setText("heroProbability", probability === null ? "—" : `${Math.round(probability)}%`);
+      setText("heroSector", instrument.sector || forecast.sector || "—");
 
-      document.title = `${{data.ticker}} · ${{instrument.name || data.ticker}}`;
-      setText("pageTitle", `${{data.ticker}} · ${{instrument.name || data.ticker}}`);
+      setText("priceDate", latest.trade_date ? `Цена инструмента ${latest.trade_date}` : "Цена инструмента");
+      setText("sidePrice", formatRub(price));
+      setText("chartPriceTag", formatNumber(price));
 
-      setText("lastPrice", formatNumber(latest.close));
-      setText("turnover", formatRub(latest.value_rub));
-      setText("tradeDate", latest.trade_date);
-
-      setText("technicalTrend", technical.trend);
-      setText("sma20", formatNumber(technical.sma_20));
-      setText("sma50", formatNumber(technical.sma_50));
-      setText("volatility20d", formatPct(technical.volatility_20d_pct));
-      setText("return1d", formatPct(technical.return_1d_pct));
-      setText("return5d", formatPct(technical.return_5d_pct));
-      setText("return20d", formatPct(technical.return_20d_pct));
-      setText("volumeRatio", technical.volume_ratio ? technical.volume_ratio + "x" : "—");
-      setText("technicalSummary", technical.summary);
-
-      setText("signalAction", signal.label || signal.action);
-      setText("signalConfidence", signal.confidence_pct ? signal.confidence_pct + "%" : "—");
-      setText("signalRisk", signal.risk_level);
-      setText("signalHorizon", signal.horizon);
-      setText("signalEntry", signal.entry_price ? formatNumber(signal.entry_price) : "—");
-      setText("signalTarget", signal.target_price ? formatNumber(signal.target_price) : "—");
-      setText("signalStop", signal.stop_loss ? formatNumber(signal.stop_loss) : "—");
-
-      const rangeText = signal.recent_low && signal.recent_high
-        ? formatNumber(signal.recent_low) + "—" + formatNumber(signal.recent_high)
-        : "—";
-      setText("signalRange", rangeText);
-
-      setText("signalSummary", signal.summary);
-      setText("signalDisclaimer", signal.disclaimer);
-
-      const reasons = signal.reasons || [];
-      document.getElementById("signalReasons").innerHTML = reasons.length
-        ? reasons.map(reason => `<li>${{reason}}</li>`).join("")
-        : "<li>Нет факторов.</li>";
-
-      const changeText = `${{formatNumber(latest.change_abs)}} / ${{formatPct(latest.change_pct)}}`;
-      const changeEl = document.getElementById("change");
-      changeEl.textContent = changeText;
-      changeEl.className = "value " + valueClass(latest.change_pct);
-
-      drawLineChart("priceChart", candles, "close", value => formatNumber(value));
-      drawLineChart("volumeChart", candles, "volume", value => formatNumber(value, 0));
-
-      renderCandles(candles);
-
-      const now = new Date().toLocaleTimeString("ru-RU");
+      setText("aboutTitle", `О компании ${name}`);
       setText(
-        "status",
-        `Свечей: ${{data.candles_count}}. Автообновление каждые ${{data.auto_refresh_seconds}} сек. Последнее обновление: ${{now}}.`
+        "aboutText",
+        instrument.description ||
+        forecast.description ||
+        `${name} (${ticker}) — инструмент Московской биржи. Прогноз на странице строится автоматически по рыночным данным, технической картине, исторической проверке достижения цели, ML-фильтру и риск-блоку.`
       );
-    }}
 
-    async function loadTicker() {{
-      const response = await fetch(`/tickers/${{ticker}}/data?limit=240`);
+      setText("forecastPrice", formatRub(target));
+      setText("forecastPotential", formatPct(potential));
+      setText("forecastRange", `${formatNumber(range.low)} — ${formatNumber(range.high)}`);
 
-      if (!response.ok) {{
-        throw new Error("HTTP " + response.status + ": " + await response.text());
-      }}
+      const rec = document.getElementById("forecastRecommendation");
+      rec.textContent = recommendation;
+      rec.className = `recommendation-pill ${recommendationClass(recommendation, decisionLevel)}`;
 
-      const data = await response.json();
-      renderTicker(data);
-      loadForecast().catch(error => {{
-        setText("forecastSubtitle", "Не удалось загрузить прогноз: " + error.message);
-      }});
-    }}
+      setText("statOpen", formatRub(latest.open || forecast.open));
+      setText("statClose", formatRub(latest.close || price));
 
-    function toggleAdvancedDetails() {{
-      const box = document.getElementById("advancedTickerDetails");
-      const button = document.getElementById("advancedDetailsButton");
+      const low = toNumber(latest.low || forecast.low);
+      const high = toNumber(latest.high || forecast.high);
+      setText("statDayRange", low !== null && high !== null ? `${formatRub(low)} – ${formatRub(high)}` : "—");
 
-      if (!box) return;
+      setText("statDayChange", formatPct(forecast.change_pct || latest.change_pct));
+      setText("stat20Change", formatPct(forecast.return_20d_pct || (forecast.technical || {}).return_20d_pct));
+      setText("statHorizon", forecast.horizon || "1–4 недели");
 
-      const isOpen = box.style.display === "block";
-      box.style.display = isOpen ? "none" : "block";
+      drawChart(extractCandles(payload), price);
+    }
 
-      if (button) {{
-        button.textContent = isOpen ? "Показать технические детали" : "Скрыть технические детали";
-      }}
-    }}
+    function toggleForecastExplanation() {
+      const box = document.getElementById("forecastExplanation");
 
-    function startAutoRefresh() {{
-      if (refreshTimer) {{
-        clearInterval(refreshTimer);
-      }}
+      if (box.style.display === "block") {
+        box.style.display = "none";
+        return;
+      }
 
-      refreshTimer = setInterval(() => {{
-        loadTicker().catch(error => {{
-          setText("status", "Ошибка автообновления: " + error.message);
-        }});
-      }}, 60 * 1000);
-    }}
+      const payload = latestPayload || {};
+      const forecast = extractForecast(payload);
+      const explanation = forecast.explanation || {};
+      const decisionReason = forecast.decision_reason || explanation.summary || "";
 
-    window.loadTicker = loadTicker;
+      box.innerHTML = `
+        <p>${escapeHtml(decisionReason || "Система учитывает вероятность достижения цели, риск, техническую картину, историческую проверку и ML-корректировку.")}</p>
+
+        <h3>Ключевые факторы</h3>
+        ${listHtml(explanation.technical)}
+
+        <h3>Новости и события</h3>
+        ${listHtml(explanation.news)}
+
+        <h3>Риски</h3>
+        ${listHtml(explanation.risks)}
+
+        <p class="muted">
+          Rule: ${formatPct(forecast.rule_probability_pct)} ·
+          ML: ${formatPct(forecast.ml_probability_pct)} ·
+          Итог: ${formatPct(forecast.target_probability_pct)} ·
+          Источник: ${escapeHtml(forecast.probability_source || "—")}
+        </p>
+      `;
+
+      box.style.display = "block";
+    }
+
+    async function loadTicker() {
+      try {
+        const response = await fetch(`/signals/consumer/${encodeURIComponent(TICKER)}.json`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+
+        const payload = await response.json();
+
+        let snapshot = {};
+        try {
+          const snapshotResponse = await fetch(`/tickers/${encodeURIComponent(TICKER)}/snapshot?limit=240`);
+          if (snapshotResponse.ok) {
+            snapshot = await snapshotResponse.json();
+          }
+        } catch (_) {}
+
+        renderForecast(Object.assign({}, snapshot, payload, {
+          candles: snapshot.candles || snapshot.rows || payload.candles || []
+        }));
+      } catch (error) {
+        renderUnavailable({
+          ok: false,
+          message: `Не удалось загрузить прогноз: ${error.message}`
+        });
+      }
+    }
+
     window.toggleForecastExplanation = toggleForecastExplanation;
-    window.toggleAdvancedDetails = toggleAdvancedDetails;
 
-    loadTicker()
-      .then(startAutoRefresh)
-      .catch(error => {{
-        setText("status", "Ошибка загрузки: " + error.message);
-      }});
+    loadTicker();
   </script>
 </body>
 </html>"""
+
+    return page.replace("__TICKER__", safe_ticker)
