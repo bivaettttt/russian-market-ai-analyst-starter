@@ -153,6 +153,75 @@ def build_signals_page_html() -> str:
       color: white;
     }
 
+
+    .scenario-tabs {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 18px 0 4px;
+    }
+
+    .scenario-tab {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 10px 14px;
+      background: white;
+      color: var(--text);
+      font-weight: 850;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+    }
+
+    .scenario-tab.active {
+      background: #0f172a;
+      border-color: #0f172a;
+      color: white;
+    }
+
+    .scenario-tab .count {
+      margin-left: 6px;
+      opacity: 0.75;
+      font-weight: 750;
+    }
+
+    .diagnostics-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .diag-pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .diag-pill.negative {
+      background: #fef2f2;
+      color: #991b1b;
+      border-color: #fecaca;
+    }
+
+    .diag-pill.positive {
+      background: #ecfdf5;
+      color: #065f46;
+      border-color: #bbf7d0;
+    }
+
+    .scenario-note {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
     .summary {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -413,6 +482,22 @@ def build_signals_page_html() -> str:
       </div>
     </section>
 
+
+    <section class="scenario-tabs" aria-label="Сценарии сигналов">
+      <button class="scenario-tab active" data-scenario="long" onclick="setScenario('long')">
+        Long-кандидаты <span class="count" id="scenarioLongCount">—</span>
+      </button>
+      <button class="scenario-tab" data-scenario="downside" onclick="setScenario('downside')">
+        Риск снижения <span class="count" id="scenarioDownsideCount">—</span>
+      </button>
+      <button class="scenario-tab" data-scenario="all" onclick="setScenario('all')">
+        Все сигналы <span class="count" id="scenarioAllCount">—</span>
+      </button>
+    </section>
+    <p class="scenario-note" id="scenarioNote">
+      Показаны long-кандидаты и нейтральные наблюдения. Риск снижения вынесен отдельно, это не short-рекомендация.
+    </p>
+
     <p id="status" class="status">Загружаю сигналы...</p>
 
     <section class="summary">
@@ -439,6 +524,7 @@ def build_signals_page_html() -> str:
 
   <script>
     let latestRows = [];
+    let currentScenario = "long";
 
     function escapeHtml(value) {
       return String(value ?? "")
@@ -480,6 +566,13 @@ def build_signals_page_html() -> str:
         name: source.name || row.name || source.company_name || "",
         recommendation: source.recommendation || source.label || "Наблюдать",
         consumer_action: source.consumer_action || source.action || "",
+        scenario_direction: source.scenario_direction || "neutral",
+        source_signal_action: source.source_signal_action || "",
+        source_signal_type: source.source_signal_type || "",
+        source_target_price: toNumber(source.source_target_price),
+        scenario_reason: source.scenario_reason || "",
+        position_sizing: source.position_sizing || {},
+        risk_reward_ratio: toNumber(source.risk_reward_ratio),
         decision: source.decision || "",
         decision_level: source.decision_level || "neutral",
         decision_reason: source.decision_reason || "",
@@ -566,6 +659,65 @@ def build_signals_page_html() -> str:
         level.includes("neutral")
       );
     }
+
+
+    function scenarioLabel(value) {
+      if (value === "downside") return "Риск снижения";
+      if (value === "long") return "Long";
+      if (value === "all") return "Все";
+      return "Нейтральный";
+    }
+
+    function scenarioNote(value) {
+      if (value === "downside") {
+        return "Показаны инструменты, где базовая модель видит downside/risk-сценарий. Это не рекомендация открыть short.";
+      }
+      if (value === "all") {
+        return "Показаны все сценарии: long-кандидаты, нейтральное наблюдение и риск снижения.";
+      }
+      return "Показаны long-кандидаты и нейтральные наблюдения. Риск снижения вынесен отдельно, это не short-рекомендация.";
+    }
+
+    function setScenario(value) {
+      currentScenario = value || "long";
+
+      document.querySelectorAll(".scenario-tab").forEach(button => {
+        button.classList.toggle("active", button.dataset.scenario === currentScenario);
+      });
+
+      const note = document.getElementById("scenarioNote");
+      if (note) note.textContent = scenarioNote(currentScenario);
+
+      loadSignals();
+    }
+
+    function updateScenarioCounters(summary) {
+      const counts = (summary && summary.scenario_counts) || {};
+      const total = summary?.total ?? latestRows.length ?? 0;
+      const active = summary?.scenario_filter || currentScenario;
+
+      const longBox = document.getElementById("scenarioLongCount");
+      const downsideBox = document.getElementById("scenarioDownsideCount");
+      const allBox = document.getElementById("scenarioAllCount");
+
+      if (active === "all") {
+        if (longBox) longBox.textContent = `(${(counts.long ?? 0) + (counts.neutral ?? 0)})`;
+        if (downsideBox) downsideBox.textContent = `(${counts.downside ?? 0})`;
+        if (allBox) allBox.textContent = `(${total})`;
+        return;
+      }
+
+      if (longBox) longBox.textContent = active === "long" ? `(${total})` : "—";
+      if (downsideBox) downsideBox.textContent = active === "downside" ? `(${total})` : "—";
+      if (allBox) allBox.textContent = active === "all" ? `(${total})` : "—";
+    }
+
+    function fmtPercent(value) {
+      const number = toNumber(value);
+      if (number === null || Number.isNaN(number)) return "—";
+      return `${number.toFixed(2)}%`;
+    }
+
 
     function decisionRank(item) {
       if (isPositiveSignal(item)) return 1;
@@ -738,6 +890,16 @@ def build_signals_page_html() -> str:
               ${escapeHtml(decisionText)}
             </div>
 
+            <div class="diagnostics-row">
+              <span class="diag-pill ${item.scenario_direction === "downside" ? "negative" : item.scenario_direction === "long" ? "positive" : ""}">
+                ${escapeHtml(scenarioLabel(item.scenario_direction || "neutral"))}
+              </span>
+              <span class="diag-pill">Источник: ${escapeHtml(item.source_signal_action || "—")}</span>
+              <span class="diag-pill">ML: ${fmtPercent(item.ml_probability_pct)}</span>
+              <span class="diag-pill">RR: ${item.risk_reward_ratio === null ? "—" : escapeHtml(item.risk_reward_ratio)}</span>
+              <span class="diag-pill">Позиция: ${escapeHtml((item.position_sizing || {}).max_position_pct ?? 0)}%</span>
+            </div>
+
             <div class="card-actions">
               <button class="button secondary" onclick="toggleDetails('${escapeHtml(item.ticker)}')">Почему?</button>
               <a class="button ghost" href="/tickers/${encodeURIComponent(item.ticker)}">Открыть тикер</a>
@@ -752,6 +914,7 @@ def build_signals_page_html() -> str:
     function getConsumerSignalsUrl() {
       const params = new URLSearchParams();
       params.set("limit", document.getElementById("limitInput").value || "60");
+      params.set("scenario", currentScenario);
 
       const query = document.getElementById("searchInput").value.trim();
       if (query) {
@@ -770,6 +933,7 @@ def build_signals_page_html() -> str:
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
 
         const data = await response.json();
+        updateScenarioCounters(data.summary || {});
         const rows = data.rows || data.signals || [];
         latestRows = rows.map(normalizeRow);
 
@@ -801,6 +965,7 @@ def build_signals_page_html() -> str:
     window.loadSignals = loadSignals;
     window.clearFilters = clearFilters;
     window.toggleDetails = toggleDetails;
+    window.setScenario = setScenario;
 
     loadSignals();
   </script>
