@@ -401,12 +401,18 @@ def _adaptive_ml_weight(ml_probability: float | None) -> float:
         return 0.30
 
     if ml_probability < 30:
-        return 0.22
+        return 0.24
+
+    if ml_probability < 35:
+        return 0.08
 
     if ml_probability < 40:
-        return 0.12
+        return 0.14
 
-    return 0.04
+    if ml_probability < 45:
+        return 0.06
+
+    return 0.02
 
 
 def _blend_rule_and_ml_probability(
@@ -528,13 +534,13 @@ def _consumer_signal_decision_gate(
             "is_buy_candidate": False,
         }
 
-    if ml_probability is not None and 30 <= ml_probability < 40 and probability_value >= 40:
+    if ml_probability is not None and 35 <= ml_probability < 40 and probability_value >= 40:
         return {
             "action": "watch_ml_confirmed",
             "recommendation": "Наблюдать",
             "decision": "Есть ML-подтверждение, но итоговая вероятность пока низкая",
             "decision_level": "neutral",
-            "decision_reason": "ML показывает исторический lift, но итоговый consumer score ещё не дотягивает до покупки.",
+            "decision_reason": "ML находится в рабочей зоне 35–40%, где evaluation показал лучший lift, но итоговый consumer score ещё не дотягивает до покупки.",
             "is_buy_candidate": False,
         }
 
