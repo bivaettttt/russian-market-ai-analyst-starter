@@ -573,6 +573,9 @@ def build_signals_page_html() -> str:
         scenario_reason: source.scenario_reason || "",
         position_sizing: source.position_sizing || {},
         risk_reward_ratio: toNumber(source.risk_reward_ratio),
+        news_adjustment_pct: toNumber(source.news_adjustment_pct),
+        news_assessment: source.news_assessment || {},
+        news_risk_flags: source.news_risk_flags || [],
         decision: source.decision || "",
         decision_level: source.decision_level || "neutral",
         decision_reason: source.decision_reason || "",
@@ -711,6 +714,35 @@ def build_signals_page_html() -> str:
       if (downsideBox) downsideBox.textContent = active === "downside" ? `(${total})` : "—";
       if (allBox) allBox.textContent = active === "all" ? `(${total})` : "—";
     }
+
+
+    function newsBadgeClass(news) {
+      const sentiment = (news && news.sentiment) || "none";
+
+      if (sentiment === "positive") return "positive";
+      if (sentiment === "negative") return "negative";
+      if (sentiment === "mixed") return "warning";
+
+      return "";
+    }
+
+    function newsBadgeText(item) {
+      const news = item.news_assessment || {};
+      const adjustment = item.news_adjustment_pct;
+
+      if (!news.has_events) {
+        return "Новости: нет событий";
+      }
+
+      const sentiment = news.sentiment || "neutral";
+      const score = news.sentiment_score ?? 0;
+      const adj = adjustment === null || Number.isNaN(adjustment)
+        ? "0.0"
+        : adjustment.toFixed(1);
+
+      return `Новости: ${sentiment} ${adj > 0 ? "+" : ""}${adj} п.п. · score ${score}`;
+    }
+
 
     function fmtPercent(value) {
       const number = toNumber(value);
@@ -896,6 +928,9 @@ def build_signals_page_html() -> str:
               </span>
               <span class="diag-pill">Источник: ${escapeHtml(item.source_signal_action || "—")}</span>
               <span class="diag-pill">ML: ${fmtPercent(item.ml_probability_pct)}</span>
+              <span class="diag-pill ${newsBadgeClass(item.news_assessment || {})}">
+                ${escapeHtml(newsBadgeText(item))}
+              </span>
               <span class="diag-pill">RR: ${item.risk_reward_ratio === null ? "—" : escapeHtml(item.risk_reward_ratio)}</span>
               <span class="diag-pill">Позиция: ${escapeHtml((item.position_sizing || {}).max_position_pct ?? 0)}%</span>
             </div>
