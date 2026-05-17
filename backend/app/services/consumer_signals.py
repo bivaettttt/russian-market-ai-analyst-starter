@@ -1099,6 +1099,16 @@ def build_consumer_forecast(
         volatility_pct=_to_float(technical.get("volatility_20d_pct")),
     )
 
+    # Preserve RR diagnostics even when entry is blocked by decision gate.
+    if preliminary_target_distance_pct is not None and position_sizing.get("target_distance_pct") is None:
+        position_sizing["target_distance_pct"] = _round(preliminary_target_distance_pct, 2)
+
+    if preliminary_stop_distance_pct is not None and position_sizing.get("stop_distance_pct") is None:
+        position_sizing["stop_distance_pct"] = _round(preliminary_stop_distance_pct, 2)
+
+    if preliminary_risk_reward_ratio is not None and position_sizing.get("risk_reward_ratio") is None:
+        position_sizing["risk_reward_ratio"] = _round(preliminary_risk_reward_ratio, 2)
+
     return {
         "ticker": ticker,
         "name": instrument.get("name") or ticker,
