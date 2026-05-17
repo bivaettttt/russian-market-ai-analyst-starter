@@ -18,10 +18,12 @@ ACTION_RANK = {
     "buy": 1,
     "consider_buy": 2,
     "watch_ml_confirmed": 3,
-    "watch": 4,
-    "avoid_ml_filter": 5,
-    "avoid_risk": 6,
-    "avoid": 7,
+    "watch_ml_rejected": 4,
+    "watch": 5,
+    "avoid_ml_veto": 6,
+    "avoid_ml_filter": 7,
+    "avoid_risk": 8,
+    "avoid": 9,
     "no_forecast": 9,
     "no_data": 9,
     "no_price": 9,
@@ -697,6 +699,26 @@ def _consumer_signal_decision_gate(
             "is_buy_candidate": False,
         }
 
+    if ml_probability is not None and ml_probability < 15:
+        return {
+            "action": "avoid_ml_veto",
+            "recommendation": "Не покупать",
+            "decision": "ML-veto: модель против сценария",
+            "decision_level": "negative",
+            "decision_reason": "ML-модель оценивает вероятность достижения цели ниже 15%, поэтому сигнал не может быть покупкой даже при высокой rule-оценке.",
+            "is_buy_candidate": False,
+        }
+
+    if ml_probability is not None and 15 <= ml_probability < 25 and probability_value >= 45:
+        return {
+            "action": "watch_ml_rejected",
+            "recommendation": "Наблюдать",
+            "decision": "Rule-сигнал есть, но ML не подтверждает покупку",
+            "decision_level": "neutral",
+            "decision_reason": "ML-модель оценивает вероятность достижения цели в зоне 15–25%, поэтому покупка запрещена; инструмент можно оставить только в наблюдении.",
+            "is_buy_candidate": False,
+        }
+
     if ml_adjustment is not None and ml_adjustment <= -10 and probability_value < 45:
         return {
             "action": "avoid_ml_filter",
@@ -1158,8 +1180,8 @@ def list_consumer_signals(
     )
 
     positive_actions = {"buy", "consider_buy", "buy_watch", "watch_buy"}
-    watch_actions = {"watch", "watch_ml_confirmed", "hold_watch"}
-    risk_actions = {"avoid", "avoid_ml_filter", "avoid_risk", "risk_sell_watch"}
+    watch_actions = {"watch", "watch_ml_confirmed", "watch_ml_rejected", "hold_watch"}
+    risk_actions = {"avoid", "avoid_ml_filter", "avoid_ml_veto", "avoid_risk", "risk_sell_watch"}
 
     summary = {
         "total": len(rows),
@@ -1170,6 +1192,8 @@ def list_consumer_signals(
         "consider_buy": sum(1 for row in rows if row.get("action") == "consider_buy"),
         "watch_ml_confirmed": sum(1 for row in rows if row.get("action") == "watch_ml_confirmed"),
         "avoid_ml_filter": sum(1 for row in rows if row.get("action") == "avoid_ml_filter"),
+        "avoid_ml_veto": sum(1 for row in rows if row.get("action") == "avoid_ml_veto"),
+        "watch_ml_rejected": sum(1 for row in rows if row.get("action") == "watch_ml_rejected"),
         "avg_probability_pct": _round(
             sum(float(row.get("target_probability_pct") or 0) for row in rows) / len(rows),
             1,
