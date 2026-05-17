@@ -382,26 +382,31 @@ def _build_explanation(
 
 
 def _adaptive_ml_weight(ml_probability: float | None) -> float:
+    """
+    Evaluation-aware ML weight.
+
+    Текущий threshold-report показал:
+    - ML >= 30% даёт небольшой lift к base rate;
+    - ML >= 40% исторически работает хуже base rate;
+    - вероятности сжаты и не должны трактоваться как агрессивная уверенность.
+
+    Поэтому ML сейчас используется в основном как risk-filter:
+    низкий ML сильнее штрафует итоговую вероятность,
+    высокий ML почти не бустит сигнал.
+    """
     if ml_probability is None:
         return 0.0
 
-    # ML v2 evaluation:
-    # - ниже 30% модель полезна как понижающий фильтр;
-    # - 35–45% даёт лучший исторический lift;
-    # - выше 45% выборка пока маленькая, поэтому не усиливаем агрессивно.
-    if ml_probability < 20:
-        return 0.55
-
-    if ml_probability < 30:
-        return 0.45
-
-    if ml_probability < 35:
+    if ml_probability < 25:
         return 0.30
 
-    if ml_probability < 45:
-        return 0.45
+    if ml_probability < 30:
+        return 0.22
 
-    return 0.25
+    if ml_probability < 40:
+        return 0.12
+
+    return 0.04
 
 
 def _blend_rule_and_ml_probability(
@@ -523,7 +528,7 @@ def _consumer_signal_decision_gate(
             "is_buy_candidate": False,
         }
 
-    if ml_probability is not None and ml_probability >= 40 and probability_value >= 40:
+    if ml_probability is not None and 30 <= ml_probability < 40 and probability_value >= 40:
         return {
             "action": "watch_ml_confirmed",
             "recommendation": "Наблюдать",
