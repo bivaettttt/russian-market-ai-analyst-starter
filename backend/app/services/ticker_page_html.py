@@ -587,11 +587,13 @@ def build_ticker_page_html(ticker: str) -> str:
         <section class="panel">
           <div class="chart-toolbar">
             <div class="periods">
-              <button class="chip" data-period="30" onclick="setChartPeriod(30, this)">1М</button>
-              <button class="chip" data-period="90" onclick="setChartPeriod(90, this)">3М</button>
-              <button class="chip" data-period="180" onclick="setChartPeriod(180, this)">6М</button>
-              <button class="chip active" data-period="365" onclick="setChartPeriod(365, this)">1Г</button>
-              <button class="chip" data-period="all" onclick="setChartPeriod('all', this)">Всё</button>
+              <button class="chip" data-period="1D" onclick="setChartPeriod('1D', this)">1Д</button>
+              <button class="chip" data-period="1W" onclick="setChartPeriod('1W', this)">1Н</button>
+              <button class="chip" data-period="1M" onclick="setChartPeriod('1M', this)">1М</button>
+              <button class="chip" data-period="3M" onclick="setChartPeriod('3M', this)">3М</button>
+              <button class="chip" data-period="6M" onclick="setChartPeriod('6M', this)">6М</button>
+              <button class="chip active" data-period="1Y" onclick="setChartPeriod('1Y', this)">1Г</button>
+              <button class="chip" data-period="ALL" onclick="setChartPeriod('ALL', this)">Всё</button>
             </div>
             <div class="chart-actions">
               <button class="chip active" data-chart="line" onclick="setChartType('line', this)">Линия</button>
@@ -674,7 +676,7 @@ def build_ticker_page_html(ticker: str) -> str:
     const TICKER = "__TICKER__";
     let latestPayload = null;
     let allCandles = [];
-    let chartPeriod = 365;
+    let chartPeriod = "1Y";
     let chartType = "line";
 
     const BRAND_ACCENTS = {
@@ -840,8 +842,7 @@ def build_ticker_page_html(ticker: str) -> str:
     }
 
     function getVisibleCandles() {
-      if (chartPeriod === "all") return allCandles;
-      return allCandles.slice(-Number(chartPeriod));
+      return allCandles;
     }
 
     function drawChart() {
@@ -920,13 +921,13 @@ def build_ticker_page_html(ticker: str) -> str:
       `;
     }
 
-    function setChartPeriod(period, button) {
+    async function setChartPeriod(period, button) {
       chartPeriod = period;
 
       document.querySelectorAll("[data-period]").forEach(item => item.classList.remove("active"));
       if (button) button.classList.add("active");
 
-      drawChart();
+      await loadChartData();
     }
 
     function setChartType(type, button) {
@@ -1081,6 +1082,32 @@ def build_ticker_page_html(ticker: str) -> str:
       return response.json();
     }
 
+    async function loadChartData() {
+      const empty = document.getElementById("chartEmpty");
+      empty.style.display = "flex";
+      empty.textContent = "Загружаю график...";
+
+      try {
+        const chartPayload = await fetchJson(
+          `/tickers/${encodeURIComponent(TICKER)}/chart.json?period=${encodeURIComponent(chartPeriod)}&limit=1500`
+        );
+
+        allCandles = (chartPayload.candles || []).map(normalizeCandle).filter(Boolean);
+
+        if (!allCandles.length) {
+          empty.textContent = "Недостаточно исторических данных для графика";
+        }
+
+        drawChart();
+      } catch (error) {
+        allCandles = [];
+        empty.style.display = "flex";
+        empty.textContent = `Не удалось загрузить график: ${error.message}`;
+        drawChart();
+      }
+    }
+
+
     async function loadTicker() {
       applyAccent(TICKER);
 
@@ -1098,12 +1125,13 @@ def build_ticker_page_html(ticker: str) -> str:
       }
 
       try {
-        snapshot = await fetchJson(`/tickers/${encodeURIComponent(TICKER)}/snapshot?limit=1200`);
+        snapshot = await fetchJson(`/tickers/${encodeURIComponent(TICKER)}/data?limit=1000`);
       } catch (_) {
         snapshot = {};
       }
 
       renderTicker(payload, snapshot);
+      await loadChartData();
     }
 
     window.toggleForecastExplanation = toggleForecastExplanation;

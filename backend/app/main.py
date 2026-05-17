@@ -524,6 +524,7 @@ app.include_router(market_universe_router)
 # --- Ticker pages and live-ish data ---
 
 from app.services.ticker_data import get_ticker_snapshot
+from app.services.ticker_chart_data import build_ticker_chart_data
 from app.services.ticker_page_html import build_ticker_page_html
 
 
@@ -536,6 +537,23 @@ def ticker_data_api(
     return get_ticker_snapshot(
         db=db,
         ticker=ticker,
+        limit=limit,
+    )
+
+
+
+
+@app.get("/tickers/{ticker}/chart.json")
+def ticker_chart_json(
+    ticker: str,
+    period: str = Query("1Y"),
+    limit: int = Query(1000, ge=10, le=2000),
+    db: Session = Depends(get_db),
+):
+    return build_ticker_chart_data(
+        db=db,
+        ticker=ticker,
+        period=period,
         limit=limit,
     )
 
