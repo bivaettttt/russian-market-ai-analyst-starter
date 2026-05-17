@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, func
 from sqlalchemy.orm import Session
 
 from app.models import MarketEvent
 from app.services.ticker_data import get_ticker_snapshot
+from app.models import Candle, Instrument
 from app.services.consumer_probability import build_probability_assessment
 
 CONSUMER_SIGNAL_MODEL_VERSION = "tech_v4_quality_rr"
@@ -402,6 +403,8 @@ def build_consumer_forecast(
         "ticker": ticker,
         "name": instrument.get("name") or ticker,
         "sector": instrument.get("sector"),
+        "asset_type": instrument.get("asset_type"),
+        "is_signal_eligible": instrument.get("is_signal_eligible"),
         "price": _round(price),
         "trade_date": latest.get("trade_date"),
         "recommendation": recommendation,
@@ -431,12 +434,102 @@ def build_consumer_forecast(
     }
 
 
+
+def _instrument_to_consumer_dict(instrument: Instrument | None, ticker: str) -> dict[str, Any]:
+    if instrument is None:
+        return {
+            "ticker": ticker,
+            "name": ticker,
+            "asset_type": "unknown",
+            "is_signal_eligible": False,
+        }
+
+    return {
+        "ticker": instrument.ticker,
+        "name": instrument.name or instrument.ticker,
+        "board": instrument.board,
+        "sector": instrument.sector,
+        "asset_type": getattr(instrument, "asset_type", "unknown") or "unknown",
+        "is_signal_eligible": bool(getattr(instrument, "is_signal_eligible", False)),
+        "lot_size": instrument.lot_size,
+    }
+
+
+def _unsupported_forecast_response(
+    ticker: str,
+    instrument: dict[str, Any],
+    reason: str,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "ticker": ticker,
+        "reason": reason,
+        "message": message,
+        "instrument": instrument,
+        "forecast": None,
+        "signal": {
+            "recommendation": "Недостаточно данных",
+            "target_probability_pct": None,
+            "target_price": None,
+            "forecast_range": {"low": None, "high": None},
+            "horizon": None,
+            "risk_level": "unknown",
+            "reliability_level": "Низкая",
+            "reliability_score": 0,
+            "explanation": {
+                "summary": message,
+                "technical": ["Прогноз не построен, потому что инструмент не проходит базовые условия модели."],
+                "news": ["Новостной фон не анализировался для неподдерживаемого прогноза."],
+                "risks": ["Система не должна выдавать вероятность там, где модель неприменима или данных недостаточно."],
+            },
+        },
+    }
+
+
+def _get_consumer_instrument(db: Session, ticker: str) -> Instrument | None:
+    return db.scalar(select(Instrument).where(Instrument.ticker == ticker))
+
+
+def _get_candles_count(db: Session, ticker: str) -> int:
+    return int(db.scalar(select(func.count(Candle.id)).where(Candle.ticker == ticker)) or 0)
+
+
 def build_consumer_signal_for_ticker(
     db: Session,
     ticker: str,
     candles_limit: int = 240,
 ) -> dict[str, Any]:
     ticker = ticker.upper().strip()
+
+    db_instrument = _get_consumer_instrument(db=db, ticker=ticker)
+    instrument_meta = _instrument_to_consumer_dict(db_instrument, ticker)
+
+    if db_instrument is None:
+        return _unsupported_forecast_response(
+            ticker=ticker,
+            instrument=instrument_meta,
+            reason="instrument_not_found",
+            message="Инструмент не найден в локальном справочнике MOEX. Обновите universe или проверьте тикер.",
+        )
+
+    if not instrument_meta.get("is_signal_eligible"):
+        asset_type = instrument_meta.get("asset_type") or "unknown"
+        return _unsupported_forecast_response(
+            ticker=ticker,
+            instrument=instrument_meta,
+            reason="unsupported_asset_type",
+            message=f"Для типа инструмента '{asset_type}' потребительский прогноз пока не строится.",
+        )
+
+    candles_count = _get_candles_count(db=db, ticker=ticker)
+    if candles_count < 60:
+        return _unsupported_forecast_response(
+            ticker=ticker,
+            instrument=instrument_meta,
+            reason="not_enough_candles",
+            message=f"Недостаточно исторических данных для прогноза: найдено {candles_count} свечей, нужно минимум 60.",
+        )
 
     snapshot = get_ticker_snapshot(
         db=db,
@@ -447,7 +540,12 @@ def build_consumer_signal_for_ticker(
     latest = snapshot.get("latest") or {}
     technical = snapshot.get("technical") or {}
     fallback_signal = snapshot.get("signal") or {}
-    instrument = snapshot.get("instrument") or {"ticker": ticker, "name": ticker}
+    instrument = {
+        **instrument_meta,
+        **(snapshot.get("instrument") or {"ticker": ticker, "name": ticker}),
+        "asset_type": instrument_meta.get("asset_type"),
+        "is_signal_eligible": instrument_meta.get("is_signal_eligible"),
+    }
     candles = snapshot.get("candles") or []
 
     # Дополняем технический блок ближайшими максимумами/минимумами, чтобы прогноз имел диапазон.
@@ -508,16 +606,18 @@ def list_consumer_signals(
     candles_limit: int = 240,
     q: str | None = None,
 ) -> dict[str, Any]:
-    from app.services.signals_data import list_market_tickers
     from app.services.market_universe import search_instruments
 
     query_text = (q or "").strip()
 
-    if query_text:
-        search_result = search_instruments(db=db, q=query_text, limit=limit, only_with_candles=True)
-        tickers = [row.get("ticker") for row in search_result.get("rows") or [] if row.get("ticker")]
-    else:
-        tickers = list_market_tickers(db=db, limit=limit)
+    search_result = search_instruments(
+        db=db,
+        q=query_text or None,
+        limit=limit,
+        only_with_candles=True,
+        eligible_only=True,
+    )
+    tickers = [row.get("ticker") for row in search_result.get("rows") or [] if row.get("ticker")]
     rows: list[dict[str, Any]] = []
 
     for ticker in tickers:
@@ -526,6 +626,9 @@ def list_consumer_signals(
             ticker=ticker,
             candles_limit=candles_limit,
         )
+        if not data.get("ok"):
+            continue
+
         forecast = data.get("forecast") or {}
 
         if action and forecast.get("action") != action:
