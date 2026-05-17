@@ -552,6 +552,22 @@ def build_ticker_page_html(ticker: str) -> str:
       .stats-grid { grid-template-columns: 1fr; }
       .chart-box { height: 280px; }
     }
+  
+    .cta:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+      filter: grayscale(0.35);
+    }
+
+    .ticker-unavailable-note {
+      border: 1px solid rgba(245, 158, 11, 0.22);
+      background: rgba(255, 251, 235, 0.9);
+      color: #92400e;
+      border-radius: 18px;
+      padding: 16px 18px;
+      font-weight: 800;
+      line-height: 1.45;
+    }
   </style>
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -691,7 +707,7 @@ def build_ticker_page_html(ticker: str) -> str:
           <div class="price-caption" id="priceDate">Цена инструмента</div>
           <div class="side-price" id="sidePrice">—</div>
           <div class="side-change" id="sideChange">—</div>
-          <button class="cta" onclick="window.location.href='/portfolio/construct/demo'">Добавить в портфель</button>
+          <button id="portfolioCta" class="cta" onclick="window.location.href='/portfolio/construct/demo'">Добавить в портфель</button>
           <button class="watchlist" onclick="window.location.href='/signals'">Вернуться к сигналам</button>
         </section>
       </aside>
@@ -913,8 +929,106 @@ def build_ticker_page_html(ticker: str) -> str:
       setText("heroProbability", "—");
     }
 
+    function payloadReason(payload) {
+      return String(
+        (payload && (payload.reason || payload.error || payload.status)) ||
+        ""
+      ).trim();
+    }
+
+    function setPortfolioCtaEnabled(enabled, label) {
+      const button = document.getElementById("portfolioCta");
+
+      if (!button) return;
+
+      button.disabled = !enabled;
+      button.textContent = label || (enabled ? "Добавить в портфель" : "Недоступно");
+
+      if (enabled) {
+        button.onclick = () => {
+          window.location.href = "/portfolio/construct/demo";
+        };
+      } else {
+        button.onclick = event => {
+          event.preventDefault();
+          return false;
+        };
+      }
+    }
+
+    function renderUnavailableTicker(payload) {
+      latestPayload = payload;
+
+      const ticker = String(
+        (payload && (payload.ticker || payload.requested_ticker)) ||
+        TICKER ||
+        ""
+      ).toUpperCase();
+
+      const message =
+        (payload && payload.message) ||
+        "Инструмент не найден в локальном справочнике MOEX. Обновите universe или проверьте тикер.";
+
+      document.title = `${ticker} — инструмент недоступен`;
+
+      setText("heroName", ticker);
+      setText("heroTicker", ticker);
+      setText("logoTicker", ticker);
+      setText("heroProbability", "—");
+      setText("heroRecommendation", "Недоступно");
+      setText("heroSector", "—");
+
+      setText("priceDate", "Цена инструмента");
+      setText("sidePrice", "—");
+      setText("sideChange", "—");
+
+      setText("companyTitle", `О компании ${ticker}`);
+      setText(
+        "companyDescription",
+        `${ticker} (${ticker}) — инструмент не найден в локальном справочнике MOEX. Для анализа нужно обновить справочник инструментов и исторические свечи.`
+      );
+
+      setText("forecastPrice", "—");
+      setText("forecastPotential", "—");
+      setText("forecastRange", "—");
+      setText("forecastRecommendation", "Недоступно");
+
+      setText("statOpen", "—");
+      setText("statClose", "—");
+      setText("statDayRange", "—");
+      setText("statDayChange", "—");
+      setText("stat20Change", "—");
+      setText("statHorizon", "—");
+
+      setPortfolioCtaEnabled(false, "Недоступно");
+
+      const notice = document.getElementById("forecastNotice");
+      if (notice) {
+        notice.style.display = "block";
+        notice.textContent = message;
+      }
+
+      const chartEmpty = document.getElementById("chartEmpty");
+      if (chartEmpty) {
+        chartEmpty.style.display = "flex";
+        chartEmpty.textContent = "Нет исторических рыночных данных для построения графика";
+      }
+
+      if (typeof destroyInteractiveChart === "function") {
+        destroyInteractiveChart();
+      }
+    }
+
+
     function renderTicker(payload, snapshot) {
       latestPayload = payload;
+
+      if (payload && payload.ok === false && payloadReason(payload) === "instrument_not_found") {
+        renderUnavailableTicker(payload);
+        return;
+      }
+
+      setPortfolioCtaEnabled(true, "Добавить в портфель");
 
       const forecast = extractForecast(payload);
       const latest = extractLatest(payload);
