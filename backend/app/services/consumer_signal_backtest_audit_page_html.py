@@ -170,6 +170,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
       <label>horizon<input id="horizon" type="number" value="20" min="5" max="90" /></label>
       <label>target_pct<input id="targetPct" type="number" value="0.05" min="0.005" max="0.25" step="0.005" /></label>
       <label>stop_pct<input id="stopPct" type="number" value="0.03" min="0.005" max="0.20" step="0.005" /></label>
+      <label>Use market regime<input id="useMarketRegime" type="checkbox" /></label>
       <button class="button" onclick="loadReport()">Обновить отчёт</button>
     </section>
 
@@ -205,6 +206,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
       q.set("horizon", document.getElementById("horizon").value || "20");
       q.set("target_pct", document.getElementById("targetPct").value || "0.05");
       q.set("stop_pct", document.getElementById("stopPct").value || "0.03");
+      if (document.getElementById("useMarketRegime").checked) q.set("use_market_regime_filter", "true");
       return q;
     }
 

@@ -17,6 +17,7 @@ from app.services.consumer_signals import (
     _round,
     _to_float,
 )
+from app.services.market_regime import build_market_regime_for_date_proxy
 
 
 def _pct_change(current: float | None, previous: float | None) -> float | None:
@@ -314,6 +315,7 @@ def _build_proxy_samples(
     target_pct: float,
     stop_pct: float,
     min_history: int,
+    use_market_regime_filter: bool = False,
 ) -> tuple[list[dict[str, Any]], set[str]]:
     instruments = db.scalars(
         select(Instrument)
@@ -334,12 +336,10 @@ def _build_proxy_samples(
     samples: list[dict[str, Any]] = []
     tickers_used: set[str] = set()
     per_ticker_cap = max(1, max_samples // max(1, len(instruments)))
+    candles_by_ticker: dict[str, list[dict[str, Any]]] = {}
 
     for instrument in instruments:
-        if len(samples) >= max_samples:
-            break
-
-        candles = [
+        candles_by_ticker[instrument.ticker] = [
             _candle_to_dict(row)
             for row in db.scalars(
                 select(Candle)
@@ -348,6 +348,28 @@ def _build_proxy_samples(
             ).all()
             if row.close is not None
         ]
+
+    def _index_by_date(trade_date: str | None) -> dict[str, int]:
+        if not trade_date:
+            return {}
+        indexes: dict[str, int] = {}
+        for ticker, ticker_candles in candles_by_ticker.items():
+            selected_index = None
+            for candle_index, candle in enumerate(ticker_candles):
+                candle_date = str(candle.get("trade_date") or "")
+                if candle_date <= trade_date:
+                    selected_index = candle_index
+                else:
+                    break
+            if selected_index is not None:
+                indexes[ticker] = selected_index
+        return indexes
+
+    for instrument in instruments:
+        if len(samples) >= max_samples:
+            break
+
+        candles = candles_by_ticker.get(instrument.ticker) or []
         if len(candles) < min_history + horizon + 1:
             continue
 
@@ -412,6 +434,31 @@ def _build_proxy_samples(
                 target_distance_pct=target_distance_pct,
                 scenario_direction=scenario_direction,
             )
+            market_regime = None
+            market_regime_blocked = False
+            if use_market_regime_filter:
+                market_regime = build_market_regime_for_date_proxy(
+                    candles_by_ticker=candles_by_ticker,
+                    index_by_ticker=_index_by_date(current.get("trade_date")),
+                    lookback=60,
+                )
+                if (
+                    scenario_direction != "downside"
+                    and market_regime.get("regime") == "risk_off"
+                    and not bool(market_regime.get("long_allowed", True))
+                    and str(decision_gate.get("action") or "") in {"buy", "consider_buy", "watch", "watch_ml_confirmed", "watch_bad_rr", "watch_ml_rejected"}
+                ):
+                    market_regime_blocked = True
+                    decision_gate = {
+                        **decision_gate,
+                        "action": "watch_market_risk" if (probability or 0) >= 45 else "avoid_market_risk",
+                        "recommendation": "Наблюдать" if (probability or 0) >= 45 else "Не покупать",
+                        "decision": "Long ограничен proxy market regime",
+                        "decision_level": "neutral" if (probability or 0) >= 45 else "negative",
+                        "decision_reason": "Proxy historical market regime risk_off blocked long entry.",
+                        "is_buy_candidate": False,
+                        "market_regime_blocked": True,
+                    }
             position_sizing = _build_position_sizing(
                 action=decision_gate.get("action"),
                 price=price,
@@ -482,6 +529,8 @@ def _build_proxy_samples(
                 target_probability_pct=probability,
                 ticker_news_adjustment_pct=0.0,
                 global_event_adjustment_pct=0.0,
+                market_regime=market_regime,
+                market_regime_adjustment_pct=0.0,
             )
             outcome = _evaluate_outcome(
                 current=current,
@@ -504,6 +553,9 @@ def _build_proxy_samples(
                 "blocked_by": audit.get("blocked_by") or ["none"],
                 "passed_layers": audit.get("passed_layers") or [],
                 "warning_layers": audit.get("warning_layers") or [],
+                "market_regime": market_regime,
+                "market_regime_filter_blocked": market_regime_blocked,
+                "market_regime_regime": (market_regime or {}).get("regime"),
                 "outcome": outcome.get("outcome"),
                 "success": outcome.get("success"),
                 "days_to_outcome": outcome.get("days_to_outcome"),
@@ -606,6 +658,9 @@ def _generate_threshold_configs(
 
 
 def _sample_passes_config(sample: dict[str, Any], config: dict[str, Any]) -> bool:
+    if sample.get("market_regime_filter_blocked"):
+        return False
+
     probability = _to_float(sample.get("probability_pct"))
     proxy_ml = _to_float(sample.get("proxy_ml_probability_pct"))
     rr = _to_float(sample.get("risk_reward_ratio"))
@@ -670,6 +725,102 @@ def _evaluate_config_on_samples(
     return row, selected
 
 
+def _backtest_response_from_samples(
+    *,
+    samples: list[dict[str, Any]],
+    tickers_used: set[str],
+    max_tickers: int,
+    max_samples: int,
+    horizon: int,
+    target_pct: float,
+    stop_pct: float,
+    min_history: int,
+    use_market_regime_filter: bool,
+) -> dict[str, Any]:
+    total_bucket = _empty_bucket()
+    by_action_raw: dict[str, dict[str, Any]] = {}
+    by_blocker_raw: dict[str, dict[str, Any]] = {}
+    by_conf_raw: dict[str, dict[str, Any]] = {}
+    by_layer_raw: dict[str, dict[str, Any]] = {}
+
+    for sample in samples:
+        _add_to_bucket(total_bucket, sample)
+        action = str(sample.get("action") or "unknown")
+        by_action_raw.setdefault(action, _empty_bucket())
+        _add_to_bucket(by_action_raw[action], sample)
+        confidence = str(sample.get("audit_confidence_level") or "unknown")
+        by_conf_raw.setdefault(confidence, _empty_bucket())
+        _add_to_bucket(by_conf_raw[confidence], sample)
+        for blocker in sample.get("blocked_by") or ["none"]:
+            blocker_key = str(blocker or "none")
+            by_blocker_raw.setdefault(blocker_key, _empty_bucket())
+            _add_to_bucket(by_blocker_raw[blocker_key], sample)
+        for layer_name in ["technical", "ml", "risk", "ticker_news", "global_macro", "market_regime", "scenario"]:
+            if layer_name in (sample.get("passed_layers") or []):
+                by_layer_raw.setdefault(layer_name, _empty_bucket())
+                _add_to_bucket(by_layer_raw[layer_name], sample)
+
+    summary_bucket = _finalize_bucket(total_bucket)
+    top_positive = sorted(samples, key=lambda item: _to_float(item.get("forward_return_pct")) or -999, reverse=True)[:10]
+    top_negative = sorted(samples, key=lambda item: _to_float(item.get("forward_return_pct")) or 999)[:10]
+    near_miss = [
+        item for item in samples
+        if item.get("action") not in {"buy", "consider_buy"} and item.get("outcome") == "target_hit"
+    ]
+    near_miss = sorted(near_miss, key=lambda item: _to_float(item.get("forward_return_pct")) or -999, reverse=True)[:10]
+    false_positive_actions = {"buy", "consider_buy", "watch", "watch_market_risk", "watch_bad_rr", "watch_ml_confirmed", "watch_ml_rejected"}
+    false_positives = [
+        item for item in samples
+        if item.get("action") in false_positive_actions and (item.get("outcome") == "stop_hit" or (_to_float(item.get("forward_return_pct")) or 0) < 0)
+    ]
+    false_positives = sorted(false_positives, key=lambda item: _to_float(item.get("forward_return_pct")) or 999)[:10]
+
+    return {
+        "ok": True,
+        "mode": "proxy_historical_consumer_audit",
+        "summary": {
+            "samples": len(samples),
+            "tickers_used": len(tickers_used),
+            "horizon": horizon,
+            "target_pct": target_pct,
+            "stop_pct": stop_pct,
+            "positive_rate_pct": summary_bucket.get("positive_rate_pct"),
+            "avg_forward_return_pct": summary_bucket.get("avg_forward_return_pct"),
+            "target_hit_rate_pct": summary_bucket.get("target_hit_rate_pct"),
+            "stop_hit_rate_pct": summary_bucket.get("stop_hit_rate_pct"),
+            "timeout_rate_pct": summary_bucket.get("timeout_rate_pct"),
+            "use_market_regime_filter": use_market_regime_filter,
+        },
+        "by_action": {key: _finalize_bucket(value) for key, value in sorted(by_action_raw.items())},
+        "by_blocker": {key: _finalize_bucket(value) for key, value in sorted(by_blocker_raw.items())},
+        "by_audit_confidence": {key: _finalize_bucket(value) for key, value in sorted(by_conf_raw.items())},
+        "by_layer_support": {key: _finalize_bucket(value) for key, value in sorted(by_layer_raw.items())},
+        "top_positive_examples": [_example(item) for item in top_positive],
+        "top_negative_examples": [_example(item) for item in top_negative],
+        "near_miss_examples": [_example(item) for item in near_miss],
+        "worst_false_positives": [_example(item) for item in false_positives],
+        "limitations": [
+            "Historical audit approximates consumer decision logic using candle-only features.",
+            "ML probability is not replayed historically; ml layer is marked not_available.",
+            "Ticker news and global macro/geopolitical events are not replayed historically in this proxy audit.",
+            "Market regime filter is a proxy historical breadth layer when enabled.",
+            "Daily candles do not provide intraday event order; if target and stop are both touched in one candle, stop_hit is assumed.",
+            "No commissions, taxes, spreads or slippage are included.",
+            "Current instrument universe can introduce survivorship bias.",
+        ],
+        "note": "Historical audit approximates consumer decision logic using candle-only features; live news/global events are evaluated separately.",
+        "parameters": {
+            "max_tickers": max_tickers,
+            "max_samples": max_samples,
+            "horizon": horizon,
+            "target_pct": target_pct,
+            "stop_pct": stop_pct,
+            "min_history": min_history,
+            "use_market_regime_filter": use_market_regime_filter,
+        },
+    }
+
+
 def build_consumer_signal_backtest_audit(
     db: Session,
     max_tickers: int = 80,
@@ -678,7 +829,31 @@ def build_consumer_signal_backtest_audit(
     target_pct: float = 0.05,
     stop_pct: float = 0.03,
     min_history: int = 80,
+    use_market_regime_filter: bool = False,
 ) -> dict[str, Any]:
+    if use_market_regime_filter:
+        samples, tickers_used = _build_proxy_samples(
+            db=db,
+            max_tickers=max_tickers,
+            max_samples=max_samples,
+            horizon=horizon,
+            target_pct=target_pct,
+            stop_pct=stop_pct,
+            min_history=min_history,
+            use_market_regime_filter=True,
+        )
+        return _backtest_response_from_samples(
+            samples=samples,
+            tickers_used=tickers_used,
+            max_tickers=max_tickers,
+            max_samples=max_samples,
+            horizon=horizon,
+            target_pct=target_pct,
+            stop_pct=stop_pct,
+            min_history=min_history,
+            use_market_regime_filter=True,
+        )
+
     instruments = db.scalars(
         select(Instrument)
         .where(Instrument.is_signal_eligible.is_(True))
@@ -960,6 +1135,7 @@ def build_consumer_signal_backtest_audit(
             "target_pct": target_pct,
             "stop_pct": stop_pct,
             "min_history": min_history,
+            "use_market_regime_filter": use_market_regime_filter,
         },
     }
 
@@ -976,6 +1152,7 @@ def build_consumer_threshold_sweep_audit(
     min_rr_values: list[float] | None = None,
     min_signals: int = 20,
     max_configs: int = 120,
+    use_market_regime_filter: bool = False,
 ) -> dict[str, Any]:
     horizons = horizons or [15, 20, 30]
     target_pcts = target_pcts or [0.03, 0.04, 0.05, 0.06]
@@ -1006,27 +1183,20 @@ def build_consumer_threshold_sweep_audit(
                 target_pct=float(target_pct),
                 stop_pct=float(stop_pct),
                 min_history=80,
+                use_market_regime_filter=use_market_regime_filter,
             )
 
         base_samples, _tickers_used = sample_cache[sample_key]
         max_base_samples = max(max_base_samples, len(base_samples))
-        selected = []
-        for sample in base_samples:
-            probability = _to_float(sample.get("probability_pct"))
-            proxy_ml = _to_float(sample.get("proxy_ml_probability_pct"))
-            rr = _to_float(sample.get("risk_reward_ratio"))
-            target_distance = _to_float(sample.get("target_distance_pct"))
-
-            if probability is None or probability < float(min_probability):
-                continue
-            if proxy_ml is None or proxy_ml < float(min_ml_probability):
-                continue
-            if rr is None or rr < float(min_rr):
-                continue
-            if target_distance is None or target_distance <= 0:
-                continue
-
-            selected.append(sample)
+        config = {
+            "horizon": int(horizon),
+            "target_pct": float(target_pct),
+            "stop_pct": float(stop_pct),
+            "min_probability": float(min_probability),
+            "min_ml_probability": float(min_ml_probability),
+            "min_rr": float(min_rr),
+        }
+        selected = [sample for sample in base_samples if _sample_passes_config(sample, config)]
 
         bucket = _empty_bucket()
         for sample in selected:
@@ -1103,6 +1273,7 @@ def build_consumer_threshold_sweep_audit(
             "max_samples": max_samples,
             "min_signals": min_signals,
             "base_samples": max_base_samples,
+            "use_market_regime_filter": use_market_regime_filter,
             "warnings": warnings,
         },
         "best_configs": results[:10],
@@ -1116,6 +1287,7 @@ def build_consumer_threshold_sweep_audit(
             "min_rr_values": min_rr_values,
             "max_configs": max_configs,
             "total_requested_configs": total_configs,
+            "use_market_regime_filter": use_market_regime_filter,
         },
         "limitations": [
             "Threshold sweep is a calibration/evaluation layer; it does not update production decision thresholds automatically.",
@@ -1196,6 +1368,7 @@ def build_consumer_walk_forward_validation(
     min_ml_probabilities: list[float] | None = None,
     min_rr_values: list[float] | None = None,
     min_signals: int = 20,
+    use_market_regime_filter: bool = False,
 ) -> dict[str, Any]:
     configs, parameter_grid, warnings = _generate_threshold_configs(
         horizons=horizons,
@@ -1220,6 +1393,7 @@ def build_consumer_walk_forward_validation(
                 target_pct=float(config["target_pct"]),
                 stop_pct=float(config["stop_pct"]),
                 min_history=80,
+                use_market_regime_filter=use_market_regime_filter,
             )
             samples.sort(key=lambda item: str(item.get("date") or ""))
             sample_cache[key] = (samples, tickers)
@@ -1382,6 +1556,7 @@ def build_consumer_walk_forward_validation(
         "insufficient_data_folds": insufficient_folds,
         "most_common_config_id": most_common_config_id,
         "recommended_config": recommended_config,
+        "use_market_regime_filter": use_market_regime_filter,
         "warnings": warnings,
     }
     summary["recommendation"] = _recommendation_from_walk_forward(summary)
@@ -1392,7 +1567,7 @@ def build_consumer_walk_forward_validation(
         "summary": summary,
         "folds": fold_results,
         "config_frequency": dict(sorted(config_frequency.items(), key=lambda item: (-item[1], item[0]))),
-        "parameter_grid": parameter_grid,
+        "parameter_grid": {**parameter_grid, "use_market_regime_filter": use_market_regime_filter},
         "limitations": [
             "Walk-forward validation uses proxy historical consumer audit, not full live endpoint replay.",
             "Selected config is not automatically applied to production decision logic.",

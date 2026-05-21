@@ -11,6 +11,7 @@ from app.models import MarketEvent
 from app.services.ticker_data import get_ticker_snapshot
 from app.models import Candle, Instrument
 from app.services.consumer_probability import build_probability_assessment
+from app.services.market_regime import build_market_regime
 from app.services.ml_probability_engine import predict_ml_probability_for_ticker
 
 CONSUMER_SIGNAL_MODEL_VERSION = "tech_v4_quality_rr"
@@ -21,7 +22,9 @@ ACTION_RANK = {
     "watch_ml_confirmed": 3,
     "watch_ml_rejected": 4,
     "watch": 5,
+    "watch_market_risk": 5,
     "watch_bad_rr": 6,
+    "avoid_market_risk": 8,
     "avoid_downside_signal": 7,
     "avoid_bad_target": 8,
     "avoid_bad_rr": 9,
@@ -1721,6 +1724,101 @@ def _consumer_signal_decision_gate(
     }
 
 
+def _market_regime_probability_adjustment(
+    market_regime: dict[str, Any] | None,
+    scenario_direction: str | None,
+) -> float:
+    regime = str((market_regime or {}).get("regime") or "neutral").lower()
+    score = _to_float((market_regime or {}).get("regime_score")) or 0.0
+    scenario = str(scenario_direction or "neutral").lower()
+
+    if regime == "risk_on" and scenario in {"long", "neutral"}:
+        return _round(_clamp(score / 25.0, 0.5, 2.0), 1) or 0.0
+    if regime == "risk_off":
+        if scenario == "downside":
+            return _round(_clamp(abs(score) / 35.0, 0.5, 2.0), 1) or 0.0
+        return _round(-_clamp(abs(score) / 8.0, 2.0, 6.0), 1) or 0.0
+    return 0.0
+
+
+def _market_regime_reason(market_regime: dict[str, Any] | None) -> str:
+    regime = str((market_regime or {}).get("regime") or "neutral")
+    reasons = (market_regime or {}).get("reasons") or []
+    lead = str(reasons[0]) if reasons else "Режим рынка не дал отдельного directional edge."
+    return f"Market regime={regime}. {lead}"
+
+
+def _apply_market_regime_gate(
+    decision_gate: dict[str, Any],
+    *,
+    market_regime: dict[str, Any] | None,
+    scenario_direction: str | None,
+    probability: float | None,
+) -> dict[str, Any]:
+    regime = str((market_regime or {}).get("regime") or "neutral").lower()
+    long_allowed = bool((market_regime or {}).get("long_allowed", True))
+    scenario = str(scenario_direction or "neutral").lower()
+    action = str(decision_gate.get("action") or "")
+
+    if scenario == "downside" or action.startswith("avoid_") and action != "avoid_market_risk":
+        return decision_gate
+    if regime != "risk_off" or long_allowed:
+        return decision_gate
+    if action not in {"buy", "consider_buy", "watch", "watch_ml_confirmed", "watch_bad_rr", "watch_ml_rejected"}:
+        return decision_gate
+
+    probability_value = _to_float(probability) or 0.0
+    blocked_action = "watch_market_risk" if probability_value >= 45 else "avoid_market_risk"
+    return {
+        **decision_gate,
+        "action": blocked_action,
+        "recommendation": "Наблюдать" if blocked_action == "watch_market_risk" else "Не покупать",
+        "decision": "Long ограничен режимом рынка",
+        "decision_level": "neutral" if blocked_action == "watch_market_risk" else "negative",
+        "decision_reason": "Рыночный режим risk_off не разрешает long-вход: покупка понижается до наблюдения/отказа до улучшения ширины рынка и downside pressure.",
+        "is_buy_candidate": False,
+        "market_regime_blocked": True,
+    }
+
+
+def _apply_market_regime_position_sizing(
+    position_sizing: dict[str, Any],
+    market_regime: dict[str, Any] | None,
+) -> dict[str, Any]:
+    multiplier = _to_float((market_regime or {}).get("position_multiplier"))
+    if multiplier is None:
+        return position_sizing
+
+    adjusted = dict(position_sizing)
+    max_position = _to_float(adjusted.get("max_position_pct")) or 0.0
+    risk_per_trade = _to_float(adjusted.get("risk_per_trade_pct")) or 0.0
+    adjusted["market_regime_position_multiplier"] = _round(multiplier, 2)
+    adjusted.setdefault("risk_flags", [])
+    adjusted["risk_flags"] = list(adjusted.get("risk_flags") or [])
+
+    if max_position > 0 or risk_per_trade > 0:
+        adjusted["max_position_pct"] = _round(max_position * multiplier, 2)
+        adjusted["risk_per_trade_pct"] = _round(risk_per_trade * multiplier, 2)
+        adjusted["reason"] = (
+            str(adjusted.get("reason") or "").strip()
+            + f" Market regime multiplier {multiplier:.2f} applied to position size."
+        ).strip()
+        adjusted["risk_flags"].append(f"market_regime_position_multiplier={multiplier:.2f}")
+
+    if multiplier <= 0:
+        adjusted["allowed"] = False
+        adjusted["max_position_pct"] = 0.0
+        adjusted["risk_per_trade_pct"] = 0.0
+        adjusted["position_action"] = "no_entry"
+        adjusted["reason"] = (
+            str(adjusted.get("reason") or "").strip()
+            + " Market regime blocked position sizing."
+        ).strip()
+        adjusted["risk_flags"].append("market_regime_position_block")
+
+    return adjusted
+
+
 
 
 def _infer_source_scenario_direction(
@@ -1771,6 +1869,7 @@ def _build_position_sizing(
 
     no_entry_actions = {
         "avoid",
+        "avoid_market_risk",
         "avoid_ml_filter",
         "avoid_ml_veto",
         "avoid_risk",
@@ -1778,6 +1877,7 @@ def _build_position_sizing(
         "no_data",
         "no_price",
         "watch",
+        "watch_market_risk",
         "watch_ml_confirmed",
         "watch_ml_rejected",
     }
@@ -1965,6 +2065,8 @@ def _build_signal_audit(
     target_probability_pct: float | None,
     ticker_news_adjustment_pct: float | None,
     global_event_adjustment_pct: float | None,
+    market_regime: dict[str, Any] | None = None,
+    market_regime_adjustment_pct: float | None = None,
 ) -> dict[str, Any]:
     """Explain which already-computed layers supported or blocked the final decision."""
 
@@ -2124,6 +2226,8 @@ def _build_signal_audit(
         "avoid_ml_veto": "ml_veto",
         "avoid_ml_filter": "ml_filter",
         "avoid_risk": "risk_limit",
+        "watch_market_risk": "market_regime_risk_off",
+        "avoid_market_risk": "market_regime_risk_off",
         "avoid": "low_probability",
     }
     if action in action_blockers:
@@ -2238,6 +2342,52 @@ def _build_signal_audit(
         if adverse_global_tags.intersection(global_tags):
             add_unique(warning_layers, "global_macro")
 
+    market_regime = market_regime or {}
+    market_regime_name = str(market_regime.get("regime") or "neutral").lower()
+    market_regime_score = _to_float(market_regime.get("regime_score"))
+    market_adj = _to_float(market_regime_adjustment_pct) or 0.0
+    market_long_allowed = bool(market_regime.get("long_allowed", True))
+    market_diagnostics = {
+        "regime": market_regime_name,
+        "regime_score": _round(market_regime_score, 2),
+        "market_regime_adjustment_pct": _round(market_adj, 1),
+        "long_allowed": market_long_allowed,
+        "position_multiplier": market_regime.get("position_multiplier"),
+        "min_rr_multiplier": market_regime.get("min_rr_multiplier"),
+        "min_ml_probability_addon": market_regime.get("min_ml_probability_addon"),
+        "warnings": market_regime.get("warnings") or [],
+    }
+    if "insufficient_market_regime_data" in (market_regime.get("warnings") or []):
+        market_layer = layer("not_available", None, "Данных для режима рынка мало; market regime считается neutral.", diagnostics=market_diagnostics)
+    elif market_regime_name == "risk_on":
+        market_layer = layer(
+            "positive",
+            min(100, 60 + max(market_regime_score or 0, 0) * 0.4),
+            "Режим рынка risk_on поддерживает long-сценарии.",
+            diagnostics=market_diagnostics,
+        )
+        add_unique(passed_layers, "market_regime")
+        add_unique(strengths, "Режим рынка поддерживает long-сценарий.")
+    elif market_regime_name == "risk_off":
+        market_layer = layer(
+            "negative",
+            max(10, 45 + min(market_regime_score or -25, 0) * 0.5),
+            "Режим рынка risk_off повышает требования к long-сигналам и может блокировать покупку.",
+            diagnostics=market_diagnostics,
+        )
+        add_unique(warning_layers, "market_regime")
+        add_unique(weaknesses, "Рынок находится в risk_off-режиме.")
+        add_unique(improvements, "Для upgrade нужен выход рынка из risk_off: лучше breadth, ниже downside pressure и нормализация волатильности.")
+        if not market_long_allowed and scenario != "downside":
+            add_unique(blocked_by, "market_regime_risk_off")
+    else:
+        market_layer = layer(
+            "neutral",
+            50,
+            "Режим рынка neutral: отдельный market gate не усиливает и не блокирует сигнал.",
+            diagnostics=market_diagnostics,
+        )
+
     scenario_diagnostics = {
         "scenario_direction": scenario_direction,
         "scenario_reason": scenario_reason,
@@ -2266,6 +2416,7 @@ def _build_signal_audit(
         "risk": risk_layer,
         "ticker_news": ticker_news_layer,
         "global_macro": global_layer,
+        "market_regime": market_layer,
         "scenario": scenario_layer,
     }
 
@@ -2274,7 +2425,7 @@ def _build_signal_audit(
     probability_component = probability_value if probability_value is not None else average_score
     overall_score = average_score * 0.55 + probability_component * 0.45
 
-    hard_blockers = {"ml_veto", "weak_rr", "invalid_target", "downside_signal", "risk_limit", "ticker_news_veto"}
+    hard_blockers = {"ml_veto", "weak_rr", "invalid_target", "downside_signal", "risk_limit", "ticker_news_veto", "market_regime_risk_off"}
     if hard_blockers.intersection(blocked_by):
         overall_score = min(overall_score, 62)
     if action.startswith("avoid"):
@@ -2322,6 +2473,10 @@ def _build_signal_audit(
         macro_phrase = " Глобальный macro-слой поддерживает сценарий."
     elif global_layer.get("status") == "negative":
         macro_phrase = " Глобальный macro-слой ухудшает сценарий."
+    if market_layer.get("status") == "positive":
+        macro_phrase += " Режим рынка поддерживает long-сценарий."
+    elif market_layer.get("status") == "negative":
+        macro_phrase += " Режим рынка ограничивает long-сигнал."
 
     human_explanation = (
         f"Итог: {verdict_label}. Вероятность цели {probability_value if probability_value is not None else '—'}%, "
@@ -2366,6 +2521,7 @@ def build_consumer_forecast(
     events: list[dict[str, Any]],
     global_events: list[dict[str, Any]] | None = None,
     ml_probability_result: dict[str, Any] | None = None,
+    market_regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
     regime_features = _build_consumer_regime_features(candles)
@@ -2374,6 +2530,7 @@ def build_consumer_forecast(
     source_target_price = _to_float(signal.get("target_price"))
     scenario_direction, scenario_reason = _infer_source_scenario_direction(signal, price)
     global_events = global_events or []
+    market_regime = market_regime or {}
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
     stop_loss_value = _to_float(signal.get("stop_loss"))
@@ -2425,12 +2582,21 @@ def build_consumer_forecast(
     base_probability = probability_assessment.get("probability_pct")
     ticker_news_adjustment_pct = _to_float(news_assessment.get("adjustment_pct")) or 0.0
     global_event_adjustment_pct = _to_float(global_news_assessment.get("adjustment_pct")) or 0.0
+    market_regime_adjustment_pct = _market_regime_probability_adjustment(
+        market_regime=market_regime,
+        scenario_direction=scenario_direction,
+    )
     news_adjustment_pct = _round(
         _clamp(ticker_news_adjustment_pct + global_event_adjustment_pct, -10.0, 10.0),
         1,
     )
 
-    probability = _round(_clamp(float(base_probability or 0) + news_adjustment_pct, 1, 99), 0)
+    probability = _round(
+        _clamp(float(base_probability or 0) + news_adjustment_pct + market_regime_adjustment_pct, 1, 99),
+        0,
+    )
+    effective_min_rr = _round(1.2 * (_to_float(market_regime.get("min_rr_multiplier")) or 1.0), 2)
+    effective_min_ml_probability = _round(35 + (_to_float(market_regime.get("min_ml_probability_addon")) or 0.0), 1)
 
     news_assessment["ticker_news_adjustment_pct"] = _round(ticker_news_adjustment_pct, 1)
     news_assessment["global_event_adjustment_pct"] = _round(global_event_adjustment_pct, 1)
@@ -2452,6 +2618,10 @@ def build_consumer_forecast(
     probability_assessment["internal"]["global_event_adjustment_pct"] = _round(global_event_adjustment_pct, 1)
     probability_assessment["internal"]["news_assessment"] = news_assessment
     probability_assessment["internal"]["global_news_assessment"] = global_news_assessment
+    probability_assessment["internal"]["market_regime"] = market_regime
+    probability_assessment["internal"]["market_regime_adjustment_pct"] = _round(market_regime_adjustment_pct, 1)
+    probability_assessment["internal"]["effective_min_rr"] = effective_min_rr
+    probability_assessment["internal"]["effective_min_ml_probability"] = effective_min_ml_probability
 
     preliminary_target_distance_pct = _pct_change(target_price, price)
     preliminary_stop_distance_pct = None
@@ -2477,6 +2647,12 @@ def build_consumer_forecast(
         risk_reward_ratio=preliminary_risk_reward_ratio,
         target_distance_pct=preliminary_target_distance_pct,
         scenario_direction=scenario_direction,
+    )
+    decision_gate = _apply_market_regime_gate(
+        decision_gate,
+        market_regime=market_regime,
+        scenario_direction=scenario_direction,
+        probability=probability,
     )
     recommendation, tone = _recommendation_from_action(signal.get("action"), probability)
 
@@ -2505,6 +2681,7 @@ def build_consumer_forecast(
         ml_regime_multiplier=regime_multiplier,
         volatility_pct=_to_float(technical.get("volatility_20d_pct")),
     )
+    position_sizing = _apply_market_regime_position_sizing(position_sizing, market_regime)
 
     # Preserve RR diagnostics even when entry is blocked by decision gate.
     if preliminary_target_distance_pct is not None and position_sizing.get("target_distance_pct") is None:
@@ -2538,6 +2715,8 @@ def build_consumer_forecast(
         target_probability_pct=probability,
         ticker_news_adjustment_pct=ticker_news_adjustment_pct,
         global_event_adjustment_pct=global_event_adjustment_pct,
+        market_regime=market_regime,
+        market_regime_adjustment_pct=market_regime_adjustment_pct,
     )
 
     return {
@@ -2574,6 +2753,15 @@ def build_consumer_forecast(
         "global_event_tags": global_news_assessment.get("tags") or [],
         "global_event_reason": global_news_assessment.get("reason"),
         "macro_regime_flags": global_news_assessment.get("macro_regime_flags") or [],
+        "market_regime": market_regime,
+        "market_regime_adjustment_pct": _round(market_regime_adjustment_pct, 1),
+        "market_regime_gate": "blocked" if decision_gate.get("market_regime_blocked") else "pass",
+        "market_regime_reason": _market_regime_reason(market_regime),
+        "market_regime_position_multiplier": market_regime.get("position_multiplier"),
+        "market_regime_min_rr_multiplier": market_regime.get("min_rr_multiplier"),
+        "market_regime_min_ml_probability_addon": market_regime.get("min_ml_probability_addon"),
+        "effective_min_rr": effective_min_rr,
+        "effective_min_ml_probability": effective_min_ml_probability,
         "news_effect": news_assessment.get("news_effect"),
         "news_relevance_score": news_assessment.get("ticker_relevance_score"),
         "news_source_reliability_score": news_assessment.get("source_reliability_score"),
@@ -2695,6 +2883,7 @@ def build_consumer_signal_for_ticker(
     db: Session,
     ticker: str,
     candles_limit: int = 240,
+    market_regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ticker = ticker.upper().strip()
 
@@ -2765,6 +2954,8 @@ def build_consumer_signal_for_ticker(
 
     related_events = list_related_events(db=db, ticker=ticker, limit=3)
     global_events = list_global_market_events(db=db, limit=12)
+    if market_regime is None:
+        market_regime = build_market_regime(db=db)
     events = _merge_events(related_events, global_events)
 
     try:
@@ -2790,6 +2981,7 @@ def build_consumer_signal_for_ticker(
         events=related_events,
         global_events=global_events,
         ml_probability_result=ml_probability_result,
+        market_regime=market_regime,
     )
 
     return {
@@ -2816,6 +3008,15 @@ def build_consumer_signal_for_ticker(
             "global_event_tags": forecast.get("global_event_tags"),
             "global_event_reason": forecast.get("global_event_reason"),
             "macro_regime_flags": forecast.get("macro_regime_flags"),
+            "market_regime": forecast.get("market_regime"),
+            "market_regime_adjustment_pct": forecast.get("market_regime_adjustment_pct"),
+            "market_regime_gate": forecast.get("market_regime_gate"),
+            "market_regime_reason": forecast.get("market_regime_reason"),
+            "market_regime_position_multiplier": forecast.get("market_regime_position_multiplier"),
+            "market_regime_min_rr_multiplier": forecast.get("market_regime_min_rr_multiplier"),
+            "market_regime_min_ml_probability_addon": forecast.get("market_regime_min_ml_probability_addon"),
+            "effective_min_rr": forecast.get("effective_min_rr"),
+            "effective_min_ml_probability": forecast.get("effective_min_ml_probability"),
             "news_effect": forecast.get("news_effect"),
             "news_relevance_score": forecast.get("news_relevance_score"),
             "news_source_reliability_score": forecast.get("news_source_reliability_score"),
@@ -2912,12 +3113,14 @@ def list_consumer_signals(
     )
     tickers = [row.get("ticker") for row in search_result.get("rows") or [] if row.get("ticker")]
     rows: list[dict[str, Any]] = []
+    market_regime = build_market_regime(db=db, max_tickers=min(120, max(40, limit * 2)))
 
     for ticker in tickers:
         data = build_consumer_signal_for_ticker(
             db=db,
             ticker=ticker,
             candles_limit=candles_limit,
+            market_regime=market_regime,
         )
         if not data.get("ok"):
             continue
@@ -2966,6 +3169,15 @@ def list_consumer_signals(
             "global_event_tags": forecast.get("global_event_tags"),
             "global_event_reason": forecast.get("global_event_reason"),
             "macro_regime_flags": forecast.get("macro_regime_flags"),
+            "market_regime": forecast.get("market_regime"),
+            "market_regime_adjustment_pct": forecast.get("market_regime_adjustment_pct"),
+            "market_regime_gate": forecast.get("market_regime_gate"),
+            "market_regime_reason": forecast.get("market_regime_reason"),
+            "market_regime_position_multiplier": forecast.get("market_regime_position_multiplier"),
+            "market_regime_min_rr_multiplier": forecast.get("market_regime_min_rr_multiplier"),
+            "market_regime_min_ml_probability_addon": forecast.get("market_regime_min_ml_probability_addon"),
+            "effective_min_rr": forecast.get("effective_min_rr"),
+            "effective_min_ml_probability": forecast.get("effective_min_ml_probability"),
             "news_effect": forecast.get("news_effect"),
             "news_relevance_score": forecast.get("news_relevance_score"),
             "news_source_reliability_score": forecast.get("news_source_reliability_score"),
@@ -3008,8 +3220,8 @@ def list_consumer_signals(
     )
 
     positive_actions = {"buy", "consider_buy", "buy_watch", "watch_buy"}
-    watch_actions = {"watch", "watch_ml_confirmed", "watch_ml_rejected", "watch_bad_rr", "hold_watch"}
-    risk_actions = {"avoid", "avoid_downside_signal", "avoid_bad_target", "avoid_bad_rr", "avoid_ml_filter", "avoid_ml_veto", "avoid_risk", "risk_sell_watch"}
+    watch_actions = {"watch", "watch_market_risk", "watch_ml_confirmed", "watch_ml_rejected", "watch_bad_rr", "hold_watch"}
+    risk_actions = {"avoid", "avoid_market_risk", "avoid_downside_signal", "avoid_bad_target", "avoid_bad_rr", "avoid_ml_filter", "avoid_ml_veto", "avoid_risk", "risk_sell_watch"}
 
     scenario_counts = {
         "long": sum(1 for row in rows if row.get("scenario_direction") == "long"),
@@ -3073,6 +3285,7 @@ def list_consumer_signals(
         "news_counts": news_counts,
         "global_event_counts": global_event_counts,
         "audit_counts": audit_counts,
+        "market_regime": market_regime,
         "positive": sum(1 for row in rows if row.get("action") in positive_actions),
         "watch": sum(1 for row in rows if row.get("action") in watch_actions),
         "risk": sum(1 for row in rows if row.get("action") in risk_actions),
@@ -3085,6 +3298,8 @@ def list_consumer_signals(
         "avoid_bad_target": sum(1 for row in rows if row.get("action") == "avoid_bad_target"),
         "avoid_bad_rr": sum(1 for row in rows if row.get("action") == "avoid_bad_rr"),
         "watch_bad_rr": sum(1 for row in rows if row.get("action") == "watch_bad_rr"),
+        "watch_market_risk": sum(1 for row in rows if row.get("action") == "watch_market_risk"),
+        "avoid_market_risk": sum(1 for row in rows if row.get("action") == "avoid_market_risk"),
         "watch_ml_rejected": sum(1 for row in rows if row.get("action") == "watch_ml_rejected"),
         "avg_probability_pct": _round(
             sum(float(row.get("target_probability_pct") or 0) for row in rows) / len(rows),
@@ -3108,6 +3323,8 @@ def list_consumer_signals(
             return "ML-корректировка заметно снизила итоговую вероятность."
         if action_value == "avoid_risk":
             return "Риск сценария выше допустимого для текущей вероятности."
+        if action_value in {"watch_market_risk", "avoid_market_risk"}:
+            return "Режим рынка risk_off ограничил long-вход."
         if action_value == "avoid":
             return "Итоговая вероятность ниже минимального потребительского порога."
         if action_value == "watch_ml_confirmed":
@@ -3137,6 +3354,8 @@ def list_consumer_signals(
             return "Ждать роста probability/reliability или улучшения RR."
         if action_value == "avoid":
             return "Недостаточно сильный общий сигнал."
+        if action_value in {"watch_market_risk", "avoid_market_risk"}:
+            return "Ждать улучшения режима рынка: ширина, downside pressure и волатильность должны нормализоваться."
         if sizing.get("allowed") is False:
             return "Позиция запрещена risk layer."
 
@@ -3150,6 +3369,8 @@ def list_consumer_signals(
         "avoid_ml_filter",
         "avoid_ml_veto",
         "avoid_risk",
+        "watch_market_risk",
+        "avoid_market_risk",
         "watch_bad_rr",
         "watch_ml_rejected",
     }
@@ -3201,6 +3422,12 @@ def list_consumer_signals(
                 "global_event_tags": row.get("global_event_tags"),
                 "macro_regime_flags": row.get("macro_regime_flags"),
                 "global_event_reason": row.get("global_event_reason"),
+                "market_regime_adjustment_pct": row.get("market_regime_adjustment_pct"),
+                "market_regime_gate": row.get("market_regime_gate"),
+                "market_regime_reason": row.get("market_regime_reason"),
+                "market_regime": row.get("market_regime"),
+                "effective_min_rr": row.get("effective_min_rr"),
+                "effective_min_ml_probability": row.get("effective_min_ml_probability"),
                 "audit_overall_score": row.get("audit_overall_score"),
                 "audit_confidence_level": row.get("audit_confidence_level"),
                 "audit_blocked_by": row.get("audit_blocked_by") or [],
@@ -3272,12 +3499,14 @@ def build_consumer_signal_for_ticker(
     db: Session,
     ticker: str,
     candles_limit: int = 240,
+    market_regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolution = resolve_ticker_alias(ticker)
     result = _build_consumer_signal_for_ticker_without_alias(
         db=db,
         ticker=resolution["resolved_ticker"],
         candles_limit=candles_limit,
+        market_regime=market_regime,
     )
 
     if isinstance(result, dict):

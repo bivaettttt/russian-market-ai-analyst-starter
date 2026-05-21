@@ -563,6 +563,11 @@ def build_signals_page_html() -> str:
         <div class="label">Не покупать / риск</div>
         <div class="value" id="metricAvoid">—</div>
       </div>
+      <div class="metric">
+        <div class="label">Режим рынка</div>
+        <div class="value" id="metricRegime">—</div>
+        <div class="small muted" id="metricRegimeDetails">—</div>
+      </div>
     </section>
 
     <section id="signalsGrid" class="grid"></section>
@@ -626,6 +631,13 @@ def build_signals_page_html() -> str:
         global_event_reason: source.global_event_reason || null,
         macro_regime_flags: Array.isArray(source.macro_regime_flags) ? source.macro_regime_flags : [],
         global_news_assessment: source.global_news_assessment || {},
+        market_regime: source.market_regime || {},
+        market_regime_adjustment_pct: toNumber(source.market_regime_adjustment_pct),
+        market_regime_gate: source.market_regime_gate || "",
+        market_regime_reason: source.market_regime_reason || "",
+        market_regime_position_multiplier: toNumber(source.market_regime_position_multiplier),
+        effective_min_rr: toNumber(source.effective_min_rr),
+        effective_min_ml_probability: toNumber(source.effective_min_ml_probability),
         signal_audit: source.signal_audit || {},
         audit_overall_score: toNumber(source.audit_overall_score ?? (source.signal_audit || {}).overall_score),
         audit_confidence_level: source.audit_confidence_level || (source.signal_audit || {}).confidence_level || "",
@@ -773,6 +785,22 @@ def build_signals_page_html() -> str:
       if (allBox) allBox.textContent = active === "all" ? `(${total})` : "—";
     }
 
+    function updateMarketRegimeSummary(summary) {
+      const regime = (summary && summary.market_regime) || (latestRows[0] || {}).market_regime || {};
+      const box = document.getElementById("metricRegime");
+      const details = document.getElementById("metricRegimeDetails");
+      if (!box || !details) return;
+
+      if (!regime.regime) {
+        box.textContent = "—";
+        details.textContent = "нет данных";
+        return;
+      }
+
+      box.textContent = regime.regime;
+      details.textContent = `score ${regime.regime_score ?? "—"} · long ${regime.long_allowed === false ? "нет" : "да"} · pos x${regime.position_multiplier ?? "—"}`;
+    }
+
 
     function newsBadgeClass(news) {
       const sentiment = (news && news.sentiment) || "none";
@@ -815,6 +843,18 @@ def build_signals_page_html() -> str:
       const adjText = `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)} п.п.`;
       const tags = Array.isArray(item.global_event_tags) ? item.global_event_tags.filter(Boolean).slice(0, 3) : [];
       return `Макро: ${adjText}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
+    }
+
+    function regimeBadgeClass(item) {
+      const regime = String((item.market_regime || {}).regime || "").toLowerCase();
+      if (item.market_regime_gate === "blocked" || regime === "risk_off") return "negative";
+      if (regime === "risk_on") return "positive";
+      return "";
+    }
+
+    function regimeBadgeText(item) {
+      const regime = (item.market_regime || {}).regime || "neutral";
+      return `Режим: ${regime}`;
     }
 
     function auditBadgeClass(item) {
@@ -938,6 +978,27 @@ def build_signals_page_html() -> str:
       `;
     }
 
+    function marketRegimeHtml(forecast) {
+      const regime = forecast.market_regime || {};
+      if (!regime.regime) return "";
+
+      const reasons = Array.isArray(regime.reasons) ? regime.reasons : [];
+      const adjustment = toNumber(forecast.market_regime_adjustment_pct);
+      const multiplier = toNumber(forecast.market_regime_position_multiplier ?? regime.position_multiplier);
+      const longAllowed = regime.long_allowed === false ? "нет" : "да";
+
+      return `
+        <h4>Режим рынка</h4>
+        <p>${escapeHtml(forecast.market_regime_reason || `Режим рынка: ${regime.regime}`)}</p>
+        <p class="small muted">
+          adjustment: ${adjustment === null ? "—" : `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)} п.п.`} ·
+          long_allowed: ${escapeHtml(longAllowed)} ·
+          position_multiplier: ${multiplier === null ? "—" : escapeHtml(multiplier)}
+        </p>
+        ${listHtml(reasons)}
+      `;
+    }
+
     function auditHtml(audit) {
       const data = audit || {};
       if (!Object.keys(data).length) return "";
@@ -948,6 +1009,7 @@ def build_signals_page_html() -> str:
         risk: "Risk",
         ticker_news: "Новости",
         global_macro: "Макро",
+        market_regime: "Режим рынка",
         scenario: "Scenario"
       };
       const layerScores = data.layer_scores || {};
@@ -1024,6 +1086,8 @@ def build_signals_page_html() -> str:
           ${listHtml(explanation.news)}
 
           ${globalBackgroundHtml(globalAssessment, forecast)}
+
+          ${marketRegimeHtml(forecast)}
 
           <h4>Риски</h4>
           ${listHtml(explanation.risks)}
@@ -1117,6 +1181,9 @@ def build_signals_page_html() -> str:
               <span class="diag-pill ${macroBadgeClass(item)}">
                 ${escapeHtml(macroBadgeText(item))}
               </span>
+              <span class="diag-pill ${regimeBadgeClass(item)}">
+                ${escapeHtml(regimeBadgeText(item))}
+              </span>
               <span class="diag-pill ${auditBadgeClass(item)}">
                 ${escapeHtml(auditBadgeText(item))}
               </span>
@@ -1165,6 +1232,7 @@ def build_signals_page_html() -> str:
         updateScenarioCounters(data.summary || {});
         const rows = data.rows || data.signals || [];
         latestRows = rows.map(normalizeRow);
+        updateMarketRegimeSummary(data.summary || {});
 
         renderSignals();
 

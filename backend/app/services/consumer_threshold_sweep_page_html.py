@@ -148,6 +148,7 @@ def build_consumer_threshold_sweep_page_html() -> str:
       <label>max_samples<input id="maxSamples" type="number" value="500" min="100" max="20000" /></label>
       <label>min_signals<input id="minSignals" type="number" value="20" min="1" max="500" /></label>
       <label>max_configs<input id="maxConfigs" type="number" value="60" min="10" max="500" /></label>
+      <label>Use market regime<input id="useMarketRegime" type="checkbox" /></label>
       <button class="button" onclick="loadSweep()">Запустить sweep</button>
       <label>horizons<input id="horizons" value="15,20,30" /></label>
       <label>target_pcts<input id="targetPcts" value="0.03,0.04,0.05,0.06" /></label>
@@ -193,6 +194,7 @@ def build_consumer_threshold_sweep_page_html() -> str:
       q.set("max_samples", document.getElementById("maxSamples").value || "500");
       q.set("min_signals", document.getElementById("minSignals").value || "20");
       q.set("max_configs", document.getElementById("maxConfigs").value || "60");
+      if (document.getElementById("useMarketRegime").checked) q.set("use_market_regime_filter", "true");
       param("horizons", "horizons", q);
       param("targetPcts", "target_pcts", q);
       param("stopPcts", "stop_pcts", q);

@@ -85,6 +85,7 @@ from app.services.consumer_signal_backtest_audit import (
 from app.services.consumer_signal_backtest_audit_page_html import build_consumer_signal_backtest_audit_page_html
 from app.services.consumer_threshold_sweep_page_html import build_consumer_threshold_sweep_page_html
 from app.services.consumer_walk_forward_page_html import build_consumer_walk_forward_page_html
+from app.services.market_regime import build_market_regime
 from app.services.signals_page_html import build_signals_page_html
 
 
@@ -137,6 +138,19 @@ def consumer_signals_data_api(
     )
 
 
+@router.get("/signals/market-regime")
+def market_regime_api(
+    lookback: int = Query(60, ge=20, le=250),
+    max_tickers: int = Query(120, ge=20, le=500),
+    db: Session = Depends(get_db),
+):
+    return build_market_regime(
+        db=db,
+        lookback=lookback,
+        max_tickers=max_tickers,
+    )
+
+
 @router.get("/signals/consumer/backtest-audit")
 def consumer_signal_backtest_audit_api(
     max_tickers: int = Query(80, ge=1, le=300),
@@ -145,6 +159,7 @@ def consumer_signal_backtest_audit_api(
     target_pct: float = Query(0.05, ge=0.005, le=0.25),
     stop_pct: float = Query(0.03, ge=0.005, le=0.20),
     min_history: int = Query(80, ge=30, le=250),
+    use_market_regime_filter: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     return build_consumer_signal_backtest_audit(
@@ -155,6 +170,7 @@ def consumer_signal_backtest_audit_api(
         target_pct=target_pct,
         stop_pct=stop_pct,
         min_history=min_history,
+        use_market_regime_filter=use_market_regime_filter,
     )
 
 
@@ -175,6 +191,7 @@ def consumer_threshold_sweep_audit_api(
     min_probabilities: str | None = Query(None),
     min_ml_probabilities: str | None = Query(None),
     min_rr_values: str | None = Query(None),
+    use_market_regime_filter: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     return build_consumer_threshold_sweep_audit(
@@ -189,6 +206,7 @@ def consumer_threshold_sweep_audit_api(
         min_rr_values=_parse_number_list(min_rr_values, item_type=float, min_value=0.1, max_value=5.0),
         min_signals=min_signals,
         max_configs=max_configs,
+        use_market_regime_filter=use_market_regime_filter,
     )
 
 
@@ -213,6 +231,7 @@ def consumer_walk_forward_validation_api(
     min_probabilities: str | None = Query(None),
     min_ml_probabilities: str | None = Query(None),
     min_rr_values: str | None = Query(None),
+    use_market_regime_filter: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     return build_consumer_walk_forward_validation(
@@ -231,6 +250,7 @@ def consumer_walk_forward_validation_api(
         min_ml_probabilities=_parse_number_list(min_ml_probabilities, item_type=float, min_value=0, max_value=100),
         min_rr_values=_parse_number_list(min_rr_values, item_type=float, min_value=0.1, max_value=5.0),
         min_signals=min_signals,
+        use_market_regime_filter=use_market_regime_filter,
     )
 
 

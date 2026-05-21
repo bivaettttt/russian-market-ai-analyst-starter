@@ -140,6 +140,7 @@ def build_consumer_walk_forward_page_html() -> str:
       <label>min_train_samples<input id="minTrainSamples" type="number" value="80" min="50" max="5000" /></label>
       <label>min_test_samples<input id="minTestSamples" type="number" value="30" min="20" max="3000" /></label>
       <label>min_signals<input id="minSignals" type="number" value="10" min="1" max="1000" /></label>
+      <label>Use market regime<input id="useMarketRegime" type="checkbox" /></label>
       <button class="button" onclick="loadWalkForward()">Запустить walk-forward</button>
       <label>horizons<input id="horizons" value="15,20,30" /></label>
       <label>target_pcts<input id="targetPcts" value="0.03,0.04,0.05,0.06" /></label>
@@ -185,6 +186,7 @@ def build_consumer_walk_forward_page_html() -> str:
       q.set("min_train_samples", document.getElementById("minTrainSamples").value || "80");
       q.set("min_test_samples", document.getElementById("minTestSamples").value || "30");
       q.set("min_signals", document.getElementById("minSignals").value || "10");
+      if (document.getElementById("useMarketRegime").checked) q.set("use_market_regime_filter", "true");
       param("horizons", "horizons", q);
       param("targetPcts", "target_pcts", q);
       param("stopPcts", "stop_pcts", q);
