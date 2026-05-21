@@ -88,6 +88,8 @@ from app.services.consumer_signal_backtest_audit import (
 from app.services.consumer_signal_backtest_audit_page_html import build_consumer_signal_backtest_audit_page_html
 from app.services.consumer_threshold_sweep_page_html import build_consumer_threshold_sweep_page_html
 from app.services.consumer_walk_forward_page_html import build_consumer_walk_forward_page_html
+from app.services.expectancy_breakdown import build_expectancy_breakdown
+from app.services.expectancy_breakdown_page_html import build_expectancy_breakdown_page_html
 from app.services.market_regime import build_market_regime
 from app.services.regime_formula_calibration import build_regime_formula_calibration
 from app.services.regime_formula_calibration_page_html import build_regime_formula_calibration_page_html
@@ -187,6 +189,38 @@ def consumer_signal_backtest_audit_api(
 @router.get("/signals/consumer/backtest-audit-page", response_class=AIReportHTMLResponse)
 def consumer_signal_backtest_audit_page():
     return build_consumer_signal_backtest_audit_page_html()
+
+
+@router.get("/signals/consumer/expectancy-breakdown")
+def consumer_expectancy_breakdown_api(
+    max_tickers: int = Query(100, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    horizon: int = Query(20, ge=5, le=90),
+    target_pct: float = Query(0.05, ge=0.005, le=0.25),
+    stop_pct: float = Query(0.03, ge=0.005, le=0.20),
+    min_history: int = Query(80, ge=30, le=250),
+    commission_bps: float = Query(0.0, ge=0, le=100),
+    slippage_bps: float = Query(0.0, ge=0, le=100),
+    min_bucket_samples: int = Query(20, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    return build_expectancy_breakdown(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        min_history=min_history,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_bucket_samples=min_bucket_samples,
+    )
+
+
+@router.get("/signals/consumer/expectancy-breakdown-page", response_class=AIReportHTMLResponse)
+def consumer_expectancy_breakdown_page():
+    return build_expectancy_breakdown_page_html()
 
 
 @router.get("/signals/consumer/threshold-sweep")

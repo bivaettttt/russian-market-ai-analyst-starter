@@ -470,6 +470,7 @@ def build_signals_page_html() -> str:
         <a href="/signals/consumer/regime-historical-evaluation-page">Regime evaluation</a>
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
+        <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
         <a href="/tickers/SBER">Пример тикера</a>
       </nav>
     </div>

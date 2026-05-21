@@ -96,7 +96,7 @@ Acceptance criteria:
 
 ## 5. Trade Outcome PnL Simulation
 
-Статус: текущий этап.
+Статус: реализовано. Quick result с costs 10 bps + 5 bps показал отрицательную expectancy, поэтому следующий шаг — диагностика сегментов.
 
 Цель: считать реализованный PnL сделки, а не только `forward_return_pct`.
 
@@ -116,7 +116,29 @@ Acceptance criteria:
 
 Почему важно: hit-rate без реализованного PnL может давать неверный вывод о качестве trade setup.
 
-## 6. Target / Stop / RR Calibration Follow-Up
+## 6. Expectancy Breakdown Diagnostics
+
+Статус: текущий этап.
+
+Цель: найти, по каким сегментам модель уже имеет положительную expectancy, а по каким стабильно теряет.
+
+Что сделать:
+
+- разбить trade PnL по action, ticker, sector, asset_type, volatility/liquidity buckets, market regime, probability buckets, RR, audit confidence, blockers, news/macro effects;
+- выделить positive pockets и negative pockets;
+- сформировать candidate filters и candidate boosts как research recommendations;
+- не менять production decision logic автоматически.
+
+Acceptance criteria:
+
+- endpoint возвращает summary, dimensions, positive_pockets, negative_pockets, candidate_filters и candidate_boosts;
+- страница открывает breakdown и показывает таблицы по dimensions;
+- маленькие buckets помечаются как unstable;
+- pytest и smoke-test проходят.
+
+Почему важно: общая отрицательная expectancy может быть смесью хороших и плохих сегментов. Перед изменением thresholds нужно понять, что именно портит общий результат.
+
+## 7. Target / Stop / RR Calibration Follow-Up
 
 Цель: проверить лучшие adaptive policies на устойчивость.
 
@@ -135,7 +157,7 @@ Acceptance criteria:
 
 Почему важно: хороший single-sample policy может быть случайной подгонкой.
 
-## 7. ML v2 / Model Quality Upgrade
+## 8. ML v2 / Model Quality Upgrade
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -154,7 +176,7 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 8. Production News Pipeline
+## 9. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -173,7 +195,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 9. Signal History / Paper Trading
+## 10. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -192,7 +214,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 10. Portfolio Risk Office
+## 11. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -211,7 +233,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 11. Production Layer
+## 12. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 
