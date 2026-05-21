@@ -137,6 +137,7 @@ def build_consumer_threshold_sweep_page_html() -> str:
       <nav>
         <a href="/signals">← Сигналы</a>
         <a href="/signals/consumer/backtest-audit-page">Backtest audit</a>
+        <a href="/signals/consumer/walk-forward-page">Walk-forward</a>
       </nav>
     </div>
   </header>

@@ -80,9 +80,11 @@ from app.services.consumer_signals import build_consumer_signal_for_ticker, list
 from app.services.consumer_signal_backtest_audit import (
     build_consumer_signal_backtest_audit,
     build_consumer_threshold_sweep_audit,
+    build_consumer_walk_forward_validation,
 )
 from app.services.consumer_signal_backtest_audit_page_html import build_consumer_signal_backtest_audit_page_html
 from app.services.consumer_threshold_sweep_page_html import build_consumer_threshold_sweep_page_html
+from app.services.consumer_walk_forward_page_html import build_consumer_walk_forward_page_html
 from app.services.signals_page_html import build_signals_page_html
 
 
@@ -193,6 +195,48 @@ def consumer_threshold_sweep_audit_api(
 @router.get("/signals/consumer/threshold-sweep-page", response_class=AIReportHTMLResponse)
 def consumer_threshold_sweep_page():
     return build_consumer_threshold_sweep_page_html()
+
+
+@router.get("/signals/consumer/walk-forward")
+def consumer_walk_forward_validation_api(
+    max_tickers: int = Query(60, ge=1, le=200),
+    max_samples: int = Query(2000, ge=200, le=30000),
+    max_configs: int = Query(80, ge=10, le=500),
+    folds: int = Query(3, ge=1, le=8),
+    train_ratio: float = Query(0.6, ge=0.4, le=0.85),
+    min_train_samples: int = Query(200, ge=50, le=5000),
+    min_test_samples: int = Query(80, ge=20, le=3000),
+    min_signals: int = Query(20, ge=1, le=1000),
+    horizons: str | None = Query(None),
+    target_pcts: str | None = Query(None),
+    stop_pcts: str | None = Query(None),
+    min_probabilities: str | None = Query(None),
+    min_ml_probabilities: str | None = Query(None),
+    min_rr_values: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return build_consumer_walk_forward_validation(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        max_configs=max_configs,
+        folds=folds,
+        train_ratio=train_ratio,
+        min_train_samples=min_train_samples,
+        min_test_samples=min_test_samples,
+        horizons=_parse_number_list(horizons, item_type=int, min_value=5, max_value=90),
+        target_pcts=_parse_number_list(target_pcts, item_type=float, min_value=0.005, max_value=0.25),
+        stop_pcts=_parse_number_list(stop_pcts, item_type=float, min_value=0.005, max_value=0.20),
+        min_probabilities=_parse_number_list(min_probabilities, item_type=float, min_value=0, max_value=100),
+        min_ml_probabilities=_parse_number_list(min_ml_probabilities, item_type=float, min_value=0, max_value=100),
+        min_rr_values=_parse_number_list(min_rr_values, item_type=float, min_value=0.1, max_value=5.0),
+        min_signals=min_signals,
+    )
+
+
+@router.get("/signals/consumer/walk-forward-page", response_class=AIReportHTMLResponse)
+def consumer_walk_forward_page():
+    return build_consumer_walk_forward_page_html()
 
 
 @router.get("/signals/consumer/{ticker}.json")
