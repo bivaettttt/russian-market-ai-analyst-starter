@@ -140,7 +140,7 @@ Acceptance criteria:
 
 ## 7. Data Coverage Diagnostics
 
-Статус: текущий этап.
+Статус: реализовано. Локальная диагностика показала `empty_database`, поэтому следующий blocker — воспроизводимо заполнить БД инструментами и свечами.
 
 Цель: понять, почему historical validation endpoints могут возвращать `0 samples`.
 
@@ -160,7 +160,30 @@ Acceptance criteria:
 
 Почему важно: калибровка expectancy, thresholds и target/stop бессмысленна, пока не понятно, есть ли достаточное историческое покрытие свечей.
 
-## 8. Target / Stop / RR Calibration Follow-Up
+## 8. Local MOEX Data Bootstrap
+
+Статус: текущий этап.
+
+Цель: сделать воспроизводимый локальный bootstrap для MOEX universe и дневных свечей.
+
+Что сделать:
+
+- загрузить instruments из публичных MOEX ISS endpoints;
+- upsert в локальную таблицу `instruments` с `asset_type` и `is_signal_eligible`;
+- загрузить дневные candles по eligible tickers с лимитами, timeout, retry и pause;
+- добавить CLI dry-run/full bootstrap;
+- проверять результат через Data Coverage Diagnostics.
+
+Acceptance criteria:
+
+- команда `python3 -m app.tasks.bootstrap_market_data --dry-run --max-tickers 3 --days 30` работает без записи в БД;
+- маленький bootstrap может загрузить несколько тикеров;
+- после загрузки `/signals/data-coverage` показывает usable samples;
+- runtime DB files не коммитятся.
+
+Почему важно: validation engine не может калибровать expectancy и thresholds без локального исторического покрытия.
+
+## 9. Target / Stop / RR Calibration Follow-Up
 
 Цель: проверить лучшие adaptive policies на устойчивость.
 
@@ -179,7 +202,7 @@ Acceptance criteria:
 
 Почему важно: хороший single-sample policy может быть случайной подгонкой.
 
-## 9. ML v2 / Model Quality Upgrade
+## 10. ML v2 / Model Quality Upgrade
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -198,7 +221,7 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 10. Production News Pipeline
+## 11. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -217,7 +240,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 11. Signal History / Paper Trading
+## 12. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -236,7 +259,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 12. Portfolio Risk Office
+## 13. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -255,7 +278,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 13. Production Layer
+## 14. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

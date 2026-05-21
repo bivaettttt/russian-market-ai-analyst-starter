@@ -65,6 +65,42 @@ BASE_URL=http://127.0.0.1:8010 ./scripts/smoke_test.sh
 
 `pytest.ini` добавляет `backend` в `pythonpath`, поэтому `PYTHONPATH=backend` больше не нужен.
 
+## Bootstrap Market Data
+
+После чистого запуска локальная SQLite-БД может быть пустой. Тогда validation endpoints работают, но historical samples будут `0`. Для воспроизводимой загрузки universe и дневных свечей MOEX:
+
+```bash
+cd /Users/bivaettttt/Desktop/russian-market-ai-analyst-starter
+source backend/.venv/bin/activate
+cd backend
+```
+
+Сначала dry-run:
+
+```bash
+python3 -m app.tasks.bootstrap_market_data --dry-run --max-tickers 3 --days 30
+```
+
+Затем обычный bootstrap:
+
+```bash
+python3 -m app.tasks.bootstrap_market_data --max-instruments 300 --max-tickers 100 --days 900
+```
+
+Проверить покрытие:
+
+```bash
+curl "http://127.0.0.1:8010/signals/data-coverage"
+```
+
+Troubleshooting:
+
+- MOEX unavailable: повторите позже или увеличьте `--timeout-sec`.
+- Empty DB: запустите bootstrap без `--skip-universe`.
+- Too few candles: увеличьте `--days` или временно снизьте `min_history` в `/signals/data-coverage`.
+- Slow loading/rate limiting: уменьшите `--max-tickers` или увеличьте `--sleep-sec`.
+- Only candles update: `python3 -m app.tasks.bootstrap_market_data --skip-universe --max-tickers 100 --days 900`.
+
 ## Важные Endpoints
 
 Consumer signals:
@@ -161,6 +197,8 @@ curl -X POST "http://127.0.0.1:8010/analyze/news" \
 - `docs/consumer_threshold_sweep_audit.md`
 - `docs/consumer_walk_forward_validation.md`
 - `docs/market_regime_filter.md`
+- `docs/data_coverage_diagnostics.md`
+- `docs/local_moex_data_bootstrap.md`
 - `docs/ROADMAP.md`
 - `docs/STABILIZATION_NOTES.md`
 

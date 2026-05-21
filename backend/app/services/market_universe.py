@@ -181,6 +181,7 @@ def upsert_instrument(db: Session, item: dict[str, Any]) -> str | None:
     board = _normalize_board(item.get("board"), default="TQBR")
     name = item.get("name") or item.get("short_name") or ticker
     lot_size = _to_int(item.get("lot_size"), default=1)
+    asset_type, is_signal_eligible = classify_instrument({**item, "board": board, "ticker": ticker, "name": name})
 
     instrument = db.scalar(select(Instrument).where(Instrument.ticker == ticker))
 

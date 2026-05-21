@@ -93,6 +93,7 @@ from app.services.data_coverage_page_html import build_data_coverage_page_html
 from app.services.expectancy_breakdown import build_expectancy_breakdown
 from app.services.expectancy_breakdown_page_html import build_expectancy_breakdown_page_html
 from app.services.market_regime import build_market_regime
+from app.services.moex_data_bootstrap import build_data_bootstrap_status
 from app.services.regime_formula_calibration import build_regime_formula_calibration
 from app.services.regime_formula_calibration_page_html import build_regime_formula_calibration_page_html
 from app.services.regime_historical_evaluation_page_html import build_regime_historical_evaluation_page_html
@@ -183,6 +184,11 @@ def signals_data_coverage_api(
 @router.get("/signals/data-coverage-page", response_class=AIReportHTMLResponse)
 def signals_data_coverage_page():
     return build_data_coverage_page_html()
+
+
+@router.get("/signals/data-bootstrap-status")
+def signals_data_bootstrap_status_api(db: Session = Depends(get_db)):
+    return build_data_bootstrap_status(db=db)
 
 
 @router.get("/signals/consumer/backtest-audit")

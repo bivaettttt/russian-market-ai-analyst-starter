@@ -197,13 +197,16 @@ def _recommendations(
         )
     if int(summary.get("total_instruments") or 0) == 0:
         recommendations.append("Загрузить или инициализировать universe инструментов перед historical validation.")
+        recommendations.append("Команда: cd backend && python3 -m app.tasks.bootstrap_market_data --max-instruments 300 --max-tickers 100 --days 900")
     if int(summary.get("tickers_with_candles") or 0) == 0:
         recommendations.append("Загрузить исторические свечи; сейчас нет тикеров со свечами.")
     if skip_reasons.get("no_candles", 0) > 0:
         recommendations.append("Догрузить свечи для eligible tickers without candles.")
+        recommendations.append("Команда: cd backend && python3 -m app.tasks.bootstrap_market_data --skip-universe --max-tickers 100 --days 900")
     if skip_reasons.get("too_few_candles", 0) > 0 or skip_reasons.get("insufficient_horizon", 0) > 0:
         lowered = max(10, min(60, min_history))
         recommendations.append(f"Для диагностики можно снизить min_history до {lowered} или догрузить более длинную историю свечей.")
+        recommendations.append("Команда для более длинной истории: cd backend && python3 -m app.tasks.bootstrap_market_data --skip-universe --max-tickers 100 --days 1200")
     if skip_reasons.get("invalid_ohlc", 0) > 0:
         recommendations.append("Проверить импорт OHLC: есть тикеры без валидных open/high/low/close.")
     if skip_reasons.get("unsupported_asset_type", 0) > 0 or skip_reasons.get("not_signal_eligible", 0) > 0:
