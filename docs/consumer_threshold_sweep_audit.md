@@ -18,7 +18,7 @@ Threshold sweep отвечает: как меняется качество, ес
 Результат — ranked table:
 
 ```text
-config | signals | target_hit_rate | stop_hit_rate | avg_forward_return | coverage | score
+config | signals | target_hit_rate | stop_hit_rate | avg_trade_return | profit_factor | coverage | score
 ```
 
 ## Чем отличается от backtest audit
@@ -43,7 +43,7 @@ Threshold sweep строит набор proxy samples для разных `horiz
 `score` — эвристическая оценка качества конфигурации:
 
 - растёт от `target_hit_rate_pct`
-- растёт от положительного `avg_forward_return_pct`
+- дополнительно показывает `avg_trade_return_pct`, `win_rate_pct`, `profit_factor`, `expectancy_pct`, `payoff_ratio`
 - снижается от `stop_hit_rate_pct`
 - снижается от `timeout_rate_pct`
 - штрафует малое число signals
@@ -72,7 +72,8 @@ Score ограничен диапазоном примерно `-100..100`.
 ## Ограничения
 
 - Используется proxy backtest, а не полный replay live consumer endpoint.
-- Нет комиссий, налогов, спредов и проскальзывания.
+- Commission/slippage можно задать через `commission_bps` и `slippage_bps`, но это упрощённый bps penalty.
+- Нет налогов и реалистичного order book fill.
 - Нет intraday order внутри дневной свечи.
 - Если target и stop задеты в одной свече, считается `stop_hit`.
 - News/global events исторически не replay-ятся.
@@ -85,6 +86,7 @@ Quick:
 
 ```bash
 curl -s "http://127.0.0.1:8000/signals/consumer/threshold-sweep?max_tickers=10&max_samples=200&max_configs=40"
+curl -s "http://127.0.0.1:8000/signals/consumer/threshold-sweep?max_tickers=10&max_samples=200&max_configs=40&commission_bps=10&slippage_bps=5"
 ```
 
 Medium:

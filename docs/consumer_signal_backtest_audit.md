@@ -54,6 +54,10 @@ Response явно содержит:
 
 `avg_forward_return_pct` — средняя доходность от close сигнальной свечи до последней свечи горизонта или доступного future window.
 
+`avg_trade_return_pct` — реализованный результат по правилам сделки: target даёт `+target_pct`, stop даёт `-stop_pct`, timeout использует `forward_return_pct`.
+
+`profit_factor`, `expectancy_pct`, `payoff_ratio`, `win_rate_pct` помогают читать качество как PnL simulation, а не только как hit-rate.
+
 `avg_mfe_pct` — средний максимум благоприятного движения.
 
 `avg_mae_pct` — средний максимум неблагоприятного движения.
@@ -107,6 +111,7 @@ Response явно содержит:
 
 ```bash
 curl -s "http://127.0.0.1:8000/signals/consumer/backtest-audit?max_tickers=10&max_samples=200"
+curl -s "http://127.0.0.1:8000/signals/consumer/backtest-audit?max_tickers=10&max_samples=200&commission_bps=10&slippage_bps=5"
 ```
 
 Более полный прогон:
@@ -123,8 +128,8 @@ curl -s "http://127.0.0.1:8000/signals/consumer/backtest-audit-page"
 
 ## Что нельзя считать доказательством
 
-- Нет учёта проскальзывания.
-- Нет комиссий и налогов.
+- Commission/slippage учитываются только как упрощённый bps penalty, если переданы query params.
+- Нет налогов и реалистичного order book fill.
 - Нет intraday order внутри дневной свечи.
 - Если target и stop задеты в одной свечи, audit консервативно считает stop.
 - News/global events исторически не replay-ятся в proxy режиме.

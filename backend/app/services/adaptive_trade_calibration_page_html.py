@@ -56,6 +56,8 @@ def build_adaptive_trade_calibration_page_html() -> str:
       <label>max_policies<input id="max_policies" type="number" min="5" max="300" value="30"></label>
       <label>min_samples_per_policy<input id="min_samples_per_policy" type="number" min="1" max="1000" value="30"></label>
       <label>min_history<input id="min_history" type="number" min="30" max="250" value="80"></label>
+      <label>commission_bps<input id="commission_bps" type="number" min="0" max="100" step="1" value="0"></label>
+      <label>slippage_bps<input id="slippage_bps" type="number" min="0" max="100" step="1" value="0"></label>
       <button id="run" type="button">Запустить target/stop calibration</button>
     </section>
     <section id="status" class="panel muted">Запустите calibration, чтобы сравнить fixed, ATR и volatility-scaled policies.</section>
@@ -70,7 +72,7 @@ def build_adaptive_trade_calibration_page_html() -> str:
     </section>
   </main>
   <script>
-    const ids = ["max_tickers","max_samples","max_policies","min_samples_per_policy","min_history"];
+    const ids = ["max_tickers","max_samples","max_policies","min_samples_per_policy","min_history","commission_bps","slippage_bps"];
     const el = (id) => document.getElementById(id);
     const fmt = (v) => v === null || v === undefined ? "—" : v;
     function params() {
@@ -84,7 +86,7 @@ def build_adaptive_trade_calibration_page_html() -> str:
     function renderTable(rows) {
       if (!rows || !rows.length) return '<div class="muted">Нет данных.</div>';
       return `<table><thead><tr>
-        <th>#</th><th>policy</th><th>score</th><th>quality</th><th>samples</th><th>coverage</th><th>target hit</th><th>stop hit</th><th>avg return</th><th>avg target</th><th>avg stop</th><th>avg RR</th><th>details</th>
+        <th>#</th><th>policy</th><th>score</th><th>quality</th><th>samples</th><th>coverage</th><th>target hit</th><th>stop hit</th><th>avg trade</th><th>win rate</th><th>profit factor</th><th>payoff</th><th>avg forward</th><th>avg target</th><th>avg stop</th><th>avg RR</th><th>details</th>
       </tr></thead><tbody>${rows.map((row) => `<tr>
         <td>${fmt(row.rank)}</td>
         <td><code>${fmt(row.policy_id)}</code></td>
@@ -94,6 +96,10 @@ def build_adaptive_trade_calibration_page_html() -> str:
         <td>${fmt(row.coverage_pct)}%</td>
         <td>${fmt(row.target_hit_rate_pct)}%</td>
         <td>${fmt(row.stop_hit_rate_pct)}%</td>
+        <td>${fmt(row.avg_trade_return_pct)}%</td>
+        <td>${fmt(row.win_rate_pct)}%</td>
+        <td>${fmt(row.profit_factor)}</td>
+        <td>${fmt(row.payoff_ratio)}</td>
         <td>${fmt(row.avg_forward_return_pct)}%</td>
         <td>${fmt(row.avg_target_pct)}%</td>
         <td>${fmt(row.avg_stop_pct)}%</td>
@@ -122,7 +128,10 @@ def build_adaptive_trade_calibration_page_html() -> str:
           card("recommendation", summary.recommendation),
           card("baseline stop", baseline.stop_hit_rate_pct),
           card("best stop", best.stop_hit_rate_pct),
-          card("return delta", improvement.avg_return_delta_pct, (improvement.avg_return_delta_pct || 0) >= 0 ? "good" : "bad"),
+          card("best trade", best.avg_trade_return_pct, (best.avg_trade_return_pct || 0) >= 0 ? "good" : "bad"),
+          card("win rate", best.win_rate_pct),
+          card("profit factor", best.profit_factor),
+          card("trade delta", improvement.avg_trade_return_delta_pct, (improvement.avg_trade_return_delta_pct || 0) >= 0 ? "good" : "bad"),
         ].join("");
         el("best").innerHTML = renderTable(data.best_policies || []);
         const warnings = (summary.warnings || []).map((item) => `<div class="warn">${item}</div>`).join("");

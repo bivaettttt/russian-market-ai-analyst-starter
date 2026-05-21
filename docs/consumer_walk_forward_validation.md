@@ -22,6 +22,8 @@ Walk-forward отвечает на другой вопрос: если config б
 
 Хорошая конфигурация не обязана иметь максимальный train score, но должна сохранять приемлемый test score.
 
+Fold `train_metrics` и `test_metrics` также содержат trade PnL поля: `avg_trade_return_pct`, `win_rate_pct`, `profit_factor`, `expectancy_pct`, `payoff_ratio`.
+
 ## Score Decay
 
 `score_decay = train_score - test_score`
@@ -61,7 +63,8 @@ Walk-forward отвечает на другой вопрос: если config б
 ## Ограничения
 
 - Используется proxy historical audit, а не полный replay live endpoint.
-- Нет комиссий, налогов, спредов и проскальзывания.
+- Commission/slippage можно задать через `commission_bps` и `slippage_bps`, но это упрощённый bps penalty.
+- Нет налогов и реалистичного order book fill.
 - Дневная свеча не даёт intraday order; если target и stop задеты в одной свече, считается `stop_hit`.
 - Historical ticker news и global macro/geopolitical events не replay-ятся полноценно.
 - Возможен survivorship bias из-за текущего instrument universe.
@@ -73,6 +76,7 @@ Quick:
 
 ```bash
 curl -s "http://127.0.0.1:8000/signals/consumer/walk-forward?max_tickers=10&max_samples=300&max_configs=40&folds=2"
+curl -s "http://127.0.0.1:8000/signals/consumer/walk-forward?max_tickers=10&max_samples=300&max_configs=40&folds=2&commission_bps=10&slippage_bps=5"
 ```
 
 Medium:

@@ -25,6 +25,11 @@ Adaptive trade calibration сравнивает фиксированную сх�
 
 - `target_hit_rate_pct`: доля samples, где target был достигнут раньше stop.
 - `stop_hit_rate_pct`: доля samples, где stop был достигнут раньше target.
+- `avg_trade_return_pct`: реализованный результат сделки по target/stop/timeout.
+- `profit_factor`: сумма положительных trade returns / абсолютная сумма отрицательных trade returns.
+- `expectancy_pct`: средний trade return.
+- `payoff_ratio`: средний выигрыш / абсолютный средний убыток.
+- `win_rate_pct`: доля сделок с положительным `trade_return_pct`.
 - `avg_forward_return_pct`: средняя forward доходность на horizon policy.
 - `median_forward_return_pct`: медианная forward доходность.
 - `avg_mfe_pct`: средний максимум favorable excursion.
@@ -33,7 +38,7 @@ Adaptive trade calibration сравнивает фиксированную сх�
 - `avg_stop_pct`: средний рассчитанный stop.
 - `avg_rr`: средний risk/reward.
 - `rejected_by_min_rr`: сколько samples не прошло min RR policy.
-- `score`: research score, который награждает target-hit/return/MFE и штрафует stop-hit/timeout/MAE/низкую coverage.
+- `score`: research score, который теперь ориентируется на trade PnL, win rate, profit factor, stop-hit и coverage.
 - `quality_label`: `good`, `medium`, `weak`, `unstable`.
 
 ## Почему Best Policy Не Применяется Автоматически
@@ -49,6 +54,7 @@ Policy может быть переоптимизирована под теку�
 
 - Proxy evaluation не равен полному replay live consumer endpoint.
 - Нет комиссий, налогов, спредов и проскальзывания.
+- Commission/slippage можно задать упрощённо через `commission_bps` и `slippage_bps`.
 - Дневные свечи не дают порядок high/low внутри дня.
 - Текущий universe может давать survivorship bias.
 - Adaptive policy grid может переобучиться на sample.
@@ -60,6 +66,12 @@ Quick:
 
 ```bash
 curl "http://127.0.0.1:8010/signals/consumer/adaptive-trade-calibration?max_tickers=10&max_samples=300&max_policies=30"
+```
+
+With costs:
+
+```bash
+curl "http://127.0.0.1:8010/signals/consumer/adaptive-trade-calibration?max_tickers=10&max_samples=300&max_policies=30&commission_bps=10&slippage_bps=5"
 ```
 
 Medium:

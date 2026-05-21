@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Candle, Instrument
+from app.services.adaptive_trade_calibration import aggregate_trade_pnl_metrics
 from app.services.consumer_signals import (
     _build_position_sizing,
     _build_signal_audit,
@@ -183,6 +184,8 @@ def _evaluate_outcome(
     horizon: int,
     target_pct: float,
     stop_pct: float,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
     close = _to_float(current.get("close"))
     if close is None or close <= 0 or not future:
@@ -193,15 +196,24 @@ def _evaluate_outcome(
             "max_favorable_excursion_pct": None,
             "max_adverse_excursion_pct": None,
             "forward_return_pct": None,
+            "trade_return_pct": None,
+            "gross_trade_return_pct": None,
+            "cost_pct": _round((commission_bps + slippage_bps) / 100.0, 4),
+            "target_return_pct": None,
+            "stop_return_pct": None,
         }
 
     target_price = close * (1 + target_pct)
     stop_price = close * (1 - stop_pct)
+    target_return_pct = target_pct * 100
+    stop_return_pct = -stop_pct * 100
+    cost_pct = max(0.0, (commission_bps + slippage_bps) / 100.0)
     max_high = close
     min_low = close
     outcome = "timeout"
     success = False
     days_to_outcome = min(horizon, len(future))
+    gross_trade_return_pct = None
 
     for day, candle in enumerate(future[:horizon], start=1):
         high = _to_float(candle.get("high")) or close
@@ -215,23 +227,32 @@ def _evaluate_outcome(
             outcome = "stop_hit"
             success = False
             days_to_outcome = day
+            gross_trade_return_pct = stop_return_pct
             break
         if hit_stop:
             outcome = "stop_hit"
             success = False
             days_to_outcome = day
+            gross_trade_return_pct = stop_return_pct
             break
         if hit_target:
             outcome = "target_hit"
             success = True
             days_to_outcome = day
+            gross_trade_return_pct = target_return_pct
             break
 
     last_close = _to_float(future[min(len(future), horizon) - 1].get("close")) if future else None
     forward_return_pct = _pct_change(last_close, close)
 
     if outcome == "timeout":
+        gross_trade_return_pct = forward_return_pct
         success = bool(forward_return_pct is not None and forward_return_pct > 0)
+    trade_return_pct = (
+        gross_trade_return_pct - cost_pct
+        if gross_trade_return_pct is not None
+        else None
+    )
 
     return {
         "outcome": outcome,
@@ -240,6 +261,11 @@ def _evaluate_outcome(
         "max_favorable_excursion_pct": _round(_pct_change(max_high, close), 2),
         "max_adverse_excursion_pct": _round(_pct_change(min_low, close), 2),
         "forward_return_pct": _round(forward_return_pct, 2),
+        "trade_return_pct": _round(trade_return_pct, 2),
+        "gross_trade_return_pct": _round(gross_trade_return_pct, 2),
+        "cost_pct": _round(cost_pct, 4),
+        "target_return_pct": _round(target_return_pct, 2),
+        "stop_return_pct": _round(stop_return_pct, 2),
     }
 
 
@@ -253,6 +279,7 @@ def _empty_bucket() -> dict[str, Any]:
         "forward_returns": [],
         "mfe_values": [],
         "mae_values": [],
+        "trade_rows": [],
     }
 
 
@@ -275,11 +302,18 @@ def _add_to_bucket(bucket: dict[str, Any], sample: dict[str, Any]) -> None:
         value = _to_float(sample.get(key))
         if value is not None:
             bucket[target].append(value)
+    if sample.get("trade_return_pct") is not None:
+        bucket.setdefault("trade_rows", []).append(
+            {
+                "outcome": sample.get("outcome"),
+                "trade_return_pct": sample.get("trade_return_pct"),
+            }
+        )
 
 
 def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
     samples = int(bucket.get("samples") or 0)
-    return {
+    result = {
         "samples": samples,
         "target_hit_rate_pct": _rate(int(bucket.get("target_hits") or 0), samples),
         "stop_hit_rate_pct": _rate(int(bucket.get("stop_hits") or 0), samples),
@@ -289,6 +323,8 @@ def _finalize_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
         "avg_mfe_pct": _safe_avg(bucket.get("mfe_values") or []),
         "avg_mae_pct": _safe_avg(bucket.get("mae_values") or []),
     }
+    result.update(aggregate_trade_pnl_metrics(bucket.get("trade_rows") or []))
+    return result
 
 
 def _example(sample: dict[str, Any]) -> dict[str, Any]:
@@ -302,6 +338,7 @@ def _example(sample: dict[str, Any]) -> dict[str, Any]:
         "market_regime_name": sample.get("market_regime_name"),
         "market_regime_score": sample.get("market_regime_score"),
         "outcome": sample.get("outcome"),
+        "trade_return_pct": sample.get("trade_return_pct"),
         "forward_return_pct": sample.get("forward_return_pct"),
         "mfe_pct": sample.get("mfe_pct"),
         "mae_pct": sample.get("mae_pct"),
@@ -332,6 +369,8 @@ def _build_proxy_samples(
     market_regime_lookback: int = 60,
     market_regime_min_tickers: int = 20,
     market_regime_formula_config: dict[str, Any] | None = None,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> tuple[list[dict[str, Any]], set[str]]:
     instruments = db.scalars(
         select(Instrument)
@@ -570,6 +609,8 @@ def _build_proxy_samples(
                 horizon=horizon,
                 target_pct=target_pct,
                 stop_pct=stop_pct,
+                commission_bps=commission_bps,
+                slippage_bps=slippage_bps,
             )
             sample = {
                 "ticker": instrument.ticker,
@@ -600,6 +641,11 @@ def _build_proxy_samples(
                 "success": outcome.get("success"),
                 "days_to_outcome": outcome.get("days_to_outcome"),
                 "forward_return_pct": outcome.get("forward_return_pct"),
+                "trade_return_pct": outcome.get("trade_return_pct"),
+                "gross_trade_return_pct": outcome.get("gross_trade_return_pct"),
+                "cost_pct": outcome.get("cost_pct"),
+                "target_return_pct": outcome.get("target_return_pct"),
+                "stop_return_pct": outcome.get("stop_return_pct"),
                 "mfe_pct": outcome.get("max_favorable_excursion_pct"),
                 "mae_pct": outcome.get("max_adverse_excursion_pct"),
             }
@@ -759,6 +805,17 @@ def _evaluate_config_on_samples(
         "stop_hit_rate_pct": metrics.get("stop_hit_rate_pct"),
         "timeout_rate_pct": metrics.get("timeout_rate_pct"),
         "avg_forward_return_pct": metrics.get("avg_forward_return_pct"),
+        "avg_trade_return_pct": metrics.get("avg_trade_return_pct"),
+        "median_trade_return_pct": metrics.get("median_trade_return_pct"),
+        "total_trade_return_pct": metrics.get("total_trade_return_pct"),
+        "win_rate_pct": metrics.get("win_rate_pct"),
+        "loss_rate_pct": metrics.get("loss_rate_pct"),
+        "profit_factor": metrics.get("profit_factor"),
+        "expectancy_pct": metrics.get("expectancy_pct"),
+        "payoff_ratio": metrics.get("payoff_ratio"),
+        "avg_win_pct": metrics.get("avg_win_pct"),
+        "avg_loss_pct": metrics.get("avg_loss_pct"),
+        "max_trade_loss_pct": metrics.get("max_trade_loss_pct"),
         "avg_mfe_pct": metrics.get("avg_mfe_pct"),
         "avg_mae_pct": metrics.get("avg_mae_pct"),
         "success_count": int(bucket.get("successes") or 0),
@@ -846,6 +903,10 @@ def _regime_filter_comparison(samples: list[dict[str, Any]]) -> dict[str, Any]:
             "target_hit_rate_pct": delta("target_hit_rate_pct"),
             "stop_hit_rate_pct": stop_delta,
             "avg_forward_return_pct": delta("avg_forward_return_pct"),
+            "avg_trade_return_pct": delta("avg_trade_return_pct"),
+            "avg_trade_return_delta_pct": delta("avg_trade_return_pct"),
+            "win_rate_delta_pct": delta("win_rate_pct"),
+            "profit_factor_delta": delta("profit_factor"),
             "coverage_pct": _round((filtered_count / baseline_count * 100), 2) if baseline_count else None,
         },
         "interpretation": (
@@ -868,6 +929,7 @@ def _regime_filter_effect_for_samples(samples: list[dict[str, Any]]) -> dict[str
         "target_hit_rate_delta": delta.get("target_hit_rate_pct"),
         "stop_hit_rate_delta": delta.get("stop_hit_rate_pct"),
         "avg_return_delta": delta.get("avg_forward_return_pct"),
+        "avg_trade_return_delta": delta.get("avg_trade_return_delta_pct"),
     }
 
 
@@ -882,6 +944,8 @@ def _backtest_response_from_samples(
     stop_pct: float,
     min_history: int,
     use_market_regime_filter: bool,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
     total_bucket = _empty_bucket()
     by_action_raw: dict[str, dict[str, Any]] = {}
@@ -932,10 +996,20 @@ def _backtest_response_from_samples(
             "stop_pct": stop_pct,
             "positive_rate_pct": summary_bucket.get("positive_rate_pct"),
             "avg_forward_return_pct": summary_bucket.get("avg_forward_return_pct"),
+            "avg_trade_return_pct": summary_bucket.get("avg_trade_return_pct"),
+            "median_trade_return_pct": summary_bucket.get("median_trade_return_pct"),
+            "total_trade_return_pct": summary_bucket.get("total_trade_return_pct"),
+            "win_rate_pct": summary_bucket.get("win_rate_pct"),
+            "loss_rate_pct": summary_bucket.get("loss_rate_pct"),
+            "profit_factor": summary_bucket.get("profit_factor"),
+            "expectancy_pct": summary_bucket.get("expectancy_pct"),
+            "payoff_ratio": summary_bucket.get("payoff_ratio"),
             "target_hit_rate_pct": summary_bucket.get("target_hit_rate_pct"),
             "stop_hit_rate_pct": summary_bucket.get("stop_hit_rate_pct"),
             "timeout_rate_pct": summary_bucket.get("timeout_rate_pct"),
             "use_market_regime_filter": use_market_regime_filter,
+            "commission_bps": commission_bps,
+            "slippage_bps": slippage_bps,
         },
         "by_action": {key: _finalize_bucket(value) for key, value in sorted(by_action_raw.items())},
         "by_blocker": {key: _finalize_bucket(value) for key, value in sorted(by_blocker_raw.items())},
@@ -965,6 +1039,8 @@ def _backtest_response_from_samples(
             "stop_pct": stop_pct,
             "min_history": min_history,
             "use_market_regime_filter": use_market_regime_filter,
+            "commission_bps": commission_bps,
+            "slippage_bps": slippage_bps,
         },
     }
 
@@ -978,6 +1054,8 @@ def build_consumer_signal_backtest_audit(
     stop_pct: float = 0.03,
     min_history: int = 80,
     use_market_regime_filter: bool = False,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
     samples, tickers_used = _build_proxy_samples(
         db=db,
@@ -988,6 +1066,8 @@ def build_consumer_signal_backtest_audit(
         stop_pct=stop_pct,
         min_history=min_history,
         use_market_regime_filter=use_market_regime_filter,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
     )
     return _backtest_response_from_samples(
         samples=samples,
@@ -999,6 +1079,8 @@ def build_consumer_signal_backtest_audit(
         stop_pct=stop_pct,
         min_history=min_history,
         use_market_regime_filter=use_market_regime_filter,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
     )
 
     instruments = db.scalars(
@@ -1300,6 +1382,8 @@ def build_consumer_threshold_sweep_audit(
     min_signals: int = 20,
     max_configs: int = 120,
     use_market_regime_filter: bool = False,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
     horizons = horizons or [15, 20, 30]
     target_pcts = target_pcts or [0.03, 0.04, 0.05, 0.06]
@@ -1331,6 +1415,8 @@ def build_consumer_threshold_sweep_audit(
                 stop_pct=float(stop_pct),
                 min_history=80,
                 use_market_regime_filter=use_market_regime_filter,
+                commission_bps=commission_bps,
+                slippage_bps=slippage_bps,
             )
 
         base_samples, _tickers_used = sample_cache[sample_key]
@@ -1390,6 +1476,17 @@ def build_consumer_threshold_sweep_audit(
                 "stop_hit_rate_pct": metrics.get("stop_hit_rate_pct"),
                 "timeout_rate_pct": metrics.get("timeout_rate_pct"),
                 "avg_forward_return_pct": metrics.get("avg_forward_return_pct"),
+                "avg_trade_return_pct": metrics.get("avg_trade_return_pct"),
+                "median_trade_return_pct": metrics.get("median_trade_return_pct"),
+                "total_trade_return_pct": metrics.get("total_trade_return_pct"),
+                "win_rate_pct": metrics.get("win_rate_pct"),
+                "loss_rate_pct": metrics.get("loss_rate_pct"),
+                "profit_factor": metrics.get("profit_factor"),
+                "expectancy_pct": metrics.get("expectancy_pct"),
+                "payoff_ratio": metrics.get("payoff_ratio"),
+                "avg_win_pct": metrics.get("avg_win_pct"),
+                "avg_loss_pct": metrics.get("avg_loss_pct"),
+                "max_trade_loss_pct": metrics.get("max_trade_loss_pct"),
                 "avg_mfe_pct": metrics.get("avg_mfe_pct"),
                 "avg_mae_pct": metrics.get("avg_mae_pct"),
                 "success_count": int(bucket.get("successes") or 0),
@@ -1437,6 +1534,8 @@ def build_consumer_threshold_sweep_audit(
             "use_market_regime_filter": use_market_regime_filter,
             "regime_filter_enabled": use_market_regime_filter,
             "avg_risk_off_stop_hit_rate": _safe_avg(risk_off_rates),
+            "commission_bps": commission_bps,
+            "slippage_bps": slippage_bps,
             "best_config_regime_notes": (
                 f"Best config risk_off stop-hit: {best.get('risk_off_stop_hit_rate_pct')}%, filtered risk_off signals: {best.get('risk_off_signals_filtered')}."
                 if best else None
@@ -1455,12 +1554,14 @@ def build_consumer_threshold_sweep_audit(
             "max_configs": max_configs,
             "total_requested_configs": total_configs,
             "use_market_regime_filter": use_market_regime_filter,
+            "commission_bps": commission_bps,
+            "slippage_bps": slippage_bps,
         },
         "limitations": [
             "Threshold sweep is a calibration/evaluation layer; it does not update production decision thresholds automatically.",
             "Historical samples use the proxy candle-only consumer audit, not full live news/global/ML replay.",
             "min_ml_probability is evaluated against proxy probability because historical ML replay is unavailable.",
-            "No commissions, taxes, spreads or slippage are included.",
+            "Commission and slippage are simplified bps penalties when provided; taxes and realistic order book fills are not included.",
             "Daily candles do not provide intraday order; same-day target and stop is treated conservatively as stop_hit.",
             "Current instrument universe can introduce survivorship bias.",
         ],
@@ -1629,6 +1730,8 @@ def build_consumer_walk_forward_validation(
     min_rr_values: list[float] | None = None,
     min_signals: int = 20,
     use_market_regime_filter: bool = False,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
     configs, parameter_grid, warnings = _generate_threshold_configs(
         horizons=horizons,
@@ -1654,6 +1757,8 @@ def build_consumer_walk_forward_validation(
                 stop_pct=float(config["stop_pct"]),
                 min_history=80,
                 use_market_regime_filter=use_market_regime_filter,
+                commission_bps=commission_bps,
+                slippage_bps=slippage_bps,
             )
             samples.sort(key=lambda item: str(item.get("date") or ""))
             sample_cache[key] = (samples, tickers)
@@ -1791,6 +1896,7 @@ def build_consumer_walk_forward_validation(
     test_targets = [_to_float((fold.get("test_metrics") or {}).get("target_hit_rate_pct")) for fold in fold_results]
     test_stops = [_to_float((fold.get("test_metrics") or {}).get("stop_hit_rate_pct")) for fold in fold_results]
     test_returns = [_to_float((fold.get("test_metrics") or {}).get("avg_forward_return_pct")) for fold in fold_results]
+    test_trade_returns = [_to_float((fold.get("test_metrics") or {}).get("avg_trade_return_pct")) for fold in fold_results]
     risk_off_test_stops = [
         _to_float(((fold.get("test_by_market_regime") or {}).get("risk_off") or {}).get("stop_hit_rate_pct"))
         for fold in fold_results
@@ -1837,6 +1943,7 @@ def build_consumer_walk_forward_validation(
         "avg_test_target_hit_rate_pct": _safe_avg([value for value in test_targets if value is not None]),
         "avg_test_stop_hit_rate_pct": _safe_avg([value for value in test_stops if value is not None]),
         "avg_test_forward_return_pct": _safe_avg([value for value in test_returns if value is not None]),
+        "avg_test_trade_return_pct": _safe_avg([value for value in test_trade_returns if value is not None]),
         "stable_folds": stable_folds,
         "moderate_folds": moderate_folds,
         "unstable_folds": unstable_folds,
@@ -1844,6 +1951,8 @@ def build_consumer_walk_forward_validation(
         "most_common_config_id": most_common_config_id,
         "recommended_config": recommended_config,
         "use_market_regime_filter": use_market_regime_filter,
+        "commission_bps": commission_bps,
+        "slippage_bps": slippage_bps,
         "avg_risk_off_test_stop_hit_rate": _safe_avg([value for value in risk_off_test_stops if value is not None]),
         "avg_regime_filter_signal_reduction_pct": _safe_avg(signal_reductions),
         "regime_filter_helped_folds": helped_folds,
@@ -1858,11 +1967,11 @@ def build_consumer_walk_forward_validation(
         "summary": summary,
         "folds": fold_results,
         "config_frequency": dict(sorted(config_frequency.items(), key=lambda item: (-item[1], item[0]))),
-        "parameter_grid": {**parameter_grid, "use_market_regime_filter": use_market_regime_filter},
+        "parameter_grid": {**parameter_grid, "use_market_regime_filter": use_market_regime_filter, "commission_bps": commission_bps, "slippage_bps": slippage_bps},
         "limitations": [
             "Walk-forward validation uses proxy historical consumer audit, not full live endpoint replay.",
             "Selected config is not automatically applied to production decision logic.",
-            "No commissions, taxes, spreads or slippage are included.",
+            "Commission and slippage are simplified bps penalties when provided; taxes and realistic order book fills are not included.",
             "Daily candles do not provide intraday order; same-day target and stop is treated conservatively as stop_hit.",
             "Historical ticker news and global macro/geopolitical events are approximate/not replayed in this proxy layer.",
             "Current instrument universe can introduce survivorship bias.",

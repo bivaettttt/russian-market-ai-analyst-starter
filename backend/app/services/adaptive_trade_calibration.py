@@ -30,6 +30,16 @@ def _pct_change(current: float | None, previous: float | None) -> float | None:
     return (current - previous) / previous * 100
 
 
+def _rate(part: int, total: int) -> float | None:
+    if total <= 0:
+        return None
+    return _round(part / total * 100, 2)
+
+
+def _avg(values: list[float]) -> float | None:
+    return _round(mean(values), 2) if values else None
+
+
 def _candle_to_dict(candle: Candle) -> dict[str, Any]:
     return {
         "ticker": candle.ticker,
@@ -228,58 +238,159 @@ def compute_trade_setup(
     }
 
 
-def _evaluate_setup_outcome(
+def simulate_trade_outcome(
     *,
-    current: dict[str, Any],
-    future: list[dict[str, Any]],
-    setup: dict[str, Any],
+    entry_price: float,
+    target_price: float,
+    stop_price: float,
+    future_candles: list[dict[str, Any]],
+    conservative_same_candle: bool = True,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
-    close = _to_float(current.get("close"))
-    target_price = _to_float(setup.get("target_price"))
-    stop_price = _to_float(setup.get("stop_price"))
-    horizon = int(setup.get("horizon") or 20)
-    if close is None or close <= 0 or target_price is None or stop_price is None or not future:
-        return {"outcome": "not_available", "success": False, "forward_return_pct": None, "mfe_pct": None, "mae_pct": None}
+    warnings: list[str] = []
+    entry = _to_float(entry_price)
+    target = _to_float(target_price)
+    stop = _to_float(stop_price)
+    cost_pct = max(0.0, (_to_float(commission_bps) or 0.0) + (_to_float(slippage_bps) or 0.0)) / 100.0
+    if entry is None or entry <= 0 or target is None or stop is None:
+        return {
+            "outcome": "no_data",
+            "success": None,
+            "days_to_outcome": None,
+            "exit_price": None,
+            "trade_return_pct": None,
+            "gross_trade_return_pct": None,
+            "cost_pct": _round(cost_pct, 4),
+            "target_return_pct": None,
+            "stop_return_pct": None,
+            "forward_return_pct": None,
+            "mfe_pct": None,
+            "mae_pct": None,
+            "same_candle_conflict": False,
+            "warnings": ["invalid_trade_prices"],
+        }
+    target_return_pct = (target / entry - 1) * 100
+    stop_return_pct = (stop / entry - 1) * 100
+    if not future_candles:
+        return {
+            "outcome": "no_data",
+            "success": None,
+            "days_to_outcome": None,
+            "exit_price": None,
+            "trade_return_pct": None,
+            "gross_trade_return_pct": None,
+            "cost_pct": _round(cost_pct, 4),
+            "target_return_pct": _round(target_return_pct, 2),
+            "stop_return_pct": _round(stop_return_pct, 2),
+            "forward_return_pct": None,
+            "mfe_pct": None,
+            "mae_pct": None,
+            "same_candle_conflict": False,
+            "warnings": ["no_future_candles"],
+        }
 
-    max_high = close
-    min_low = close
+    max_high = entry
+    min_low = entry
     outcome = "timeout"
-    success = False
-    days_to_outcome = min(horizon, len(future))
+    gross_trade_return_pct = None
+    exit_price = None
+    days_to_outcome = len(future_candles)
+    same_candle_conflict = False
 
-    for day, candle in enumerate(future[:horizon], start=1):
-        high = _to_float(candle.get("high")) or close
-        low = _to_float(candle.get("low")) or close
+    for day, candle in enumerate(future_candles, start=1):
+        high = _to_float(candle.get("high")) or entry
+        low = _to_float(candle.get("low")) or entry
         max_high = max(max_high, high)
         min_low = min(min_low, low)
-        hit_target = high >= target_price
-        hit_stop = low <= stop_price
+        hit_target = high >= target
+        hit_stop = low <= stop
         if hit_target and hit_stop:
-            outcome = "stop_hit"
+            same_candle_conflict = True
+            outcome = "stop_hit" if conservative_same_candle else "target_hit"
             days_to_outcome = day
+            gross_trade_return_pct = stop_return_pct if conservative_same_candle else target_return_pct
+            exit_price = stop if conservative_same_candle else target
             break
         if hit_stop:
             outcome = "stop_hit"
             days_to_outcome = day
+            gross_trade_return_pct = stop_return_pct
+            exit_price = stop
             break
         if hit_target:
             outcome = "target_hit"
-            success = True
             days_to_outcome = day
+            gross_trade_return_pct = target_return_pct
+            exit_price = target
             break
 
-    last_close = _to_float(future[min(len(future), horizon) - 1].get("close")) if future else None
-    forward_return_pct = _pct_change(last_close, close)
+    last_close = _to_float(future_candles[-1].get("close"))
+    forward_return_pct = _pct_change(last_close, entry)
     if outcome == "timeout":
-        success = bool(forward_return_pct is not None and forward_return_pct > 0)
+        exit_price = last_close
+        gross_trade_return_pct = forward_return_pct
 
+    trade_return_pct = (
+        gross_trade_return_pct - cost_pct
+        if gross_trade_return_pct is not None
+        else None
+    )
     return {
         "outcome": outcome,
-        "success": success,
+        "success": bool(trade_return_pct is not None and trade_return_pct > 0),
         "days_to_outcome": days_to_outcome,
+        "exit_price": _round(exit_price, 4),
+        "trade_return_pct": _round(trade_return_pct, 2),
+        "gross_trade_return_pct": _round(gross_trade_return_pct, 2),
+        "cost_pct": _round(cost_pct, 4),
+        "target_return_pct": _round(target_return_pct, 2),
+        "stop_return_pct": _round(stop_return_pct, 2),
         "forward_return_pct": _round(forward_return_pct, 2),
-        "mfe_pct": _round(_pct_change(max_high, close), 2),
-        "mae_pct": _round(_pct_change(min_low, close), 2),
+        "mfe_pct": _round(_pct_change(max_high, entry), 2),
+        "mae_pct": _round(_pct_change(min_low, entry), 2),
+        "same_candle_conflict": same_candle_conflict,
+        "warnings": warnings,
+    }
+
+
+def aggregate_trade_pnl_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    returns = [_to_float(row.get("trade_return_pct")) for row in rows]
+    returns = [value for value in returns if value is not None]
+    trades = len(returns)
+    wins = [value for value in returns if value > 0]
+    losses = [value for value in returns if value < 0]
+    target_hits = sum(1 for row in rows if row.get("outcome") == "target_hit")
+    stop_hits = sum(1 for row in rows if row.get("outcome") == "stop_hit")
+    timeouts = sum(1 for row in rows if row.get("outcome") == "timeout")
+    gross_gains = sum(wins)
+    gross_losses = abs(sum(losses))
+    avg_win = _avg(wins)
+    avg_loss = _avg(losses)
+    profit_factor = gross_gains / gross_losses if gross_losses > 0 and wins else None
+    payoff_ratio = (
+        avg_win / abs(avg_loss)
+        if avg_win is not None and avg_loss is not None and avg_loss < 0
+        else None
+    )
+    return {
+        "trades": trades,
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate_pct": _rate(len(wins), trades),
+        "loss_rate_pct": _rate(len(losses), trades),
+        "avg_trade_return_pct": _avg(returns),
+        "median_trade_return_pct": _round(median(returns), 2) if returns else None,
+        "total_trade_return_pct": _round(sum(returns), 2) if returns else None,
+        "avg_win_pct": avg_win,
+        "avg_loss_pct": avg_loss,
+        "profit_factor": _round(profit_factor, 3),
+        "expectancy_pct": _avg(returns),
+        "payoff_ratio": _round(payoff_ratio, 3),
+        "max_trade_loss_pct": _round(min(returns), 2) if returns else None,
+        "target_hit_rate_pct": _rate(target_hits, len(rows)),
+        "stop_hit_rate_pct": _rate(stop_hits, len(rows)),
+        "timeout_rate_pct": _rate(timeouts, len(rows)),
     }
 
 
@@ -337,18 +448,19 @@ def score_trade_policy_metrics(metrics: dict[str, Any], *, min_samples_per_polic
     coverage = _to_float(metrics.get("coverage_pct")) or 0.0
     target_hit = _to_float(metrics.get("target_hit_rate_pct")) or 0.0
     stop_hit = _to_float(metrics.get("stop_hit_rate_pct")) or 0.0
-    timeout = _to_float(metrics.get("timeout_rate_pct")) or 0.0
-    avg_return = _to_float(metrics.get("avg_forward_return_pct")) or 0.0
-    avg_mfe = _to_float(metrics.get("avg_mfe_pct")) or 0.0
-    avg_mae = _to_float(metrics.get("avg_mae_pct")) or 0.0
+    avg_trade_return = _to_float(metrics.get("avg_trade_return_pct")) or 0.0
+    win_rate = _to_float(metrics.get("win_rate_pct")) or 0.0
+    profit_factor = _to_float(metrics.get("profit_factor"))
+    avg_loss = abs(_to_float(metrics.get("avg_loss_pct")) or 0.0)
 
     score = 0.0
-    score += target_hit * 1.2
-    score -= stop_hit * 0.9
-    score += avg_return * 6.0
-    score += avg_mfe * 0.4
-    score += avg_mae * 0.3
-    score -= timeout * 0.15
+    score += avg_trade_return * 8.0
+    score += win_rate * 0.4
+    if profit_factor is not None:
+        score += min(profit_factor, 3.0) * 5.0
+    score -= stop_hit * 0.4
+    score += target_hit * 0.4
+    score -= avg_loss * 1.0
     if samples < min_samples_per_policy:
         score -= 30.0
     if coverage < 5.0:
@@ -368,21 +480,13 @@ def _quality_label(score: float, samples: int, min_samples_per_policy: int) -> s
     return "weak"
 
 
-def _rate(part: int, total: int) -> float | None:
-    if total <= 0:
-        return None
-    return _round(part / total * 100, 2)
-
-
-def _avg(values: list[float]) -> float | None:
-    return _round(mean(values), 2) if values else None
-
-
 def _evaluate_policy(
     *,
     base_samples: list[dict[str, Any]],
     policy: dict[str, Any],
     min_samples_per_policy: int,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
     selected: list[dict[str, Any]] = []
     rejected_by_min_rr = 0
@@ -401,7 +505,14 @@ def _evaluate_policy(
             continue
         for warning in setup.get("warnings") or []:
             setup_warnings.add(str(warning))
-        outcome = _evaluate_setup_outcome(current=sample["current"], future=sample["future"], setup=setup)
+        outcome = simulate_trade_outcome(
+            entry_price=float(sample["close"]),
+            target_price=float(setup["target_price"]),
+            stop_price=float(setup["stop_price"]),
+            future_candles=sample["future"][: int(setup.get("horizon") or 20)],
+            commission_bps=commission_bps,
+            slippage_bps=slippage_bps,
+        )
         selected.append({"setup": setup, "outcome": outcome})
 
     samples = len(selected)
@@ -420,6 +531,15 @@ def _evaluate_policy(
     stops = [value for value in stops if value is not None]
     rrs = [_to_float(item["setup"].get("risk_reward_ratio")) for item in selected]
     rrs = [value for value in rrs if value is not None]
+    pnl_metrics = aggregate_trade_pnl_metrics(
+        [
+            {
+                "outcome": item["outcome"].get("outcome"),
+                "trade_return_pct": item["outcome"].get("trade_return_pct"),
+            }
+            for item in selected
+        ]
+    )
 
     metrics = {
         "rank": None,
@@ -438,6 +558,19 @@ def _evaluate_policy(
         "avg_stop_pct": _avg(stops),
         "avg_rr": _avg(rrs),
         "rejected_by_min_rr": rejected_by_min_rr,
+        "avg_trade_return_pct": pnl_metrics.get("avg_trade_return_pct"),
+        "median_trade_return_pct": pnl_metrics.get("median_trade_return_pct"),
+        "total_trade_return_pct": pnl_metrics.get("total_trade_return_pct"),
+        "win_rate_pct": pnl_metrics.get("win_rate_pct"),
+        "loss_rate_pct": pnl_metrics.get("loss_rate_pct"),
+        "profit_factor": pnl_metrics.get("profit_factor"),
+        "expectancy_pct": pnl_metrics.get("expectancy_pct"),
+        "payoff_ratio": pnl_metrics.get("payoff_ratio"),
+        "avg_win_pct": pnl_metrics.get("avg_win_pct"),
+        "avg_loss_pct": pnl_metrics.get("avg_loss_pct"),
+        "max_trade_loss_pct": pnl_metrics.get("max_trade_loss_pct"),
+        "target_trade_return_pct": _avg(targets),
+        "stop_trade_return_pct": _round(-(_avg(stops) or 0.0), 2) if stops else None,
         "warnings": sorted(setup_warnings),
     }
     score = score_trade_policy_metrics(metrics, min_samples_per_policy=min_samples_per_policy)
@@ -534,11 +667,19 @@ def _recommendation(best: dict[str, Any] | None, baseline: dict[str, Any] | None
     if baseline and best.get("policy_id") == baseline.get("policy_id"):
         return "keep_current"
     stop_delta = _delta(best.get("stop_hit_rate_pct"), (baseline or {}).get("stop_hit_rate_pct"))
-    return_delta = _delta(best.get("avg_forward_return_pct"), (baseline or {}).get("avg_forward_return_pct"))
+    trade_delta = _delta(best.get("avg_trade_return_pct"), (baseline or {}).get("avg_trade_return_pct"))
+    win_delta = _delta(best.get("win_rate_pct"), (baseline or {}).get("win_rate_pct"))
+    profit_factor_delta = _delta(best.get("profit_factor"), (baseline or {}).get("profit_factor"))
     score = _to_float(best.get("score")) or 0.0
-    if score >= 25 and stop_delta is not None and stop_delta <= -2.0 and (return_delta or 0) > 0:
+    if (
+        score >= 25
+        and stop_delta is not None
+        and stop_delta <= -2.0
+        and (trade_delta or 0) > 0
+        and ((win_delta or 0) >= 0 or (profit_factor_delta or 0) > 0)
+    ):
         return "promising"
-    if stop_delta is not None and stop_delta < 0 and (return_delta or 0) >= 0:
+    if baseline and (_to_float(baseline.get("score")) or -999) >= score:
         return "keep_current"
     return "recalibrate_needed"
 
@@ -550,6 +691,8 @@ def build_adaptive_trade_calibration(
     max_policies: int = 80,
     min_samples_per_policy: int = 30,
     min_history: int = 80,
+    commission_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> dict[str, Any]:
     base_samples, tickers_used = _build_base_samples(
         db=db,
@@ -562,7 +705,13 @@ def build_adaptive_trade_calibration(
         warnings.append("Base sample count is below min_samples_per_policy; calibration is unstable.")
 
     results = [
-        _evaluate_policy(base_samples=base_samples, policy=policy, min_samples_per_policy=min_samples_per_policy)
+        _evaluate_policy(
+            base_samples=base_samples,
+            policy=policy,
+            min_samples_per_policy=min_samples_per_policy,
+            commission_bps=commission_bps,
+            slippage_bps=slippage_bps,
+        )
         for policy in policies
     ]
     results.sort(
@@ -583,6 +732,10 @@ def build_adaptive_trade_calibration(
         "target_hit_delta_pct": _delta((best or {}).get("target_hit_rate_pct"), (baseline or {}).get("target_hit_rate_pct")),
         "stop_hit_delta_pct": _delta((best or {}).get("stop_hit_rate_pct"), (baseline or {}).get("stop_hit_rate_pct")),
         "avg_return_delta_pct": _delta((best or {}).get("avg_forward_return_pct"), (baseline or {}).get("avg_forward_return_pct")),
+        "avg_trade_return_delta_pct": _delta((best or {}).get("avg_trade_return_pct"), (baseline or {}).get("avg_trade_return_pct")),
+        "win_rate_delta_pct": _delta((best or {}).get("win_rate_pct"), (baseline or {}).get("win_rate_pct")),
+        "profit_factor_delta": _delta((best or {}).get("profit_factor"), (baseline or {}).get("profit_factor")),
+        "expectancy_delta_pct": _delta((best or {}).get("expectancy_pct"), (baseline or {}).get("expectancy_pct")),
         "coverage_delta_pct": _delta((best or {}).get("coverage_pct"), (baseline or {}).get("coverage_pct")),
     }
     recommendation = _recommendation(best, baseline, min_samples_per_policy)
@@ -620,5 +773,7 @@ def build_adaptive_trade_calibration(
             "max_policies": max_policies,
             "min_samples_per_policy": min_samples_per_policy,
             "min_history": min_history,
+            "commission_bps": commission_bps,
+            "slippage_bps": slippage_bps,
         },
     }

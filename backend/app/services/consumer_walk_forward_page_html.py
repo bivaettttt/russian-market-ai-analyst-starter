@@ -210,7 +210,7 @@ def build_consumer_walk_forward_page_html() -> str:
             <table>
               <thead>
                 <tr>
-                  <th>fold</th><th>train</th><th>test</th><th>config</th><th>train score</th><th>test score</th><th>decay</th><th>target</th><th>stop</th><th>avg ret</th><th>stability</th>
+                  <th>fold</th><th>train</th><th>test</th><th>config</th><th>train score</th><th>test score</th><th>decay</th><th>target</th><th>stop</th><th>avg trade</th><th>win</th><th>PF</th><th>avg ret</th><th>stability</th>
                 </tr>
               </thead>
               <tbody>
@@ -231,11 +231,14 @@ def build_consumer_walk_forward_page_html() -> str:
                       <td>${fmt(fold.score_decay)}</td>
                       <td>${pct(testMetrics.target_hit_rate_pct)}</td>
                       <td>${pct(testMetrics.stop_hit_rate_pct)}</td>
+                      <td class="${Number(testMetrics.avg_trade_return_pct) >= 0 ? "positive" : "negative"}">${pct(testMetrics.avg_trade_return_pct)}</td>
+                      <td>${pct(testMetrics.win_rate_pct)}</td>
+                      <td>${fmt(testMetrics.profit_factor)}</td>
                       <td class="${Number(testMetrics.avg_forward_return_pct) >= 0 ? "positive" : "negative"}">${pct(testMetrics.avg_forward_return_pct)}</td>
                       <td>${escapeHtml(fold.stability_label || "—")}</td>
                     </tr>
                   `;
-                }).join("") : "<tr><td colspan='11'>Нет fold данных.</td></tr>"}
+                }).join("") : "<tr><td colspan='14'>Нет fold данных.</td></tr>"}
               </tbody>
             </table>
           </div>

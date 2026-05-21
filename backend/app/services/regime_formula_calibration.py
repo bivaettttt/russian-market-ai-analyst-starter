@@ -255,6 +255,11 @@ def _evaluate_formula_config(
         "baseline_avg_forward_return_pct": baseline.get("avg_forward_return_pct"),
         "filtered_avg_forward_return_pct": filtered.get("avg_forward_return_pct"),
         "avg_return_delta_pct": _safe_delta(filtered.get("avg_forward_return_pct"), baseline.get("avg_forward_return_pct")),
+        "baseline_avg_trade_return_pct": baseline.get("avg_trade_return_pct"),
+        "filtered_avg_trade_return_pct": filtered.get("avg_trade_return_pct"),
+        "avg_trade_return_delta_pct": _safe_delta(filtered.get("avg_trade_return_pct"), baseline.get("avg_trade_return_pct")),
+        "win_rate_delta_pct": _safe_delta(filtered.get("win_rate_pct"), baseline.get("win_rate_pct")),
+        "profit_factor_delta": _safe_delta(filtered.get("profit_factor"), baseline.get("profit_factor")),
         "filtered_by_risk_off": len(blocked_samples),
         "avoided_stop_hits": avoided_stop_hits,
         "missed_target_hits": missed_target_hits,
@@ -340,6 +345,7 @@ def build_regime_formula_calibration(
         "target_hit_rate_pct": best.get("filtered_target_hit_rate_pct"),
         "stop_hit_rate_pct": best.get("filtered_stop_hit_rate_pct"),
         "avg_forward_return_pct": best.get("filtered_avg_forward_return_pct"),
+        "avg_trade_return_pct": best.get("filtered_avg_trade_return_pct"),
         "coverage_after_filter_pct": best.get("coverage_after_filter_pct"),
     } if best else {}
     recommendation = _recommendation(best, len(samples), min_signals_after_filter)

@@ -93,10 +93,10 @@ def build_regime_historical_evaluation_page_html() -> str:
     function regimeTable(byRegime) {
       const rows = Object.entries(byRegime || {});
       return `<section class="card"><h2>By Market Regime</h2><div class="table-wrap"><table><thead><tr>
-        <th>regime</th><th>samples</th><th>target hit</th><th>stop hit</th><th>timeout</th><th>avg return</th><th>avg regime score</th><th>long allowed</th>
+        <th>regime</th><th>samples</th><th>target hit</th><th>stop hit</th><th>timeout</th><th>avg trade</th><th>win</th><th>PF</th><th>avg return</th><th>avg regime score</th><th>long allowed</th>
       </tr></thead><tbody>${rows.map(([key, row]) => `<tr>
         <td>${escapeHtml(key)}</td><td>${fmt(row.samples,0)}</td><td>${pct(row.target_hit_rate_pct)}</td><td>${pct(row.stop_hit_rate_pct)}</td>
-        <td>${pct(row.timeout_rate_pct)}</td><td>${pct(row.avg_forward_return_pct)}</td><td>${fmt(row.avg_regime_score)}</td><td>${pct(row.long_allowed_rate_pct)}</td>
+        <td>${pct(row.timeout_rate_pct)}</td><td>${pct(row.avg_trade_return_pct)}</td><td>${pct(row.win_rate_pct)}</td><td>${fmt(row.profit_factor)}</td><td>${pct(row.avg_forward_return_pct)}</td><td>${fmt(row.avg_regime_score)}</td><td>${pct(row.long_allowed_rate_pct)}</td>
       </tr>`).join("")}</tbody></table></div></section>`;
     }
     function comparisonTable(comparison) {
@@ -104,11 +104,11 @@ def build_regime_historical_evaluation_page_html() -> str:
       const filtered = comparison?.with_regime_filter || {};
       const delta = comparison?.delta || {};
       return `<section class="card"><h2>Regime Filter Comparison</h2><div class="table-wrap"><table><thead><tr>
-        <th>case</th><th>signals</th><th>target hit</th><th>stop hit</th><th>avg return</th>
+        <th>case</th><th>signals</th><th>target hit</th><th>stop hit</th><th>avg trade</th><th>win</th><th>PF</th><th>avg return</th>
       </tr></thead><tbody>
-        <tr><td>baseline</td><td>${fmt(baseline.signals,0)}</td><td>${pct(baseline.target_hit_rate_pct)}</td><td>${pct(baseline.stop_hit_rate_pct)}</td><td>${pct(baseline.avg_forward_return_pct)}</td></tr>
-        <tr><td>with filter</td><td>${fmt(filtered.signals,0)}</td><td>${pct(filtered.target_hit_rate_pct)}</td><td>${pct(filtered.stop_hit_rate_pct)}</td><td>${pct(filtered.avg_forward_return_pct)}</td></tr>
-        <tr><td>delta</td><td>${fmt(delta.signals,0)}</td><td>${pct(delta.target_hit_rate_pct)}</td><td>${pct(delta.stop_hit_rate_pct)}</td><td>${pct(delta.avg_forward_return_pct)}</td></tr>
+        <tr><td>baseline</td><td>${fmt(baseline.signals,0)}</td><td>${pct(baseline.target_hit_rate_pct)}</td><td>${pct(baseline.stop_hit_rate_pct)}</td><td>${pct(baseline.avg_trade_return_pct)}</td><td>${pct(baseline.win_rate_pct)}</td><td>${fmt(baseline.profit_factor)}</td><td>${pct(baseline.avg_forward_return_pct)}</td></tr>
+        <tr><td>with filter</td><td>${fmt(filtered.signals,0)}</td><td>${pct(filtered.target_hit_rate_pct)}</td><td>${pct(filtered.stop_hit_rate_pct)}</td><td>${pct(filtered.avg_trade_return_pct)}</td><td>${pct(filtered.win_rate_pct)}</td><td>${fmt(filtered.profit_factor)}</td><td>${pct(filtered.avg_forward_return_pct)}</td></tr>
+        <tr><td>delta</td><td>${fmt(delta.signals,0)}</td><td>${pct(delta.target_hit_rate_pct)}</td><td>${pct(delta.stop_hit_rate_pct)}</td><td>${pct(delta.avg_trade_return_delta_pct)}</td><td>${pct(delta.win_rate_delta_pct)}</td><td>${fmt(delta.profit_factor_delta)}</td><td>${pct(delta.avg_forward_return_pct)}</td></tr>
       </tbody></table></div><p>${escapeHtml(comparison?.interpretation || "")}</p></section>`;
     }
     function examplesBlock(examples) {

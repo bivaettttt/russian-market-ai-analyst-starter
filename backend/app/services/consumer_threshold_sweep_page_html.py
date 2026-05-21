@@ -221,7 +221,7 @@ def build_consumer_threshold_sweep_page_html() -> str:
               <thead>
                 <tr>
                   <th>rank</th><th>score</th><th>quality</th><th>signals</th><th>coverage</th>
-                  <th>target</th><th>stop</th><th>avg ret</th><th>h</th><th>t</th><th>s</th><th>p</th><th>ml</th><th>rr</th>
+                  <th>target</th><th>stop</th><th>avg trade</th><th>win</th><th>PF</th><th>avg ret</th><th>h</th><th>t</th><th>s</th><th>p</th><th>ml</th><th>rr</th>
                 </tr>
               </thead>
               <tbody>
@@ -234,6 +234,9 @@ def build_consumer_threshold_sweep_page_html() -> str:
                     <td>${pct(row.coverage_pct)}</td>
                     <td>${pct(row.target_hit_rate_pct)}</td>
                     <td>${pct(row.stop_hit_rate_pct)}</td>
+                    <td class="${Number(row.avg_trade_return_pct) >= 0 ? "positive" : "negative"}">${pct(row.avg_trade_return_pct)}</td>
+                    <td>${pct(row.win_rate_pct)}</td>
+                    <td>${fmt(row.profit_factor)}</td>
                     <td class="${Number(row.avg_forward_return_pct) >= 0 ? "positive" : "negative"}">${pct(row.avg_forward_return_pct)}</td>
                     <td>${fmt(row.horizon, 0)}</td>
                     <td>${pct(row.target_pct)}</td>

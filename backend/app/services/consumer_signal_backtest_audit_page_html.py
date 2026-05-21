@@ -227,7 +227,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
           <table>
             <thead>
               <tr>
-                <th>bucket</th><th>samples</th><th>target</th><th>stop</th><th>timeout</th><th>avg ret</th><th>MFE</th><th>MAE</th>
+                <th>bucket</th><th>samples</th><th>target</th><th>stop</th><th>timeout</th><th>avg trade</th><th>win</th><th>PF</th><th>avg ret</th><th>MFE</th><th>MAE</th>
               </tr>
             </thead>
             <tbody>
@@ -238,6 +238,9 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
                   <td>${pct(value.target_hit_rate_pct)}</td>
                   <td>${pct(value.stop_hit_rate_pct)}</td>
                   <td>${pct(value.timeout_rate_pct)}</td>
+                  <td class="${Number(value.avg_trade_return_pct) >= 0 ? "positive" : "negative"}">${pct(value.avg_trade_return_pct)}</td>
+                  <td>${pct(value.win_rate_pct)}</td>
+                  <td>${fmt(value.profit_factor)}</td>
                   <td class="${Number(value.avg_forward_return_pct) >= 0 ? "positive" : "negative"}">${pct(value.avg_forward_return_pct)}</td>
                   <td>${pct(value.avg_mfe_pct)}</td>
                   <td>${pct(value.avg_mae_pct)}</td>
@@ -259,7 +262,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
               <div class="example">
                 <strong>${escapeHtml(item.ticker)} · ${escapeHtml(item.date)}</strong>
                 <div class="muted">${escapeHtml(item.action)} · ${escapeHtml(item.outcome)} · blocked: ${escapeHtml((item.blocked_by || []).join(", ") || "—")}</div>
-                <div>prob ${fmt(item.probability_pct, 0)} · audit ${fmt(item.audit_score, 0)} · ret ${pct(item.forward_return_pct)} · MFE ${pct(item.mfe_pct)} · MAE ${pct(item.mae_pct)}</div>
+                <div>prob ${fmt(item.probability_pct, 0)} · audit ${fmt(item.audit_score, 0)} · trade ${pct(item.trade_return_pct)} · ret ${pct(item.forward_return_pct)} · MFE ${pct(item.mfe_pct)} · MAE ${pct(item.mae_pct)}</div>
               </div>
             `).join("") : "<p class='muted'>Нет примеров.</p>"}
           </div>
@@ -283,6 +286,9 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
           metric("samples", fmt(summary.samples, 0)),
           metric("target hit", pct(summary.target_hit_rate_pct), "positive"),
           metric("stop hit", pct(summary.stop_hit_rate_pct), "negative"),
+          metric("avg trade return", pct(summary.avg_trade_return_pct), Number(summary.avg_trade_return_pct) >= 0 ? "positive" : "negative"),
+          metric("win rate", pct(summary.win_rate_pct), "positive"),
+          metric("profit factor", fmt(summary.profit_factor)),
           metric("avg forward return", pct(summary.avg_forward_return_pct), Number(summary.avg_forward_return_pct) >= 0 ? "positive" : "negative"),
           metric("tickers used", fmt(summary.tickers_used, 0)),
         ].join("");

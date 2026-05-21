@@ -166,6 +166,8 @@ def consumer_signal_backtest_audit_api(
     stop_pct: float = Query(0.03, ge=0.005, le=0.20),
     min_history: int = Query(80, ge=30, le=250),
     use_market_regime_filter: bool = Query(False),
+    commission_bps: float = Query(0.0, ge=0, le=100),
+    slippage_bps: float = Query(0.0, ge=0, le=100),
     db: Session = Depends(get_db),
 ):
     return build_consumer_signal_backtest_audit(
@@ -177,6 +179,8 @@ def consumer_signal_backtest_audit_api(
         stop_pct=stop_pct,
         min_history=min_history,
         use_market_regime_filter=use_market_regime_filter,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
     )
 
 
@@ -198,6 +202,8 @@ def consumer_threshold_sweep_audit_api(
     min_ml_probabilities: str | None = Query(None),
     min_rr_values: str | None = Query(None),
     use_market_regime_filter: bool = Query(False),
+    commission_bps: float = Query(0.0, ge=0, le=100),
+    slippage_bps: float = Query(0.0, ge=0, le=100),
     db: Session = Depends(get_db),
 ):
     return build_consumer_threshold_sweep_audit(
@@ -213,6 +219,8 @@ def consumer_threshold_sweep_audit_api(
         min_signals=min_signals,
         max_configs=max_configs,
         use_market_regime_filter=use_market_regime_filter,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
     )
 
 
@@ -238,6 +246,8 @@ def consumer_walk_forward_validation_api(
     min_ml_probabilities: str | None = Query(None),
     min_rr_values: str | None = Query(None),
     use_market_regime_filter: bool = Query(False),
+    commission_bps: float = Query(0.0, ge=0, le=100),
+    slippage_bps: float = Query(0.0, ge=0, le=100),
     db: Session = Depends(get_db),
 ):
     return build_consumer_walk_forward_validation(
@@ -257,6 +267,8 @@ def consumer_walk_forward_validation_api(
         min_rr_values=_parse_number_list(min_rr_values, item_type=float, min_value=0.1, max_value=5.0),
         min_signals=min_signals,
         use_market_regime_filter=use_market_regime_filter,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
     )
 
 
@@ -332,6 +344,8 @@ def consumer_adaptive_trade_calibration_api(
     max_policies: int = Query(80, ge=5, le=300),
     min_samples_per_policy: int = Query(30, ge=1, le=1000),
     min_history: int = Query(80, ge=30, le=250),
+    commission_bps: float = Query(0.0, ge=0, le=100),
+    slippage_bps: float = Query(0.0, ge=0, le=100),
     db: Session = Depends(get_db),
 ):
     return build_adaptive_trade_calibration(
@@ -341,6 +355,8 @@ def consumer_adaptive_trade_calibration_api(
         max_policies=max_policies,
         min_samples_per_policy=min_samples_per_policy,
         min_history=min_history,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
     )
 
 

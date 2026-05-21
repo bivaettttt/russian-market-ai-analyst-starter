@@ -74,7 +74,7 @@ Acceptance criteria:
 
 ## 4. Adaptive Target / Stop / RR Calibration
 
-Статус: текущий этап.
+Статус: реализовано как research endpoint. Quick result показал, что ATR policy меняет hit structure, но forward return может конфликтовать с target/stop outcome.
 
 Цель: откалибровать конструкцию сделки: target, stop, horizon и min RR по истории.
 
@@ -94,7 +94,29 @@ Acceptance criteria:
 
 Почему важно: высокий stop-hit rate часто связан не только с probability threshold, но и с плохо подобранным target/stop контуром.
 
-## 5. Target / Stop / RR Calibration Follow-Up
+## 5. Trade Outcome PnL Simulation
+
+Статус: текущий этап.
+
+Цель: считать реализованный PnL сделки, а не только `forward_return_pct`.
+
+Что сделать:
+
+- target_hit считать как `+target_pct`;
+- stop_hit считать как `-stop_pct`;
+- timeout считать по forward return;
+- добавить bps costs;
+- протащить PnL metrics в backtest, sweep, walk-forward, regime reports.
+
+Acceptance criteria:
+
+- отчёты содержат `avg_trade_return_pct`, `profit_factor`, `expectancy_pct`, `payoff_ratio`, `win_rate_pct`;
+- endpoints с `commission_bps/slippage_bps` работают;
+- production decision logic не меняется.
+
+Почему важно: hit-rate без реализованного PnL может давать неверный вывод о качестве trade setup.
+
+## 6. Target / Stop / RR Calibration Follow-Up
 
 Цель: проверить лучшие adaptive policies на устойчивость.
 
@@ -113,7 +135,7 @@ Acceptance criteria:
 
 Почему важно: хороший single-sample policy может быть случайной подгонкой.
 
-## 6. ML v2 / Model Quality Upgrade
+## 7. ML v2 / Model Quality Upgrade
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -132,7 +154,7 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 7. Production News Pipeline
+## 8. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -151,7 +173,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 8. Signal History / Paper Trading
+## 9. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -170,7 +192,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 9. Portfolio Risk Office
+## 10. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -189,7 +211,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 10. Production Layer
+## 11. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

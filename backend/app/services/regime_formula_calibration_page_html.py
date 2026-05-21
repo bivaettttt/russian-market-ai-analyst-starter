@@ -89,7 +89,7 @@ def build_regime_formula_calibration_page_html() -> str:
     function renderTable(rows) {
       if (!rows || !rows.length) return '<div class="muted">Нет данных.</div>';
       return `<table><thead><tr>
-        <th>#</th><th>score</th><th>quality</th><th>filtered</th><th>coverage</th><th>stop delta</th><th>target delta</th><th>return delta</th><th>avoided</th><th>missed</th><th>config</th><th>formula</th>
+        <th>#</th><th>score</th><th>quality</th><th>filtered</th><th>coverage</th><th>stop delta</th><th>target delta</th><th>trade delta</th><th>win delta</th><th>PF delta</th><th>return delta</th><th>avoided</th><th>missed</th><th>config</th><th>formula</th>
       </tr></thead><tbody>${rows.map((row) => `<tr>
         <td>${fmt(row.rank)}</td>
         <td>${fmt(row.score)}</td>
@@ -98,6 +98,9 @@ def build_regime_formula_calibration_page_html() -> str:
         <td>${fmt(row.coverage_after_filter_pct)}%</td>
         <td>${fmt(row.stop_hit_delta_pct)}</td>
         <td>${fmt(row.target_hit_delta_pct)}</td>
+        <td>${fmt(row.avg_trade_return_delta_pct)}</td>
+        <td>${fmt(row.win_rate_delta_pct)}</td>
+        <td>${fmt(row.profit_factor_delta)}</td>
         <td>${fmt(row.avg_return_delta_pct)}</td>
         <td>${fmt(row.avoided_stop_hits)}</td>
         <td>${fmt(row.missed_target_hits)}</td>
