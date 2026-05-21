@@ -215,6 +215,12 @@ def build_signals_page_html() -> str:
       border-color: #bbf7d0;
     }
 
+    .diag-pill.warning {
+      background: #fffbeb;
+      color: #92400e;
+      border-color: #fde68a;
+    }
+
     .scenario-note {
       margin: 10px 0 0;
       color: var(--muted);
@@ -403,6 +409,19 @@ def build_signals_page_html() -> str:
     .details .event-item {
       border-left: 3px solid #cbd5e1;
       padding-left: 10px;
+    }
+
+    .details .layer-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .details .layer-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #f8fafc;
     }
 
     .empty {
@@ -604,6 +623,12 @@ def build_signals_page_html() -> str:
         global_event_reason: source.global_event_reason || null,
         macro_regime_flags: Array.isArray(source.macro_regime_flags) ? source.macro_regime_flags : [],
         global_news_assessment: source.global_news_assessment || {},
+        signal_audit: source.signal_audit || {},
+        audit_overall_score: toNumber(source.audit_overall_score ?? (source.signal_audit || {}).overall_score),
+        audit_confidence_level: source.audit_confidence_level || (source.signal_audit || {}).confidence_level || "",
+        audit_blocked_by: Array.isArray(source.audit_blocked_by) ? source.audit_blocked_by : ((source.signal_audit || {}).blocked_by || []),
+        audit_top_strengths: Array.isArray(source.audit_top_strengths) ? source.audit_top_strengths : ((source.signal_audit || {}).top_strengths || []),
+        audit_top_weaknesses: Array.isArray(source.audit_top_weaknesses) ? source.audit_top_weaknesses : ((source.signal_audit || {}).top_weaknesses || []),
         news_assessment: source.news_assessment || {},
         news_risk_flags: source.news_risk_flags || [],
         decision: source.decision || "",
@@ -789,6 +814,23 @@ def build_signals_page_html() -> str:
       return `Макро: ${adjText}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
     }
 
+    function auditBadgeClass(item) {
+      const blocked = Array.isArray(item.audit_blocked_by) && item.audit_blocked_by.length > 0;
+      const confidence = String(item.audit_confidence_level || "").toLowerCase();
+
+      if (blocked) return "warning";
+      if (confidence === "high") return "positive";
+      if (confidence === "medium") return "warning";
+      return "";
+    }
+
+    function auditBadgeText(item) {
+      const score = item.audit_overall_score;
+      const confidence = item.audit_confidence_level || "—";
+      if (score === null || Number.isNaN(score)) return "Audit: —";
+      return `Audit: ${Math.round(score)} / ${confidence}`;
+    }
+
 
     function fmtPercent(value) {
       const number = toNumber(value);
@@ -893,6 +935,53 @@ def build_signals_page_html() -> str:
       `;
     }
 
+    function auditHtml(audit) {
+      const data = audit || {};
+      if (!Object.keys(data).length) return "";
+
+      const layerLabels = {
+        technical: "Technical",
+        ml: "ML",
+        risk: "Risk",
+        ticker_news: "Новости",
+        global_macro: "Макро",
+        scenario: "Scenario"
+      };
+      const layerScores = data.layer_scores || {};
+      const layerHtml = Object.entries(layerLabels).map(([key, label]) => {
+        const layer = layerScores[key] || {};
+        const status = layer.status || "not_available";
+        const score = layer.score ?? "—";
+        const reason = layer.reason || "Данных по слою нет.";
+        return `
+          <div class="layer-item">
+            <strong>${escapeHtml(label)}:</strong>
+            ${escapeHtml(status)} · score ${escapeHtml(score)}
+            <div class="small muted">${escapeHtml(reason)}</div>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <h4>Аудит сигнала</h4>
+        <p>${escapeHtml(data.human_explanation || "Audit недоступен для этого сигнала.")}</p>
+        <p class="small muted">${escapeHtml(data.score_meaning || "Audit score — качество итогового решения, не вероятность роста.")}</p>
+        <p class="small">${escapeHtml(data.risk_committee_note || "Risk layer не дал отдельного комментария.")}</p>
+        <div class="small muted">
+          Passed: ${escapeHtml((data.passed_layers || []).join(", ") || "—")} ·
+          Warning: ${escapeHtml((data.warning_layers || []).join(", ") || "—")} ·
+          Blocked: ${escapeHtml((data.blocked_by || []).join(", ") || "—")}
+        </div>
+        <h4>Сильные стороны</h4>
+        ${listHtml(data.top_strengths)}
+        <h4>Слабые места</h4>
+        ${listHtml(data.top_weaknesses)}
+        <h4>Что должно улучшиться</h4>
+        ${listHtml(data.required_improvements)}
+        <div class="layer-list">${layerHtml}</div>
+      `;
+    }
+
     async function toggleDetails(ticker) {
       const id = `details-${ticker}`;
       const box = document.getElementById(id);
@@ -917,10 +1006,13 @@ def build_signals_page_html() -> str:
         const explanation = forecast.explanation || signal.explanation || {};
         const decisionReason = forecast.decision_reason || signal.decision_reason || "";
         const globalAssessment = forecast.global_news_assessment || signal.global_news_assessment || {};
+        const signalAudit = forecast.signal_audit || signal.signal_audit || {};
 
         box.innerHTML = `
           <h4>Почему такой сигнал?</h4>
           <p>${escapeHtml(decisionReason || explanation.summary || "Система учитывает вероятность достижения цели, риск, техническую картину и ML-корректировку.")}</p>
+
+          ${auditHtml(signalAudit)}
 
           <h4>Факторы</h4>
           ${listHtml(explanation.technical)}
@@ -1021,6 +1113,9 @@ def build_signals_page_html() -> str:
               </span>
               <span class="diag-pill ${macroBadgeClass(item)}">
                 ${escapeHtml(macroBadgeText(item))}
+              </span>
+              <span class="diag-pill ${auditBadgeClass(item)}">
+                ${escapeHtml(auditBadgeText(item))}
               </span>
               <span class="diag-pill">RR: ${item.risk_reward_ratio === null ? "—" : escapeHtml(item.risk_reward_ratio)}</span>
               <span class="diag-pill">Позиция: ${escapeHtml((item.position_sizing || {}).max_position_pct ?? 0)}%</span>

@@ -1941,6 +1941,421 @@ def _build_position_sizing(
         "risk_flags": risk_flags,
     }
 
+
+def _build_signal_audit(
+    *,
+    technical: dict[str, Any],
+    signal: dict[str, Any],
+    probability_assessment: dict[str, Any],
+    position_sizing: dict[str, Any],
+    news_assessment: dict[str, Any],
+    global_news_assessment: dict[str, Any],
+    ml_probability_result: dict[str, Any] | None,
+    decision_gate: dict[str, Any],
+    scenario_direction: str | None,
+    scenario_reason: str | None,
+    source_signal_action: str | None,
+    source_target_price: float | None,
+    rule_probability_pct: float | None,
+    ml_probability_pct: float | None,
+    ml_weight: float | None,
+    ml_adjustment_pct: float | None,
+    ml_regime_multiplier: float | None,
+    ml_regime_reason: str | None,
+    target_probability_pct: float | None,
+    ticker_news_adjustment_pct: float | None,
+    global_event_adjustment_pct: float | None,
+) -> dict[str, Any]:
+    """Explain which already-computed layers supported or blocked the final decision."""
+
+    action = str(decision_gate.get("action") or signal.get("action") or "").strip()
+    scenario = str(scenario_direction or "neutral").lower()
+    blocked_by: list[str] = []
+    passed_layers: list[str] = []
+    warning_layers: list[str] = []
+    strengths: list[str] = []
+    weaknesses: list[str] = []
+    improvements: list[str] = []
+
+    def add_unique(target: list[str], value: str | None) -> None:
+        text = str(value or "").strip()
+        if text and text not in target:
+            target.append(text)
+
+    def layer(
+        status: str,
+        score: float | None,
+        reason: str,
+        *,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "status": status,
+            "score": _round(_clamp(float(score), 0, 100), 0) if score is not None else None,
+            "reason": reason,
+            "diagnostics": diagnostics or {},
+        }
+
+    probability_value = _to_float(target_probability_pct)
+    rule_probability = _to_float(rule_probability_pct)
+    target_distance = _to_float(position_sizing.get("target_distance_pct"))
+    source_quality = _to_float(signal.get("quality_score"))
+    technical_score_value = rule_probability if rule_probability is not None else source_quality
+
+    if technical_score_value is None:
+        technical_layer = layer(
+            "not_available",
+            None,
+            "Технический слой недоступен: нет rule_probability или quality_score.",
+        )
+        add_unique(warning_layers, "technical")
+    elif scenario == "downside" or (target_distance is not None and target_distance <= 0):
+        technical_layer = layer(
+            "negative",
+            min(technical_score_value, 35),
+            "Технический слой указывает на downside/цель ниже текущей цены, поэтому long-сценарий не подтверждён.",
+            diagnostics={
+                "rule_probability_pct": _round(rule_probability, 1),
+                "source_signal_action": source_signal_action,
+                "source_target_price": _round(source_target_price),
+                "target_distance_pct": _round(target_distance, 2),
+            },
+        )
+        add_unique(warning_layers, "technical")
+        add_unique(blocked_by, "downside_signal")
+        add_unique(weaknesses, "Технический сценарий не является long: цель ниже текущей цены или сигнал помечен как downside.")
+    elif technical_score_value >= 58 and (source_signal_action in {"buy_watch", "watch_buy", "buy"} or target_distance is None or target_distance > 0):
+        technical_layer = layer(
+            "positive",
+            technical_score_value,
+            "Технический слой поддерживает long-сценарий: цель выше текущей цены, rule-score в рабочей зоне.",
+            diagnostics={
+                "rule_probability_pct": _round(rule_probability, 1),
+                "source_signal_action": source_signal_action,
+                "target_distance_pct": _round(target_distance, 2),
+                "trend": technical.get("trend"),
+                "momentum": technical.get("momentum"),
+                "volatility_20d_pct": technical.get("volatility_20d_pct"),
+            },
+        )
+        add_unique(passed_layers, "technical")
+        add_unique(strengths, "Технический слой поддерживает сценарий.")
+    elif technical_score_value >= 45:
+        technical_layer = layer(
+            "neutral",
+            technical_score_value,
+            "Технический слой даёт наблюдение, но силы сигнала недостаточно для самостоятельной покупки.",
+            diagnostics={
+                "rule_probability_pct": _round(rule_probability, 1),
+                "source_signal_action": source_signal_action,
+                "target_distance_pct": _round(target_distance, 2),
+            },
+        )
+        add_unique(warning_layers, "technical")
+        add_unique(weaknesses, "Технический слой пока ближе к watch, чем к buy.")
+        add_unique(improvements, "Нужен более сильный технический сигнал: выше rule_probability, лучше momentum или более убедительная цель.")
+    else:
+        technical_layer = layer(
+            "negative",
+            technical_score_value,
+            "Технический слой слабый: rule-score ниже потребительского порога.",
+            diagnostics={"rule_probability_pct": _round(rule_probability, 1), "source_signal_action": source_signal_action},
+        )
+        add_unique(warning_layers, "technical")
+        add_unique(weaknesses, "Технический слой слабый.")
+        add_unique(improvements, "Нужно улучшение технической картины и расстояния до цели.")
+
+    ml_value = _to_float(ml_probability_pct)
+    ml_diagnostics = {
+        "ml_probability_pct": _round(ml_value, 1),
+        "ml_weight": ml_weight,
+        "ml_adjustment_pct": ml_adjustment_pct,
+        "ml_regime_multiplier": ml_regime_multiplier,
+        "ml_regime_reason": ml_regime_reason,
+        "ml_ok": bool((ml_probability_result or {}).get("ok")),
+    }
+
+    if ml_value is None:
+        ml_layer = layer("not_available", None, "ML-слой недоступен: прогноз ML не был рассчитан или не прошёл ok-флаг.", diagnostics=ml_diagnostics)
+        add_unique(warning_layers, "ml")
+    elif ml_value < 15:
+        ml_layer = layer("negative", 10, "ML-veto: вероятность ML ниже 15%, модель явно против сценария.", diagnostics=ml_diagnostics)
+        add_unique(blocked_by, "ml_veto")
+        add_unique(warning_layers, "ml")
+        add_unique(weaknesses, "ML-модель явно против сценария.")
+        add_unique(improvements, "Нужен рост ML probability выше 25%, а лучше выше 35%.")
+    elif ml_value < 25:
+        ml_layer = layer("negative", 30, "ML не подтверждает покупку: зона 15–25%.", diagnostics=ml_diagnostics)
+        add_unique(warning_layers, "ml")
+        add_unique(weaknesses, "ML не подтверждает сигнал.")
+        add_unique(improvements, "Нужен рост ML probability минимум выше 25%.")
+    elif ml_value < 35:
+        ml_layer = layer("neutral", 50, "ML слабый/нейтральный: сигнал не заблокирован, но подтверждение ограничено.", diagnostics=ml_diagnostics)
+        add_unique(warning_layers, "ml")
+        add_unique(weaknesses, "ML-подтверждение пока слабое.")
+        add_unique(improvements, "Для upgrade нужен ML probability выше 35%.")
+    else:
+        ml_reason = "ML подтверждает сценарий: вероятность ML находится в рабочей зоне 35%+."
+        if _to_float(ml_weight) is not None and (_to_float(ml_weight) or 0) < 0.25:
+            ml_reason += " Вес ML небольшой, поэтому слой учтён осторожно."
+        ml_layer = layer("positive", min(100, 55 + (ml_value - 35) * 1.1), ml_reason, diagnostics=ml_diagnostics)
+        add_unique(passed_layers, "ml")
+        add_unique(strengths, "ML подтверждает сценарий.")
+
+    rr_value = _to_float(position_sizing.get("risk_reward_ratio"))
+    max_position = _to_float(position_sizing.get("max_position_pct")) or 0.0
+    allowed = bool(position_sizing.get("allowed"))
+    risk_diagnostics = {
+        "allowed": allowed,
+        "risk_reward_ratio": _round(rr_value, 2),
+        "target_distance_pct": position_sizing.get("target_distance_pct"),
+        "stop_distance_pct": position_sizing.get("stop_distance_pct"),
+        "max_position_pct": position_sizing.get("max_position_pct"),
+        "risk_per_trade_pct": position_sizing.get("risk_per_trade_pct"),
+        "position_action": position_sizing.get("position_action"),
+        "risk_flags": position_sizing.get("risk_flags") or [],
+    }
+
+    action_blockers = {
+        "avoid_bad_rr": "weak_rr",
+        "watch_bad_rr": "weak_rr",
+        "avoid_bad_target": "invalid_target",
+        "avoid_downside_signal": "downside_signal",
+        "avoid_ml_veto": "ml_veto",
+        "avoid_ml_filter": "ml_filter",
+        "avoid_risk": "risk_limit",
+        "avoid": "low_probability",
+    }
+    if action in action_blockers:
+        add_unique(blocked_by, action_blockers[action])
+
+    if action in {"avoid_downside_signal"} or scenario == "downside":
+        add_unique(blocked_by, "downside_signal")
+
+    if rr_value is not None and rr_value < 0.8:
+        add_unique(blocked_by, "weak_rr")
+    if target_distance is not None and target_distance <= 0:
+        add_unique(blocked_by, "invalid_target" if scenario != "downside" else "downside_signal")
+
+    if not allowed or max_position <= 0:
+        status = "negative" if action.startswith("avoid") else "neutral"
+        risk_layer = layer(
+            status,
+            25 if action.startswith("avoid") else 45,
+            "Risk layer не разрешает позицию: вход запрещён или доступно только наблюдение.",
+            diagnostics=risk_diagnostics,
+        )
+        add_unique(warning_layers, "risk")
+        add_unique(weaknesses, "Risk layer не разрешает открывать позицию.")
+        add_unique(improvements, "Для upgrade нужен проход risk gate: допустимая цель, приемлемый RR и разрешённый размер позиции.")
+    elif rr_value is not None and rr_value < 0.8:
+        risk_layer = layer("negative", 25, "Risk/reward ниже 0.8: риск-слой блокирует вход.", diagnostics=risk_diagnostics)
+        add_unique(warning_layers, "risk")
+        add_unique(weaknesses, "Risk/reward слишком слабый.")
+        add_unique(improvements, "Улучшить цель или стоп, чтобы RR стал выше 1.2.")
+    elif rr_value is not None and rr_value < 1.2:
+        risk_layer = layer("neutral", 55, "Risk/reward в зоне предупреждения 0.8–1.2.", diagnostics=risk_diagnostics)
+        add_unique(warning_layers, "risk")
+        add_unique(weaknesses, "Risk/reward недостаточен для уверенной покупки.")
+        add_unique(improvements, "Нужен RR выше 1.2.")
+    else:
+        risk_score = 75 if rr_value is None else min(95, 65 + rr_value * 10)
+        risk_layer = layer("positive", risk_score, "Risk layer разрешает позицию и размер ограничен правилами риска.", diagnostics=risk_diagnostics)
+        add_unique(passed_layers, "risk")
+        add_unique(strengths, "Risk layer не блокирует вход.")
+
+    news_effect = str(news_assessment.get("news_effect") or "").lower()
+    has_ticker_events = bool(news_assessment.get("has_events"))
+    ticker_adj = _to_float(ticker_news_adjustment_pct) or _to_float(news_assessment.get("ticker_news_adjustment_pct")) or 0.0
+    relevance = _to_float(news_assessment.get("ticker_relevance_score") or news_assessment.get("news_relevance_score"))
+    news_diagnostics = {
+        "has_events": has_ticker_events,
+        "news_effect": news_effect or None,
+        "ticker_news_adjustment_pct": _round(ticker_adj, 1),
+        "relevance_score": _round(relevance, 1),
+        "event_scope": news_assessment.get("event_scope"),
+        "risk_flags": news_assessment.get("risk_flags") or [],
+    }
+
+    if not has_ticker_events:
+        ticker_news_layer = layer("not_available", None, "По тикеру нет свежих локальных событий; слой не меняет решение.", diagnostics=news_diagnostics)
+    elif relevance is not None and relevance < 35:
+        ticker_news_layer = layer("neutral", 45, "Новость есть, но релевантность ниже 35; влияние информационное.", diagnostics=news_diagnostics)
+        add_unique(warning_layers, "ticker_news")
+    elif news_effect == "boost" or ticker_adj > 0.5:
+        ticker_news_layer = layer("positive", min(100, 60 + abs(ticker_adj) * 6), "Тикерные новости поддерживают сценарий.", diagnostics=news_diagnostics)
+        add_unique(passed_layers, "ticker_news")
+        add_unique(strengths, "Тикерные новости поддерживают сигнал.")
+    elif news_effect in {"penalty", "veto"} or ticker_adj < -0.5:
+        ticker_news_layer = layer("negative", 35 if news_effect != "veto" else 20, "Тикерные новости ухудшают сценарий.", diagnostics=news_diagnostics)
+        add_unique(warning_layers, "ticker_news")
+        if news_effect == "veto":
+            add_unique(blocked_by, "ticker_news_veto")
+        add_unique(weaknesses, "Тикерные новости давят на сигнал.")
+        add_unique(improvements, "Нужна нейтрализация негативного новостного фона по тикеру.")
+    else:
+        ticker_news_layer = layer("neutral", 50, "Тикерные новости учтены информационно, без сильного влияния на вероятность.", diagnostics=news_diagnostics)
+
+    has_global_events = bool(global_news_assessment.get("has_global_events"))
+    global_adj = _to_float(global_event_adjustment_pct) or _to_float(global_news_assessment.get("adjustment_pct")) or 0.0
+    global_tags = list(global_news_assessment.get("tags") or [])
+    global_diagnostics = {
+        "has_global_events": has_global_events,
+        "global_event_adjustment_pct": _round(global_adj, 1),
+        "tags": global_tags,
+        "macro_regime_flags": global_news_assessment.get("macro_regime_flags") or [],
+    }
+
+    adverse_global_tags = {"geopolitical_risk", "sanctions_tightening", "risk_off", "russia_risk_premium_up"}
+    if not has_global_events:
+        global_layer = layer("not_available", None, "Глобальных событий в базе нет; macro/geopolitical слой не меняет решение.", diagnostics=global_diagnostics)
+    elif global_adj > 0.5:
+        global_layer = layer(
+            "positive",
+            min(100, 60 + global_adj * 7),
+            str(global_news_assessment.get("reason") or "Глобальный фон поддерживает текущий сценарий."),
+            diagnostics=global_diagnostics,
+        )
+        add_unique(passed_layers, "global_macro")
+        add_unique(strengths, "Глобальный macro/geopolitical слой поддерживает сценарий.")
+    elif global_adj < -0.5:
+        global_layer = layer(
+            "negative",
+            max(10, 45 + global_adj * 7),
+            str(global_news_assessment.get("reason") or "Глобальный фон ухудшает текущий сценарий."),
+            diagnostics=global_diagnostics,
+        )
+        add_unique(warning_layers, "global_macro")
+        add_unique(weaknesses, "Глобальный фон ухудшает сценарий.")
+        add_unique(improvements, "Нужно ослабление негативного macro/geopolitical фона или компенсация другими слоями.")
+    else:
+        global_layer = layer(
+            "neutral",
+            50,
+            str(global_news_assessment.get("reason") or "Глобальный фон учтён, но существенно не меняет сценарий."),
+            diagnostics=global_diagnostics,
+        )
+        if adverse_global_tags.intersection(global_tags):
+            add_unique(warning_layers, "global_macro")
+
+    scenario_diagnostics = {
+        "scenario_direction": scenario_direction,
+        "scenario_reason": scenario_reason,
+        "source_signal_action": source_signal_action,
+        "source_target_price": _round(source_target_price),
+    }
+    if scenario == "downside":
+        scenario_layer = layer("negative", 20, "Исходный сценарий downside/risk; consumer long-вход запрещён.", diagnostics=scenario_diagnostics)
+        add_unique(warning_layers, "scenario")
+        add_unique(blocked_by, "downside_signal")
+        add_unique(weaknesses, "Сценарий классифицирован как downside/risk.")
+        add_unique(improvements, "Для long-upgrade исходная цель должна стать выше текущей цены, а сценарий должен перейти из downside в long/neutral.")
+    elif scenario == "long":
+        scenario_layer = layer("positive", 75, "Исходный сценарий допускает long-направление.", diagnostics=scenario_diagnostics)
+        add_unique(passed_layers, "scenario")
+        add_unique(strengths, "Сценарий допускает long.")
+    else:
+        scenario_layer = layer("neutral", 50, "Сценарий нейтральный; без усиления других слоёв это обычно watch.", diagnostics=scenario_diagnostics)
+        add_unique(warning_layers, "scenario")
+        add_unique(weaknesses, "Сценарий нейтральный.")
+        add_unique(improvements, "Нужен переход исходного сценария в long или сильное подтверждение ML/technical/risk.")
+
+    layer_scores = {
+        "technical": technical_layer,
+        "ml": ml_layer,
+        "risk": risk_layer,
+        "ticker_news": ticker_news_layer,
+        "global_macro": global_layer,
+        "scenario": scenario_layer,
+    }
+
+    scored_layers = [item["score"] for item in layer_scores.values() if item.get("score") is not None]
+    average_score = sum(scored_layers) / len(scored_layers) if scored_layers else 0.0
+    probability_component = probability_value if probability_value is not None else average_score
+    overall_score = average_score * 0.55 + probability_component * 0.45
+
+    hard_blockers = {"ml_veto", "weak_rr", "invalid_target", "downside_signal", "risk_limit", "ticker_news_veto"}
+    if hard_blockers.intersection(blocked_by):
+        overall_score = min(overall_score, 62)
+    if action.startswith("avoid"):
+        overall_score = min(overall_score, 58)
+    elif action.startswith("watch"):
+        overall_score = min(overall_score, 72)
+
+    overall_score = int(round(_clamp(overall_score, 0, 100)))
+
+    if overall_score >= 70 and not hard_blockers.intersection(blocked_by):
+        confidence_level = "high"
+    elif overall_score >= 45:
+        confidence_level = "medium"
+    else:
+        confidence_level = "low"
+
+    if action == "buy":
+        final_verdict = "buy"
+        verdict_label = "Покупать"
+    elif action == "consider_buy":
+        final_verdict = "consider_buy"
+        verdict_label = "Рассмотреть покупку"
+    elif scenario == "downside" or action == "avoid_downside_signal":
+        final_verdict = "downside_risk"
+        verdict_label = "Риск снижения"
+    elif action.startswith("avoid"):
+        final_verdict = "avoid"
+        verdict_label = "Не покупать"
+    else:
+        final_verdict = "watch"
+        verdict_label = "Наблюдать"
+
+    if not strengths:
+        add_unique(strengths, "Сильных подтверждающих слоёв недостаточно.")
+    if not weaknesses and warning_layers:
+        add_unique(weaknesses, "Есть предупреждения по слоям: " + ", ".join(warning_layers[:4]) + ".")
+    if not improvements:
+        if final_verdict in {"buy", "consider_buy"}:
+            add_unique(improvements, "Сохранять контроль риска, RR и новостного фона.")
+        else:
+            add_unique(improvements, "Нужен рост итоговой вероятности и подтверждение технического/ML/risk слоёв.")
+
+    macro_phrase = ""
+    if global_layer.get("status") == "positive":
+        macro_phrase = " Глобальный macro-слой поддерживает сценарий."
+    elif global_layer.get("status") == "negative":
+        macro_phrase = " Глобальный macro-слой ухудшает сценарий."
+
+    human_explanation = (
+        f"Итог: {verdict_label}. Вероятность цели {probability_value if probability_value is not None else '—'}%, "
+        f"audit-score {overall_score}/100. "
+        f"Поддержали: {', '.join(passed_layers) if passed_layers else 'нет явных подтверждений'}. "
+        f"Ограничили: {', '.join(blocked_by or warning_layers) if (blocked_by or warning_layers) else 'существенных блокеров нет'}."
+        f"{macro_phrase}"
+    )
+
+    risk_committee_note = (
+        "Risk layer разрешает позицию с ограничением размера."
+        if risk_layer.get("status") == "positive"
+        else "Risk layer не разрешает покупку или требует наблюдения: "
+        + str(risk_layer.get("reason") or "нет детальной причины.")
+    )
+
+    return {
+        "final_verdict": final_verdict,
+        "verdict_label": verdict_label,
+        "overall_score": overall_score,
+        "score_meaning": "Оценка качества итогового решения, не вероятность роста.",
+        "confidence_level": confidence_level,
+        "passed_layers": passed_layers,
+        "warning_layers": warning_layers,
+        "blocked_by": blocked_by,
+        "layer_scores": layer_scores,
+        "top_strengths": strengths[:5],
+        "top_weaknesses": weaknesses[:5],
+        "required_improvements": improvements[:5],
+        "human_explanation": human_explanation,
+        "risk_committee_note": risk_committee_note,
+    }
+
+
 def build_consumer_forecast(
     ticker: str,
     instrument: dict[str, Any],
@@ -2101,6 +2516,30 @@ def build_consumer_forecast(
     if preliminary_risk_reward_ratio is not None and position_sizing.get("risk_reward_ratio") is None:
         position_sizing["risk_reward_ratio"] = _round(preliminary_risk_reward_ratio, 2)
 
+    signal_audit = _build_signal_audit(
+        technical=technical,
+        signal=signal,
+        probability_assessment=probability_assessment,
+        position_sizing=position_sizing,
+        news_assessment=news_assessment,
+        global_news_assessment=global_news_assessment,
+        ml_probability_result=ml_probability_result,
+        decision_gate=decision_gate,
+        scenario_direction=scenario_direction,
+        scenario_reason=scenario_reason,
+        source_signal_action=source_signal_action,
+        source_target_price=source_target_price,
+        rule_probability_pct=rule_probability,
+        ml_probability_pct=ml_probability,
+        ml_weight=ml_weight,
+        ml_adjustment_pct=ml_adjustment_pct,
+        ml_regime_multiplier=regime_multiplier,
+        ml_regime_reason=regime_reason,
+        target_probability_pct=probability,
+        ticker_news_adjustment_pct=ticker_news_adjustment_pct,
+        global_event_adjustment_pct=global_event_adjustment_pct,
+    )
+
     return {
         "ticker": ticker,
         "name": instrument.get("name") or ticker,
@@ -2161,6 +2600,12 @@ def build_consumer_forecast(
         "stop_loss": _round(position_sizing.get("stop_loss")),
         "position_sizing": position_sizing,
         "risk_reward_ratio": position_sizing.get("risk_reward_ratio"),
+        "signal_audit": signal_audit,
+        "audit_overall_score": signal_audit.get("overall_score"),
+        "audit_confidence_level": signal_audit.get("confidence_level"),
+        "audit_blocked_by": signal_audit.get("blocked_by") or [],
+        "audit_top_strengths": signal_audit.get("top_strengths") or [],
+        "audit_top_weaknesses": signal_audit.get("top_weaknesses") or [],
         "explanation": _build_explanation(
             signal,
             technical,
@@ -2527,6 +2972,12 @@ def list_consumer_signals(
             "news_event_scope": forecast.get("news_event_scope"),
             "news_assessment": forecast.get("news_assessment"),
             "news_risk_flags": forecast.get("news_risk_flags"),
+            "signal_audit": forecast.get("signal_audit") or {},
+            "audit_overall_score": forecast.get("audit_overall_score"),
+            "audit_confidence_level": forecast.get("audit_confidence_level"),
+            "audit_blocked_by": forecast.get("audit_blocked_by") or [],
+            "audit_top_strengths": forecast.get("audit_top_strengths") or [],
+            "audit_top_weaknesses": forecast.get("audit_top_weaknesses") or [],
                 "source_signal_action": forecast.get("source_signal_action"),
                 "source_signal_type": forecast.get("source_signal_type"),
                 "source_target_price": forecast.get("source_target_price"),
@@ -2593,6 +3044,27 @@ def list_consumer_signals(
         "top_tags": dict(sorted(top_global_tags.items(), key=lambda item: (-item[1], item[0]))[:12]),
     }
 
+    audit_blockers: dict[str, int] = {}
+    for row in rows:
+        audit = row.get("signal_audit") or {}
+        for blocker in audit.get("blocked_by") or row.get("audit_blocked_by") or []:
+            blocker_text = str(blocker or "").strip()
+            if blocker_text:
+                audit_blockers[blocker_text] = audit_blockers.get(blocker_text, 0) + 1
+
+    audit_counts = {
+        "high_confidence": sum(1 for row in rows if (row.get("audit_confidence_level") or "").lower() == "high"),
+        "medium_confidence": sum(1 for row in rows if (row.get("audit_confidence_level") or "").lower() == "medium"),
+        "low_confidence": sum(1 for row in rows if (row.get("audit_confidence_level") or "").lower() == "low"),
+        "blocked_by": dict(sorted(audit_blockers.items(), key=lambda item: (-item[1], item[0]))),
+        "supported_by_global_macro": sum(
+            1 for row in rows if "global_macro" in ((row.get("signal_audit") or {}).get("passed_layers") or [])
+        ),
+        "supported_by_ticker_news": sum(
+            1 for row in rows if "ticker_news" in ((row.get("signal_audit") or {}).get("passed_layers") or [])
+        ),
+    }
+
     summary = {
         "total": len(rows),
         "scenario_filter": scenario_filter,
@@ -2600,6 +3072,7 @@ def list_consumer_signals(
         "news_filter": news_filter,
         "news_counts": news_counts,
         "global_event_counts": global_event_counts,
+        "audit_counts": audit_counts,
         "positive": sum(1 for row in rows if row.get("action") in positive_actions),
         "watch": sum(1 for row in rows if row.get("action") in watch_actions),
         "risk": sum(1 for row in rows if row.get("action") in risk_actions),
@@ -2728,6 +3201,10 @@ def list_consumer_signals(
                 "global_event_tags": row.get("global_event_tags"),
                 "macro_regime_flags": row.get("macro_regime_flags"),
                 "global_event_reason": row.get("global_event_reason"),
+                "audit_overall_score": row.get("audit_overall_score"),
+                "audit_confidence_level": row.get("audit_confidence_level"),
+                "audit_blocked_by": row.get("audit_blocked_by") or [],
+                "audit_required_improvements": (row.get("signal_audit") or {}).get("required_improvements") or [],
                 "news_relevance_score": row.get("news_relevance_score"),
                 "news_source_reliability_score": row.get("news_source_reliability_score"),
                 "news_event_scope": row.get("news_event_scope"),
