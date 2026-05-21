@@ -102,6 +102,58 @@ def _rate(count: int, total: int) -> float:
     return count / total * 100
 
 
+DEFAULT_MARKET_REGIME_FORMULA_CONFIG: dict[str, Any] = {
+    "risk_on_threshold": 25.0,
+    "risk_off_threshold": -25.0,
+    "strong_risk_off_threshold": -35.0,
+    "downside_pressure_block_threshold": 65.0,
+    "breadth_weight": 0.35,
+    "trend_weight": 0.35,
+    "downside_weight": 0.20,
+    "volatility_weight": 0.10,
+    "risk_on_position_multiplier": 1.10,
+    "neutral_position_multiplier": 0.90,
+    "risk_off_position_multiplier": 0.50,
+    "strong_risk_off_position_multiplier": 0.0,
+}
+
+
+_MARKET_REGIME_FORMULA_RANGES: dict[str, tuple[float, float]] = {
+    "risk_on_threshold": (0.0, 80.0),
+    "risk_off_threshold": (-80.0, 0.0),
+    "strong_risk_off_threshold": (-100.0, 0.0),
+    "downside_pressure_block_threshold": (0.0, 100.0),
+    "breadth_weight": (0.0, 1.0),
+    "trend_weight": (0.0, 1.0),
+    "downside_weight": (0.0, 1.0),
+    "volatility_weight": (0.0, 1.0),
+    "risk_on_position_multiplier": (0.0, 1.5),
+    "neutral_position_multiplier": (0.0, 1.2),
+    "risk_off_position_multiplier": (0.0, 1.0),
+    "strong_risk_off_position_multiplier": (0.0, 1.0),
+}
+
+
+def normalize_market_regime_formula_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    normalized = dict(DEFAULT_MARKET_REGIME_FORMULA_CONFIG)
+    if not isinstance(config, dict):
+        return {key: _round(value, 4) for key, value in normalized.items()}
+
+    for key, value in config.items():
+        if key not in normalized:
+            continue
+        number = _to_float(value)
+        if number is None:
+            continue
+        low, high = _MARKET_REGIME_FORMULA_RANGES[key]
+        normalized[key] = _clamp(number, low, high)
+
+    if normalized["strong_risk_off_threshold"] > normalized["risk_off_threshold"]:
+        normalized["strong_risk_off_threshold"] = normalized["risk_off_threshold"]
+
+    return {key: _round(value, 4) for key, value in normalized.items()}
+
+
 def _build_regime_from_metrics(
     *,
     metrics: list[dict[str, Any]],
@@ -110,8 +162,10 @@ def _build_regime_from_metrics(
     warnings: list[str] | None = None,
     min_tickers: int = 10,
     insufficient_warning: str = "insufficient_market_regime_data",
+    formula_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     warnings = list(warnings or [])
+    config = normalize_market_regime_formula_config(formula_config)
     sample_size = len(metrics)
     if sample_size < min_tickers:
         warnings.append(insufficient_warning)
@@ -130,6 +184,7 @@ def _build_regime_from_metrics(
             "min_ml_probability_addon": 3,
             "sample_size": sample_size,
             "lookback": lookback,
+            "formula_config": config,
             "reasons": ["Недостаточно широкой истории рынка, режим считается neutral."],
             "warnings": warnings,
             "components": {
@@ -165,29 +220,39 @@ def _build_regime_from_metrics(
     downside_pressure = _clamp((pct_ret20_bad * 0.45) + (pct_near_low * 0.25) + (pct_negative_momentum * 0.30), 0.0, 100.0)
     volatility_score = _clamp((avg_vol20 / 4.0 * 60.0) + (high_vol_pct * 0.40), 0.0, 100.0)
     regime_score = _clamp(
-        trend_score * 0.35 + breadth_score * 0.35 - downside_pressure * 0.20 - volatility_score * 0.10,
+        trend_score * float(config["trend_weight"])
+        + breadth_score * float(config["breadth_weight"])
+        - downside_pressure * float(config["downside_weight"])
+        - volatility_score * float(config["volatility_weight"]),
         -100.0,
         100.0,
     )
 
-    if regime_score >= 25:
+    if regime_score >= float(config["risk_on_threshold"]):
         regime = "risk_on"
-    elif regime_score <= -25:
+    elif regime_score <= float(config["risk_off_threshold"]):
         regime = "risk_off"
     else:
         regime = "neutral"
 
-    long_allowed = not (regime_score <= -35 or downside_pressure >= 65)
+    long_allowed = not (
+        regime_score <= float(config["strong_risk_off_threshold"])
+        or downside_pressure >= float(config["downside_pressure_block_threshold"])
+    )
     if regime == "risk_on":
-        position_multiplier = 1.10
+        position_multiplier = float(config["risk_on_position_multiplier"])
         min_rr_multiplier = 1.0
         min_ml_probability_addon = 0
     elif regime == "risk_off":
-        position_multiplier = 0.50 if long_allowed else 0.0
+        position_multiplier = (
+            float(config["risk_off_position_multiplier"])
+            if long_allowed
+            else float(config["strong_risk_off_position_multiplier"])
+        )
         min_rr_multiplier = 1.4 if long_allowed else 1.5
         min_ml_probability_addon = 10 if long_allowed else 15
     else:
-        position_multiplier = 0.90
+        position_multiplier = float(config["neutral_position_multiplier"])
         min_rr_multiplier = 1.1
         min_ml_probability_addon = 4
 
@@ -218,6 +283,7 @@ def _build_regime_from_metrics(
         "min_ml_probability_addon": min_ml_probability_addon,
         "sample_size": sample_size,
         "lookback": lookback,
+        "formula_config": config,
         "components": {
             "pct_above_sma20": _round(pct_above_sma20, 2),
             "pct_positive_ret5": _round(pct_ret5_positive, 2),
@@ -240,6 +306,7 @@ def build_market_regime(
     db: Session,
     lookback: int = 60,
     max_tickers: int = 120,
+    formula_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     instruments = db.scalars(
         select(Instrument)
@@ -285,6 +352,7 @@ def build_market_regime(
         mode="live_market_regime",
         lookback=lookback,
         warnings=warnings,
+        formula_config=formula_config,
     )
 
 
@@ -292,12 +360,14 @@ def build_market_regime_for_date_proxy(
     candles_by_ticker: dict[str, list[dict[str, Any]]],
     index_by_ticker: dict[str, int],
     lookback: int = 60,
+    formula_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return build_market_regime_for_history_index(
         candles_by_ticker=candles_by_ticker,
         index_by_ticker=index_by_ticker,
         lookback=lookback,
         min_tickers=10,
+        formula_config=formula_config,
     )
 
 
@@ -306,6 +376,7 @@ def build_market_regime_for_history_index(
     index_by_ticker: dict[str, int],
     lookback: int = 60,
     min_tickers: int = 20,
+    formula_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metrics: list[dict[str, Any]] = []
     for ticker, candles in candles_by_ticker.items():
@@ -326,4 +397,5 @@ def build_market_regime_for_history_index(
         warnings=[],
         min_tickers=min_tickers,
         insufficient_warning="insufficient_historical_regime_data",
+        formula_config=formula_config,
     )

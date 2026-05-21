@@ -331,6 +331,7 @@ def _build_proxy_samples(
     use_market_regime_filter: bool = False,
     market_regime_lookback: int = 60,
     market_regime_min_tickers: int = 20,
+    market_regime_formula_config: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], set[str]]:
     instruments = db.scalars(
         select(Instrument)
@@ -397,6 +398,7 @@ def _build_proxy_samples(
                 index_by_ticker=indexes,
                 lookback=market_regime_lookback,
                 min_tickers=max(5, min(effective_market_regime_min_tickers, available_tickers or effective_market_regime_min_tickers)),
+                formula_config=market_regime_formula_config,
             )
         return regime_cache[key]
 

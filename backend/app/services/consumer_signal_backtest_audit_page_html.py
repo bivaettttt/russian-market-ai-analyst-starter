@@ -159,6 +159,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
         <a href="/signals/consumer/threshold-sweep-page">Threshold sweep</a>
         <a href="/signals/consumer/walk-forward-page">Walk-forward</a>
         <a href="/signals/consumer/regime-historical-evaluation-page">Regime evaluation</a>
+        <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer.json?limit=50&scenario=all">Consumer JSON</a>
       </nav>
     </div>

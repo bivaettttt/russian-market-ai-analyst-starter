@@ -30,7 +30,7 @@ Acceptance criteria:
 
 ## 2. Regime-Aware Historical Evaluation
 
-Статус: реализовано в первом proxy-варианте; следующий шаг - интерпретация результатов и калибровка thresholds.
+Статус: реализовано в первом proxy-варианте; quick evaluation показал, что текущий risk-off filter полезен как диагностика, но пока не даёт сильного снижения stop-hit.
 
 Цель: проверить, улучшает ли market regime filter историческое качество сигналов.
 
@@ -49,7 +49,30 @@ Acceptance criteria:
 
 Почему важно: текущий walk-forward показывает слабую устойчивость порогов, и market regime должен быть проверен как risk-control слой, а не принят на веру.
 
-## 3. Target / Stop / RR Calibration
+## 3. Regime Formula Calibration
+
+Статус: текущий этап.
+
+Цель: откалибровать формулу `risk_on / neutral / risk_off` отдельно от production logic.
+
+Что сделать:
+
+- перебрать thresholds `risk_off`, `strong_risk_off`, `downside_pressure`;
+- проверить разные веса downside и volatility;
+- сравнить baseline vs filtered outcomes;
+- оценить missed target hits и coverage loss;
+- оставить best configs как research output без автоматического применения.
+
+Acceptance criteria:
+
+- endpoint calibration возвращает ranked configs;
+- score учитывает снижение stop-hit, рост return, missed targets и coverage;
+- UI показывает best configs и limitations;
+- документация явно говорит, что config не применяется в production автоматически.
+
+Почему важно: если regime filter не снижает stop-hit на текущих порогах, нужно калибровать саму формулу, а не усиливать production gate вручную.
+
+## 4. Target / Stop / RR Calibration
 
 Цель: откалибровать target, stop и RR thresholds по истории.
 
@@ -68,7 +91,7 @@ Acceptance criteria:
 
 Почему важно: высокий stop-hit rate часто связан не только с probability threshold, но и с плохо подобранным target/stop контуром.
 
-## 4. ML v2 / Model Quality Upgrade
+## 5. ML v2 / Model Quality Upgrade
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -87,7 +110,7 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 5. Production News Pipeline
+## 6. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -106,7 +129,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 6. Signal History / Paper Trading
+## 7. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -125,7 +148,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 7. Portfolio Risk Office
+## 8. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -144,7 +167,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 8. Production Layer
+## 9. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

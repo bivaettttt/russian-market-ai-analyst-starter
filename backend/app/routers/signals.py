@@ -87,6 +87,8 @@ from app.services.consumer_signal_backtest_audit_page_html import build_consumer
 from app.services.consumer_threshold_sweep_page_html import build_consumer_threshold_sweep_page_html
 from app.services.consumer_walk_forward_page_html import build_consumer_walk_forward_page_html
 from app.services.market_regime import build_market_regime
+from app.services.regime_formula_calibration import build_regime_formula_calibration
+from app.services.regime_formula_calibration_page_html import build_regime_formula_calibration_page_html
 from app.services.regime_historical_evaluation_page_html import build_regime_historical_evaluation_page_html
 from app.services.signals_page_html import build_signals_page_html
 
@@ -287,6 +289,38 @@ def consumer_regime_historical_evaluation_api(
 @router.get("/signals/consumer/regime-historical-evaluation-page", response_class=AIReportHTMLResponse)
 def consumer_regime_historical_evaluation_page():
     return build_regime_historical_evaluation_page_html()
+
+
+@router.get("/signals/consumer/regime-formula-calibration")
+def consumer_regime_formula_calibration_api(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(2000, ge=100, le=30000),
+    lookback: int = Query(60, ge=20, le=250),
+    horizon: int = Query(20, ge=5, le=90),
+    target_pct: float = Query(0.05, ge=0.005, le=0.25),
+    stop_pct: float = Query(0.03, ge=0.005, le=0.20),
+    min_history: int = Query(80, ge=30, le=250),
+    max_configs: int = Query(80, ge=10, le=300),
+    min_signals_after_filter: int = Query(30, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    return build_regime_formula_calibration(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        lookback=lookback,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        min_history=min_history,
+        max_configs=max_configs,
+        min_signals_after_filter=min_signals_after_filter,
+    )
+
+
+@router.get("/signals/consumer/regime-formula-calibration-page", response_class=AIReportHTMLResponse)
+def consumer_regime_formula_calibration_page():
+    return build_regime_formula_calibration_page_html()
 
 
 @router.get("/signals/consumer/{ticker}.json")
