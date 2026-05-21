@@ -738,6 +738,7 @@ def _instrument_impact_groups(
     metals = {"GMKN", "RUAL", "CHMF", "NLMK", "MAGN", "MTLR", "MTLRP"}
     fertilizers = {"PHOR", "AKRN"}
     retailers = {"MGNT", "FIVE", "LENT", "OZON", "WUSH"}
+    importers = airlines | retailers | developers | {"OZON", "FIVE", "MGNT"}
     exporters = oil_gas | metals | fertilizers | {"ALRS"}
 
     if ticker_text in banks or "банк" in name or "bank" in name or "финанс" in sector:
@@ -776,6 +777,9 @@ def _instrument_impact_groups(
     if ticker_text in exporters:
         groups.add("exporters")
 
+    if ticker_text in importers:
+        groups.add("importers")
+
     return groups
 
 
@@ -787,16 +791,22 @@ def _global_event_tags(event: dict[str, Any]) -> set[str]:
     if event_type in {"rates", "bonds"} or "ключев" in blob or "ставк" in blob or "офз" in blob:
         if any(word in blob for word in ["сниз", "пониз", "смягч", "ниже"]):
             tags.add("rates_down")
+            tags.add("bonds_positive")
+            tags.add("rate_sensitive_positive")
         elif any(word in blob for word in ["повыс", "ужесточ", "выше"]):
             tags.add("rates_up")
+            tags.add("bonds_negative")
+            tags.add("rate_sensitive_negative")
         else:
             tags.add("rates_mixed")
 
     if event_type in {"sanctions", "regulation"} or "санкц" in blob:
-        if any(word in blob for word in ["сняти", "снял", "смягч", "отмен", "послаб"]):
+        if any(word in blob for word in ["сняти", "снял", "смягч", "отмен", "послаб", "исключил"]):
             tags.add("sanctions_easing")
+            tags.add("russia_risk_premium_down")
         else:
             tags.add("sanctions_tightening")
+            tags.add("russia_risk_premium_up")
 
     if (
         "иран" in blob
@@ -806,9 +816,13 @@ def _global_event_tags(event: dict[str, Any]) -> set[str]:
         or "ближн" in blob
         or "военн" in blob
         or "удар" in blob
+        or "ракета" in blob
+        or "эскалац" in blob
+        or "конфликт" in blob
         or "геополит" in blob
     ):
         tags.add("geopolitical_risk")
+        tags.add("risk_off")
 
         if "нефт" in blob or "brent" in blob or "баррел" in blob or "ормуз" in blob:
             tags.add("oil_shock")
@@ -816,8 +830,12 @@ def _global_event_tags(event: dict[str, Any]) -> set[str]:
     if event_type in {"fx"} or "рубл" in blob or "курс" in blob or "usd" in blob or "доллар" in blob:
         if any(word in blob for word in ["ослаб", "слаб", "дешев", "девальв"]):
             tags.add("ruble_weak")
+            tags.add("exporters_positive")
+            tags.add("importers_negative")
         elif any(word in blob for word in ["укреп", "сильн", "дороже"]):
             tags.add("ruble_strong")
+            tags.add("exporters_negative")
+            tags.add("importers_positive")
         else:
             tags.add("fx_mixed")
 
@@ -853,31 +871,31 @@ def _impact_from_global_tags(
 
     if "rates_down" in tags:
         if "ofz" in groups or "bonds" in groups:
-            add(1.2, "снижение ставки поддерживает ОФЗ/облигации", "bonds")
+            add(1.45, "снижение ставки заметно поддерживает ОФЗ/облигации", "bonds")
         if "developers" in groups or "rate_sensitive" in groups:
-            add(0.8, "снижение ставки поддерживает чувствительные к кредиту сектора", "rate_sensitive")
+            add(0.95, "снижение ставки поддерживает чувствительные к кредиту сектора", "rate_sensitive")
         if "banks" in groups:
-            add(0.35, "снижение ставки умеренно поддерживает кредитный спрос банков", "banks")
+            add(0.45, "снижение ставки умеренно поддерживает кредитный спрос банков", "banks")
         if "equity" in groups:
-            add(0.25, "снижение ставки снижает дисконтирование акций", "equity")
+            add(0.30, "снижение ставки снижает дисконтирование акций", "equity")
 
     if "rates_up" in tags:
         if "ofz" in groups or "bonds" in groups:
-            add(-1.1, "рост ставки давит на облигации", "bonds")
+            add(-1.35, "рост ставки давит на облигации", "bonds")
         if "developers" in groups or "rate_sensitive" in groups:
-            add(-0.8, "рост ставки ухудшает условия для кредитозависимых секторов", "rate_sensitive")
+            add(-0.95, "рост ставки ухудшает условия для кредитозависимых секторов", "rate_sensitive")
         if "equity" in groups:
-            add(-0.25, "рост ставки повышает дисконтирование акций", "equity")
+            add(-0.30, "рост ставки повышает дисконтирование акций", "equity")
 
     if "oil_shock" in tags or "oil_market" in tags:
         if "oil_gas" in groups:
-            add(1.1, "геополитический/сырьевой риск поддерживает нефтегаз", "oil_gas")
+            add(1.15, "геополитический/сырьевой риск поддерживает нефтегаз", "oil_gas")
         if "airlines" in groups:
-            add(-1.0, "рост нефтяных рисков ухудшает картину для авиаперевозчиков", "airlines")
+            add(-1.05, "рост нефтяных рисков ухудшает картину для авиаперевозчиков", "airlines")
         if "gold" in groups:
-            add(0.35, "геополитический risk-off поддерживает защитные активы", "gold")
-        if "equity" in groups:
-            add(-0.15, "геополитический риск давит на широкий рынок", "market")
+            add(0.55, "геополитический risk-off поддерживает золото и защитные активы", "gold")
+        if "equity" in groups or "market" in groups:
+            add(-0.25, "геополитический risk-off давит на широкий рынок", "market")
 
     if "geopolitical_risk" in tags and "oil_shock" not in tags:
         if "gold" in groups:
@@ -894,6 +912,8 @@ def _impact_from_global_tags(
             add(0.9, "смягчение санкций поддерживает биржевую инфраструктуру", "exchanges")
         if "equity" in groups:
             add(0.55, "смягчение санкций поддерживает широкий рынок РФ", "market")
+        if "exporters" in groups:
+            add(0.25, "смягчение санкций снижает операционную премию риска экспортёров", "exporters")
 
     if "sanctions_tightening" in tags:
         if "banks" in groups:
@@ -918,6 +938,8 @@ def _impact_from_global_tags(
             add(-0.45, "сильный рубль ухудшает рублёвую выручку экспортёров", "exporters")
         if "importers" in groups or "airlines" in groups:
             add(0.45, "сильный рубль поддерживает импортозависимые компании", "importers")
+        if "retail" in groups or "consumer" in groups:
+            add(0.20, "сильный рубль смягчает инфляционное давление для потребительского сектора", "consumer")
 
     return score, reasons[:6], sorted(set(affected_groups))
 
@@ -2554,12 +2576,30 @@ def list_consumer_signals(
         "info_only": sum(1 for row in rows if row.get("news_effect") == "info_only"),
     }
 
+    top_global_tags: dict[str, int] = {}
+    for row in rows:
+        for tag in row.get("global_event_tags") or []:
+            tag_text = str(tag or "").strip()
+            if tag_text:
+                top_global_tags[tag_text] = top_global_tags.get(tag_text, 0) + 1
+
+    global_event_counts = {
+        "with_global_events": sum(
+            1 for row in rows if (row.get("global_news_assessment") or {}).get("has_global_events")
+        ),
+        "positive_adjustment": sum(1 for row in rows if (_to_float(row.get("global_event_adjustment_pct")) or 0) > 0),
+        "negative_adjustment": sum(1 for row in rows if (_to_float(row.get("global_event_adjustment_pct")) or 0) < 0),
+        "neutral_adjustment": sum(1 for row in rows if (_to_float(row.get("global_event_adjustment_pct")) or 0) == 0),
+        "top_tags": dict(sorted(top_global_tags.items(), key=lambda item: (-item[1], item[0]))[:12]),
+    }
+
     summary = {
         "total": len(rows),
         "scenario_filter": scenario_filter,
         "scenario_counts": scenario_counts,
         "news_filter": news_filter,
         "news_counts": news_counts,
+        "global_event_counts": global_event_counts,
         "positive": sum(1 for row in rows if row.get("action") in positive_actions),
         "watch": sum(1 for row in rows if row.get("action") in watch_actions),
         "risk": sum(1 for row in rows if row.get("action") in risk_actions),
@@ -2687,6 +2727,7 @@ def list_consumer_signals(
                 "global_event_adjustment_pct": row.get("global_event_adjustment_pct"),
                 "global_event_tags": row.get("global_event_tags"),
                 "macro_regime_flags": row.get("macro_regime_flags"),
+                "global_event_reason": row.get("global_event_reason"),
                 "news_relevance_score": row.get("news_relevance_score"),
                 "news_source_reliability_score": row.get("news_source_reliability_score"),
                 "news_event_scope": row.get("news_event_scope"),
@@ -2769,4 +2810,3 @@ def build_consumer_signal_for_ticker(
 
 
 _ALIAS_AWARE_CONSUMER_SIGNAL_WRAPPER = True
-

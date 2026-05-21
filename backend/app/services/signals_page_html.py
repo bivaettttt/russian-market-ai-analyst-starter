@@ -394,6 +394,17 @@ def build_signals_page_html() -> str:
       margin: 12px 0 4px;
     }
 
+    .details .event-list {
+      margin-top: 8px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .details .event-item {
+      border-left: 3px solid #cbd5e1;
+      padding-left: 10px;
+    }
+
     .empty {
       background: var(--card);
       border: 1px dashed var(--border);
@@ -587,6 +598,12 @@ def build_signals_page_html() -> str:
         position_sizing: source.position_sizing || {},
         risk_reward_ratio: toNumber(source.risk_reward_ratio),
         news_adjustment_pct: toNumber(source.news_adjustment_pct),
+        ticker_news_adjustment_pct: toNumber(source.ticker_news_adjustment_pct),
+        global_event_adjustment_pct: toNumber(source.global_event_adjustment_pct),
+        global_event_tags: Array.isArray(source.global_event_tags) ? source.global_event_tags : [],
+        global_event_reason: source.global_event_reason || null,
+        macro_regime_flags: Array.isArray(source.macro_regime_flags) ? source.macro_regime_flags : [],
+        global_news_assessment: source.global_news_assessment || {},
         news_assessment: source.news_assessment || {},
         news_risk_flags: source.news_risk_flags || [],
         decision: source.decision || "",
@@ -741,7 +758,7 @@ def build_signals_page_html() -> str:
 
     function newsBadgeText(item) {
       const news = item.news_assessment || {};
-      const adjustment = item.news_adjustment_pct;
+      const adjustment = item.ticker_news_adjustment_pct;
 
       if (!news.has_events) {
         return "Новости: нет событий";
@@ -754,6 +771,22 @@ def build_signals_page_html() -> str:
         : adjustment.toFixed(1);
 
       return `Новости: ${sentiment} ${adj > 0 ? "+" : ""}${adj} п.п. · score ${score}`;
+    }
+
+    function macroBadgeClass(item) {
+      const adjustment = item.global_event_adjustment_pct;
+      if (adjustment > 0) return "positive";
+      if (adjustment < 0) return "negative";
+      return "";
+    }
+
+    function macroBadgeText(item) {
+      const adjustment = item.global_event_adjustment_pct;
+      if (adjustment === null || Number.isNaN(adjustment)) return "Макро: —";
+
+      const adjText = `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)} п.п.`;
+      const tags = Array.isArray(item.global_event_tags) ? item.global_event_tags.filter(Boolean).slice(0, 3) : [];
+      return `Макро: ${adjText}${tags.length ? ` · ${tags.join(", ")}` : ""}`;
     }
 
 
@@ -821,6 +854,45 @@ def build_signals_page_html() -> str:
       return `<ul>${values.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
     }
 
+    function globalBackgroundHtml(assessment, fallbackForecast) {
+      const global = assessment || {};
+      if (!global.has_global_events) return "";
+
+      const adjustment = toNumber(global.adjustment_pct ?? fallbackForecast.global_event_adjustment_pct);
+      const tags = Array.isArray(global.tags) ? global.tags : [];
+      const events = Array.isArray(global.events) ? global.events.slice(0, 3) : [];
+      const reason = global.reason || fallbackForecast.global_event_reason || "Глобальный фон учтён в вероятности.";
+
+      const eventHtml = events.length
+        ? `<div class="event-list">${events.map(event => {
+            const eventTags = Array.isArray(event.tags) ? event.tags.slice(0, 4).join(", ") : "—";
+            const reasons = Array.isArray(event.reasons) ? event.reasons.slice(0, 3).join("; ") : "";
+            const score = toNumber(event.score);
+            return `
+              <div class="event-item">
+                <strong>${escapeHtml(event.title || "Глобальное событие")}</strong>
+                <div class="small muted">
+                  type: ${escapeHtml(event.event_type || "—")} ·
+                  tags: ${escapeHtml(eventTags)} ·
+                  score: ${score === null ? "—" : escapeHtml(score)}
+                </div>
+                ${reasons ? `<div class="small">${escapeHtml(reasons)}</div>` : ""}
+              </div>
+            `;
+          }).join("")}</div>`
+        : "<p class='muted'>Список событий не передан.</p>";
+
+      return `
+        <h4>Глобальный фон</h4>
+        <p>${escapeHtml(reason)}</p>
+        <p class="small muted">
+          Макро-корректировка: ${adjustment === null ? "—" : `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)} п.п.`} ·
+          tags: ${escapeHtml(tags.length ? tags.join(", ") : "—")}
+        </p>
+        ${eventHtml}
+      `;
+    }
+
     async function toggleDetails(ticker) {
       const id = `details-${ticker}`;
       const box = document.getElementById(id);
@@ -844,6 +916,7 @@ def build_signals_page_html() -> str:
         const signal = data.signal || {};
         const explanation = forecast.explanation || signal.explanation || {};
         const decisionReason = forecast.decision_reason || signal.decision_reason || "";
+        const globalAssessment = forecast.global_news_assessment || signal.global_news_assessment || {};
 
         box.innerHTML = `
           <h4>Почему такой сигнал?</h4>
@@ -854,6 +927,8 @@ def build_signals_page_html() -> str:
 
           <h4>Новости и события</h4>
           ${listHtml(explanation.news)}
+
+          ${globalBackgroundHtml(globalAssessment, forecast)}
 
           <h4>Риски</h4>
           ${listHtml(explanation.risks)}
@@ -943,6 +1018,9 @@ def build_signals_page_html() -> str:
               <span class="diag-pill">ML: ${fmtPercent(item.ml_probability_pct)}</span>
               <span class="diag-pill ${newsBadgeClass(item.news_assessment || {})}">
                 ${escapeHtml(newsBadgeText(item))}
+              </span>
+              <span class="diag-pill ${macroBadgeClass(item)}">
+                ${escapeHtml(macroBadgeText(item))}
               </span>
               <span class="diag-pill">RR: ${item.risk_reward_ratio === null ? "—" : escapeHtml(item.risk_reward_ratio)}</span>
               <span class="diag-pill">Позиция: ${escapeHtml((item.position_sizing || {}).max_position_pct ?? 0)}%</span>
