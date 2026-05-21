@@ -1406,7 +1406,7 @@ def build_ticker_page_html(ticker: str) -> str:
         return fallback;
       }
 
-      if (/^#[0-9a-f]{3,8}$/i.test(raw) || /^rgba?\(/i.test(raw)) {
+      if (/^#[0-9a-f]{3,8}$/i.test(raw) || /^rgba?\\(/i.test(raw)) {
         return raw;
       }
 
@@ -1428,7 +1428,7 @@ def build_ticker_page_html(ticker: str) -> str:
 
     function chartColorWithAlpha(value, alpha, fallback = "#2563eb") {
       const color = normalizeChartColor(value, fallback);
-      const match = color.match(/^rgba?\(([^)]+)\)$/i);
+      const match = color.match(/^rgba?\\(([^)]+)\\)$/i);
 
       if (!match) {
         return color;

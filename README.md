@@ -1,247 +1,173 @@
-# Russian Market AI Analyst — Starter
+# Russian Market AI Analyst
 
-Локальный MVP финансового AI-аналитика для российского фондового рынка.
+Research Alpha+ / Validation Engine для сигналов по инструментам МосБиржи.
 
-Цель первой версии: загрузить котировки с MOEX ISS, хранить их локально, принимать текст новости/события и возвращать первичную AI-классификацию влияния на российские активы.
+Проект вырос из starter/MVP в локальный исследовательский движок, который строит объяснимые consumer-сигналы, проверяет их на истории и показывает диагностику качества принятия решения. Это аналитический инструмент, не индивидуальная инвестиционная рекомендация.
 
-## Что уже есть в стартере
+## Что Умеет
 
-- FastAPI backend.
-- Клиент MOEX ISS для дневных свечей по акциям TQBR.
-- Локальная база через SQLAlchemy: SQLite по умолчанию, PostgreSQL опционально.
-- Каркас клиента Ollama.
-- Rule-based fallback, если Ollama не запущена.
-- API для загрузки свечей и анализа текстового события.
-- Docker Compose для PostgreSQL, Qdrant, Redis и Ollama.
+- Consumer signals API и UI: `/signals`.
+- Сценарии сигналов: `long`, `downside`, `all`.
+- Technical layer: тренд, momentum, волатильность, target/stop proxy.
+- ML probability layer: вероятность достижения цели и ML-корректировка.
+- Risk layer: risk/reward, stop distance, target distance, veto-фильтры.
+- Position sizing: ограничение размера позиции по качеству сигнала и риску.
+- Ticker news layer: локальные события по тикеру.
+- Global macro/geopolitical layer: ставки, санкции, FX, нефть, risk-off, geopolitical shocks.
+- Market regime filter: `risk_on`, `neutral`, `risk_off` по ширине рынка, downside pressure и волатильности.
+- Signal audit: layer-by-layer explanation от technical/ML/risk/news/macro/regime до final verdict.
+- Backtest audit: proxy historical evaluation consumer-модели.
+- Threshold sweep: перебор порогов probability/ML/RR/target/stop/horizon.
+- Walk-forward validation: train/test проверка устойчивости threshold config.
+- Portfolio constructor, snapshots, compare, CSV exports.
+- AI reports, report history and trends.
 
-## Быстрый старт без Docker
+## Запуск
 
 ```bash
+cd /Users/bivaettttt/Desktop/russian-market-ai-analyst-starter
+source backend/.venv/bin/activate
 cd backend
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
+```
+
+Если виртуальное окружение ещё не создано:
+
+```bash
+cd /Users/bivaettttt/Desktop/russian-market-ai-analyst-starter/backend
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 python ../scripts/init_db.py
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 
-Откройте:
+## Главные Страницы
+
+- `/signals` — consumer signals UI.
+- `/signals/consumer/backtest-audit-page` — historical backtest audit.
+- `/signals/consumer/threshold-sweep-page` — threshold sweep / grid search.
+- `/signals/consumer/walk-forward-page` — walk-forward validation.
+- `/signals/market-regime` — live market regime JSON.
+- `/ticker/SBER` — карточка тикера.
+- `/portfolio/construct/demo` — portfolio constructor.
+- `/ai/report/demo` — AI report demo.
+
+## Быстрые Проверки
+
+Из корня проекта:
+
+```bash
+python3 -m pytest -q
+python3 -m compileall -q backend/app
+BASE_URL=http://127.0.0.1:8010 ./scripts/smoke_test.sh
+```
+
+`pytest.ini` добавляет `backend` в `pythonpath`, поэтому `PYTHONPATH=backend` больше не нужен.
+
+## Важные Endpoints
+
+Consumer signals:
 
 ```text
-http://127.0.0.1:8000/docs
+GET /signals/consumer.json
+GET /signals/consumer/{ticker}.json
+GET /signals/market-regime
 ```
 
-## Быстрый старт с Docker-инфраструктурой
+Validation:
 
-```bash
-docker compose up -d postgres qdrant redis ollama
+```text
+GET /signals/consumer/backtest-audit
+GET /signals/consumer/threshold-sweep
+GET /signals/consumer/walk-forward
 ```
 
-Затем backend можно запускать локально или добавить отдельный контейнер позднее.
+News/events:
 
-## Пример загрузки свечей
-
-```bash
-curl -X POST "http://127.0.0.1:8000/ingest/moex/SBER?from_date=2024-01-01&to_date=2024-12-31"
+```text
+POST /analyze/news
+GET  /events
 ```
 
-Получить свечи:
+Universe and ticker pages:
 
-```bash
-curl "http://127.0.0.1:8000/candles/SBER?limit=10"
+```text
+GET  /tickers/search
+GET  /tickers/universe
+POST /system/update-universe
+POST /system/update-candles/all
+GET  /ticker/{ticker}
+GET  /tickers/{ticker}
 ```
 
-## Пример анализа новости
-
-```bash
-curl -X POST "http://127.0.0.1:8000/analyze/news" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"Совет директоров рекомендовал дивиденды выше ожиданий рынка. Компания сообщает о росте свободного денежного потока.","source":"manual"}'
-```
-
-## Источники данных для первого MVP
-
-- MOEX ISS: котировки, свечи, справочник инструментов.
-- ЦБ РФ: курсы валют, ключевая ставка, инфляция, RUONIA.
-- e-disclosure: раскрытие эмитентов.
-- Федресурс: юридически значимые сведения.
-- Росстат и Минфин: макроэкономика, ОФЗ, бюджетные данные.
-
-## Следующий этап
-
-1. Добавить загрузчик списка бумаг TQBR.
-2. Добавить дивидендный календарь.
-3. Добавить парсер e-disclosure.
-4. Добавить Qdrant для поиска по новостям и раскрытиям.
-5. Добавить Neo4j для графа связей: эмитент → сектор → драйверы → активы.
-6. Сделать daily briefing по рынку РФ.
-
-## Дисклеймер
-
-Это исследовательский и аналитический инструмент. Он не является индивидуальной инвестиционной рекомендацией.
-
-
-## Portfolio Constructor & Snapshots
-
-В проект добавлен модуль конструктора портфеля на основе текущих технических сигналов.
-
-### Основные возможности
-
-- сбор модельного портфеля по бюджету, риск-профилю, горизонту и режиму качества;
-- учёт lot_size инструментов MOEX;
-- расчёт целевого потенциала, стоп-риска и risk/reward;
-- экспорт портфеля в CSV;
-- сохранение portfolio snapshots;
-- история snapshot-ов;
-- детальная HTML-страница snapshot-а;
-- сравнение двух snapshot-ов;
-- CSV-экспорт сравнения;
-- удаление snapshot-ов;
-- статистика по сохранённым snapshot-ам;
-- карточка последнего и лучшего portfolio snapshot на dashboard.
-
-### Portfolio endpoints
+Portfolio:
 
 ```text
 GET    /portfolio/construct/demo
 POST   /portfolio/construct
 POST   /portfolio/construct.csv
-
 POST   /portfolio/construct/snapshot
 GET    /portfolio/construct/snapshots
-GET    /portfolio/construct/snapshots.csv
-GET    /portfolio/construct/snapshots/latest
-GET    /portfolio/construct/snapshots/stats
-GET    /portfolio/construct/snapshots/{snapshot_id}
-GET    /portfolio/construct/snapshots/{snapshot_id}/view
-DELETE /portfolio/construct/snapshots/{snapshot_id}
-
-GET    /portfolio/construct/history
 GET    /portfolio/construct/compare
 GET    /portfolio/construct/compare.json
 GET    /portfolio/construct/compare.csv
 ```
 
-### Пример сборки портфеля
+## Примеры Curl
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/portfolio/construct" \
+curl "http://127.0.0.1:8010/signals/consumer.json?limit=20&scenario=long"
+curl "http://127.0.0.1:8010/signals/consumer/SBER.json"
+curl "http://127.0.0.1:8010/signals/market-regime"
+```
+
+```bash
+curl "http://127.0.0.1:8010/signals/consumer/backtest-audit?max_tickers=10&max_samples=200"
+curl "http://127.0.0.1:8010/signals/consumer/threshold-sweep?max_tickers=10&max_samples=200&max_configs=40"
+curl "http://127.0.0.1:8010/signals/consumer/walk-forward?max_tickers=10&max_samples=300&max_configs=40&folds=2"
+```
+
+```bash
+curl -X POST "http://127.0.0.1:8010/analyze/news" \
   -H "Content-Type: application/json" \
-  -d '{"budget":100000,"risk_profile":"balanced","horizon":"medium","quality_mode":"normal"}'
+  -d '{
+    "title": "ЦБ снизил ключевую ставку",
+    "text": "Снижение ключевой ставки поддерживает ОФЗ, банки и rate-sensitive сектора.",
+    "source": "manual_test"
+  }'
 ```
 
-### Пример сохранения snapshot-а
+## Текущий Статус
 
-```bash
-curl -X POST "http://127.0.0.1:8000/portfolio/construct/snapshot" \
-  -H "Content-Type: application/json" \
-  -d '{"budget":100000,"risk_profile":"balanced","horizon":"medium","quality_mode":"normal"}'
-```
+Статус проекта: Research Alpha+ / Validation Engine.
 
-### Пример сравнения snapshot-ов
+Последняя walk-forward диагностика показала, что текущие threshold-конфигурации требуют калибровки: test score слабый, stop-hit rate высокий, устойчивость ограничена. Поэтому текущий фокус — validation, market regime filtering, calibration и paper-trading контур, а не обещание готовой production-модели.
 
-```bash
-curl "http://127.0.0.1:8000/portfolio/construct/compare.json?left_id=1&right_id=2"
-```
+## Ограничения
 
+- Backtest audit является proxy historical audit, а не полным replay live endpoint.
+- Нет учёта комиссий, налогов, спредов и проскальзывания.
+- Дневные свечи не дают порядок `high/low` внутри дня; same-day target/stop считается консервативно.
+- Historical news/global context приближённый и не всегда replayed.
+- Возможен survivorship bias из-за текущего instrument universe.
+- Пороговые параметры не применяются в production автоматически после sweep/walk-forward.
+- Проект не должен использоваться как автоматический trading bot без независимой валидации, мониторинга и юридической проверки.
 
-## Smoke test
+## Документация
 
-После запуска backend можно проверить основные страницы и API одной командой:
+- `docs/signal_audit_layer.md`
+- `docs/consumer_signal_backtest_audit.md`
+- `docs/consumer_threshold_sweep_audit.md`
+- `docs/consumer_walk_forward_validation.md`
+- `docs/market_regime_filter.md`
+- `docs/ROADMAP.md`
+- `docs/STABILIZATION_NOTES.md`
 
-```bash
-./scripts/smoke_test.sh
-```
+## Архив
 
-По умолчанию скрипт проверяет `http://127.0.0.1:8000` и удаляет test snapshot-ы, которые сам создал.
-
-Для другого адреса:
-
-```bash
-BASE_URL="http://127.0.0.1:8001" ./scripts/smoke_test.sh
-```
-
-Если нужно оставить test snapshot-ы для ручной проверки:
-
-```bash
-CLEANUP_SMOKE_SNAPSHOTS=0 ./scripts/smoke_test.sh
-```
-
-## Clean archive
-
-Чтобы собрать архив проекта без `.venv`, SQLite-базы, `__pycache__`, `.DS_Store` и других runtime-файлов:
+Собрать чистый архив без `.venv`, SQLite-базы, `__pycache__`, `.DS_Store` и runtime-файлов:
 
 ```bash
 ./scripts/make_clean_archive.sh
 ```
-
-Можно указать имя файла:
-
-```bash
-./scripts/make_clean_archive.sh russian-market-ai-analyst-starter-clean.zip
-```
-
-
-## Project structure
-
-Основная FastAPI-точка входа находится в `backend/app/main.py`.
-
-Крупные группы routes вынесены в отдельные routers:
-
-```text
-backend/app/routers/
-  ai_reports.py   # AI Report, история отчётов, trends, compare, saved views
-  signals.py      # Signals dashboard, history, evaluation, backtest, model compare, champion
-  portfolio.py    # Portfolio constructor, snapshots, history, compare, CSV, stats
-```
-
-Бизнес-логика и HTML-страницы находятся в `backend/app/services/`.
-
-Такой формат оставляет `main.py` компактным и упрощает дальнейшее развитие проекта.
-
-## Consumer signal mode
-
-Основной пользовательский экран `/signals` теперь работает без выбора модели. Пользователь видит готовые сигналы с главным показателем: вероятностью достижения цели в указанном горизонте.
-
-Новые consumer endpoints:
-
-```text
-GET /signals/consumer.json
-GET /signals/consumer/{ticker}.json
-```
-
-Что показывает consumer-слой:
-
-- готовую рекомендацию: `Покупать`, `Можно рассмотреть`, `Наблюдать`, `Высокий риск`;
-- вероятность достижения цели, %;
-- целевую/прогнозную цену;
-- диапазон прогноза;
-- потенциал в рублях и процентах;
-- кнопку `Почему?` с объяснением по технической картине, новостям/событиям и рискам.
-
-Внутренние лабораторные модели остаются в проекте для разработки и сравнения, но не усложняют основной пользовательский сценарий.
-
-
-## Market universe, search and calibrated forecast
-
-Проект поддерживает потребительский сценарий для всего доступного universe MOEX, а не только для списка bluechips.
-
-### Universe endpoints
-
-```text
-GET  /tickers/search?q=SBER
-GET  /tickers/universe
-POST /system/update-universe
-POST /system/update-candles/all
-```
-
-### CLI обновление universe
-
-```bash
-cd backend
-python3 -m app.tasks.update_universe --boards TQBR,TQTF,TQIF,TQPI
-python3 -m app.tasks.update_all_candles --days 420 --max-tickers 100
-```
-
-`/signals` и `/tickers/{ticker}` используют единый consumer forecast. Вероятность теперь корректируется исторической проверкой сценария `target раньше stop`, ликвидностью, глубиной истории и доступными событиями. Пользователь видит итоговую вероятность и надёжность прогноза, а внутренние модели остаются developer/admin-инструментами.
-
