@@ -130,6 +130,7 @@ def build_consumer_walk_forward_page_html() -> str:
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
+        <a href="/signals/consumer/candidate-filter-calibration-page">Filter calibration</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
       </nav>
     </div>

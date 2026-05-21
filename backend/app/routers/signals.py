@@ -78,6 +78,8 @@ def market_signals_ml_report_page():
 from app.services.signals_data import list_market_signals
 from app.services.adaptive_trade_calibration import build_adaptive_trade_calibration
 from app.services.adaptive_trade_calibration_page_html import build_adaptive_trade_calibration_page_html
+from app.services.candidate_filter_calibration import build_candidate_filter_calibration
+from app.services.candidate_filter_calibration_page_html import build_candidate_filter_calibration_page_html
 from app.services.consumer_signals import build_consumer_signal_for_ticker, list_consumer_signals
 from app.services.consumer_signal_backtest_audit import (
     build_consumer_signal_backtest_audit,
@@ -253,6 +255,42 @@ def consumer_expectancy_breakdown_api(
 @router.get("/signals/consumer/expectancy-breakdown-page", response_class=AIReportHTMLResponse)
 def consumer_expectancy_breakdown_page():
     return build_expectancy_breakdown_page_html()
+
+
+@router.get("/signals/consumer/candidate-filter-calibration")
+def consumer_candidate_filter_calibration_api(
+    max_tickers: int = Query(100, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    horizon: int = Query(30, ge=5, le=90),
+    target_pct: float = Query(0.05, ge=0.005, le=0.25),
+    stop_pct: float = Query(0.03, ge=0.005, le=0.20),
+    min_history: int = Query(80, ge=30, le=250),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_bucket_samples: int = Query(20, ge=1, le=1000),
+    max_filters: int = Query(80, ge=5, le=300),
+    use_best_adaptive_policy: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    return build_candidate_filter_calibration(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        min_history=min_history,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_bucket_samples=min_bucket_samples,
+        max_filters=max_filters,
+        use_best_adaptive_policy=use_best_adaptive_policy,
+    )
+
+
+@router.get("/signals/consumer/candidate-filter-calibration-page", response_class=AIReportHTMLResponse)
+def consumer_candidate_filter_calibration_page():
+    return build_candidate_filter_calibration_page_html()
 
 
 @router.get("/signals/consumer/threshold-sweep")
