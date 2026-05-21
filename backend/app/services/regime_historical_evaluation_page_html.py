@@ -51,6 +51,7 @@ def build_regime_historical_evaluation_page_html() -> str:
         <a href="/signals/consumer/threshold-sweep-page">Threshold sweep</a>
         <a href="/signals/consumer/walk-forward-page">Walk-forward</a>
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
+        <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
       </nav>
     </div>
   </header>

@@ -116,6 +116,8 @@ check_get "signals consumer regime historical evaluation" "/signals/consumer/reg
 check_get "signals consumer regime historical evaluation page" "/signals/consumer/regime-historical-evaluation-page"
 check_get "signals consumer regime formula calibration" "/signals/consumer/regime-formula-calibration?max_tickers=5&max_samples=120&max_configs=20"
 check_get "signals consumer regime formula calibration page" "/signals/consumer/regime-formula-calibration-page"
+check_get "signals consumer adaptive trade calibration" "/signals/consumer/adaptive-trade-calibration?max_tickers=5&max_samples=120&max_policies=20"
+check_get "signals consumer adaptive trade calibration page" "/signals/consumer/adaptive-trade-calibration-page"
 check_get "signals consumer backtest audit regime filter" "/signals/consumer/backtest-audit?max_tickers=5&max_samples=120&use_market_regime_filter=true"
 check_get "signals consumer threshold sweep regime filter" "/signals/consumer/threshold-sweep?max_tickers=5&max_samples=120&max_configs=20&use_market_regime_filter=true"
 check_get "signals consumer walk forward regime filter" "/signals/consumer/walk-forward?max_tickers=5&max_samples=200&max_configs=20&folds=2&use_market_regime_filter=true"

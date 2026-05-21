@@ -51,7 +51,7 @@ Acceptance criteria:
 
 ## 3. Regime Formula Calibration
 
-Статус: текущий этап.
+Статус: реализовано как research endpoint. Quick result: best quality пока weak, recommendation `recalibrate_needed`; production thresholds не менялись.
 
 Цель: откалибровать формулу `risk_on / neutral / risk_off` отдельно от production logic.
 
@@ -72,26 +72,48 @@ Acceptance criteria:
 
 Почему важно: если regime filter не снижает stop-hit на текущих порогах, нужно калибровать саму формулу, а не усиливать production gate вручную.
 
-## 4. Target / Stop / RR Calibration
+## 4. Adaptive Target / Stop / RR Calibration
 
-Цель: откалибровать target, stop и RR thresholds по истории.
+Статус: текущий этап.
+
+Цель: откалибровать конструкцию сделки: target, stop, horizon и min RR по истории.
 
 Что сделать:
 
-- расширить grid по `target_pct`, `stop_pct`, `min_rr`;
-- добавить buckets по волатильности и секторам;
-- оценить trade-off hit rate, stop-hit, coverage и avg return;
-- найти conservative defaults для consumer UI.
+- сравнить fixed `5% / 3% / 20` с ATR-based и volatility-scaled policies;
+- добавить liquidity/volatility/sector-aware placeholders;
+- оценить trade-off target-hit, stop-hit, coverage, MFE/MAE и avg return;
+- найти кандидаты для последующей walk-forward/paper validation.
 
 Acceptance criteria:
 
-- threshold sweep показывает стабильные зоны параметров, а не один случайный best config;
-- walk-forward подтверждает хотя бы умеренную устойчивость;
-- документация фиксирует выбранные параметры и ограничения.
+- adaptive calibration возвращает ranked policies;
+- baseline fixed policy явно присутствует в summary;
+- best policy не применяется автоматически в production;
+- документация фиксирует ограничения proxy evaluation.
 
 Почему важно: высокий stop-hit rate часто связан не только с probability threshold, но и с плохо подобранным target/stop контуром.
 
-## 5. ML v2 / Model Quality Upgrade
+## 5. Target / Stop / RR Calibration Follow-Up
+
+Цель: проверить лучшие adaptive policies на устойчивость.
+
+Что сделать:
+
+- walk-forward по policy candidates;
+- sector/liquidity/volatility buckets;
+- compare against real signal snapshots when available;
+- conservative defaults only after validation.
+
+Acceptance criteria:
+
+- выбран не один best config, а стабильная зона параметров;
+- результат не ухудшает coverage без улучшения risk metrics;
+- есть paper-trading план применения.
+
+Почему важно: хороший single-sample policy может быть случайной подгонкой.
+
+## 6. ML v2 / Model Quality Upgrade
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -110,7 +132,7 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 6. Production News Pipeline
+## 7. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -129,7 +151,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 7. Signal History / Paper Trading
+## 8. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -148,7 +170,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 8. Portfolio Risk Office
+## 9. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -167,7 +189,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 9. Production Layer
+## 10. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

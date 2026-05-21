@@ -76,6 +76,8 @@ def market_signals_ml_report_page():
 # --- Market signals dashboard ---
 
 from app.services.signals_data import list_market_signals
+from app.services.adaptive_trade_calibration import build_adaptive_trade_calibration
+from app.services.adaptive_trade_calibration_page_html import build_adaptive_trade_calibration_page_html
 from app.services.consumer_signals import build_consumer_signal_for_ticker, list_consumer_signals
 from app.services.consumer_signal_backtest_audit import (
     build_consumer_signal_backtest_audit,
@@ -321,6 +323,30 @@ def consumer_regime_formula_calibration_api(
 @router.get("/signals/consumer/regime-formula-calibration-page", response_class=AIReportHTMLResponse)
 def consumer_regime_formula_calibration_page():
     return build_regime_formula_calibration_page_html()
+
+
+@router.get("/signals/consumer/adaptive-trade-calibration")
+def consumer_adaptive_trade_calibration_api(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(2000, ge=100, le=30000),
+    max_policies: int = Query(80, ge=5, le=300),
+    min_samples_per_policy: int = Query(30, ge=1, le=1000),
+    min_history: int = Query(80, ge=30, le=250),
+    db: Session = Depends(get_db),
+):
+    return build_adaptive_trade_calibration(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        max_policies=max_policies,
+        min_samples_per_policy=min_samples_per_policy,
+        min_history=min_history,
+    )
+
+
+@router.get("/signals/consumer/adaptive-trade-calibration-page", response_class=AIReportHTMLResponse)
+def consumer_adaptive_trade_calibration_page():
+    return build_adaptive_trade_calibration_page_html()
 
 
 @router.get("/signals/consumer/{ticker}.json")
