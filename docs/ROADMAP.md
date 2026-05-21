@@ -118,7 +118,7 @@ Acceptance criteria:
 
 ## 6. Expectancy Breakdown Diagnostics
 
-Статус: текущий этап.
+Статус: реализовано как research endpoint/page. На текущей локальной базе quick run показал `samples=0`, поэтому следующий шаг — диагностика покрытия данных.
 
 Цель: найти, по каким сегментам модель уже имеет положительную expectancy, а по каким стабильно теряет.
 
@@ -138,7 +138,29 @@ Acceptance criteria:
 
 Почему важно: общая отрицательная expectancy может быть смесью хороших и плохих сегментов. Перед изменением thresholds нужно понять, что именно портит общий результат.
 
-## 7. Target / Stop / RR Calibration Follow-Up
+## 7. Data Coverage Diagnostics
+
+Статус: текущий этап.
+
+Цель: понять, почему historical validation endpoints могут возвращать `0 samples`.
+
+Что сделать:
+
+- посчитать instruments, eligible universe, asset_type mapping и candle coverage;
+- показать usable tickers и possible historical samples для текущих `min_history/horizon`;
+- выделить skip reasons: no_candles, too_few_candles, insufficient_horizon, invalid_ohlc, not_signal_eligible, unsupported_asset_type;
+- дать рекомендации по догрузке свечей или диагностическому снижению параметров.
+
+Acceptance criteria:
+
+- `/signals/data-coverage` возвращает summary, skip_reasons, examples и recommendations;
+- `/signals/data-coverage-page` открывается и работает при пустой базе;
+- empty-sample endpoints явно отправляют к Data coverage diagnostics;
+- production decision logic не меняется.
+
+Почему важно: калибровка expectancy, thresholds и target/stop бессмысленна, пока не понятно, есть ли достаточное историческое покрытие свечей.
+
+## 8. Target / Stop / RR Calibration Follow-Up
 
 Цель: проверить лучшие adaptive policies на устойчивость.
 
@@ -157,7 +179,7 @@ Acceptance criteria:
 
 Почему важно: хороший single-sample policy может быть случайной подгонкой.
 
-## 8. ML v2 / Model Quality Upgrade
+## 9. ML v2 / Model Quality Upgrade
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -176,7 +198,7 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 9. Production News Pipeline
+## 10. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -195,7 +217,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 10. Signal History / Paper Trading
+## 11. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -214,7 +236,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 11. Portfolio Risk Office
+## 12. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -233,7 +255,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 12. Production Layer
+## 13. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

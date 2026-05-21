@@ -141,7 +141,8 @@ def build_regime_historical_evaluation_page_html() -> str:
           examplesBlock(data.examples),
           `<section class="card"><h2>Limitations</h2><ul>${(data.limitations || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`
         ].join("");
-        status.textContent = "Готово.";
+        status.innerHTML = "Готово."
+          + (Number(summary.samples || 0) === 0 ? ' <a href="/signals/data-coverage-page">Проверить Data coverage</a>' : "");
       } catch (error) {
         status.textContent = `Ошибка: ${error.message}`;
       }

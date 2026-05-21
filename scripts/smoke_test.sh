@@ -106,6 +106,8 @@ check_get "signals consumer long" "/signals/consumer.json?limit=20&scenario=long
 check_get "signals consumer downside" "/signals/consumer.json?limit=20&scenario=downside"
 check_get "signals consumer all with events" "/signals/consumer.json?limit=20&scenario=all&news=with_events"
 check_get "signals market regime" "/signals/market-regime"
+check_get "signals data coverage" "/signals/data-coverage?max_tickers=100&min_history=80&horizon=20"
+check_get "signals data coverage page" "/signals/data-coverage-page"
 check_get "signals consumer backtest audit" "/signals/consumer/backtest-audit?max_tickers=5&max_samples=100"
 check_get "signals consumer backtest audit page" "/signals/consumer/backtest-audit-page"
 check_get "signals consumer threshold sweep" "/signals/consumer/threshold-sweep?max_tickers=5&max_samples=120&max_configs=20"

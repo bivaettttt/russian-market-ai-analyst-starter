@@ -48,6 +48,7 @@ def build_adaptive_trade_calibration_page_html() -> str:
       <a href="/signals/consumer/regime-historical-evaluation-page">Regime evaluation</a>
       <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
       <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
+      <a href="/signals/data-coverage-page">Data coverage</a>
     </nav>
   </header>
   <main>
@@ -138,7 +139,8 @@ def build_adaptive_trade_calibration_page_html() -> str:
         const warnings = (summary.warnings || []).map((item) => `<div class="warn">${item}</div>`).join("");
         const limitations = (data.limitations || []).map((item) => `<div>• ${item}</div>`).join("");
         el("notes").innerHTML = warnings + limitations;
-        el("status").textContent = `Готово: ${summary.policies_tested || 0} policies.`;
+        el("status").innerHTML = `Готово: ${summary.policies_tested || 0} policies.`
+          + (Number(summary.samples || 0) === 0 ? ' <a href="/signals/data-coverage-page">Проверить Data coverage</a>' : "");
       } catch (err) {
         el("status").className = "panel error";
         el("status").textContent = `Ошибка: ${err.message || err}`;

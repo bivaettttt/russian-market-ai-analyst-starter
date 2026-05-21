@@ -58,6 +58,7 @@ def build_expectancy_breakdown_page_html() -> str:
         <a href="/signals/consumer/regime-historical-evaluation-page">Regime evaluation</a>
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
+        <a href="/signals/data-coverage-page">Data coverage</a>
       </nav>
     </div>
   </header>
@@ -142,7 +143,8 @@ def build_expectancy_breakdown_page_html() -> str:
         document.getElementById("filters").innerHTML = recommendationTable(data.candidate_filters || []);
         document.getElementById("boosts").innerHTML = recommendationTable(data.candidate_boosts || []);
         document.getElementById("dimensions").innerHTML = Object.entries(data.dimensions || {}).map(([name, rows]) => dimensionTable(name, rows)).join("");
-        status.textContent = `Готово: ${s.samples || 0} samples, ${s.tickers_used || 0} tickers.`;
+        status.innerHTML = `Готово: ${s.samples || 0} samples, ${s.tickers_used || 0} tickers.`
+          + (Number(s.samples || 0) === 0 ? ' <a href="/signals/data-coverage-page">Проверить Data coverage</a>' : "");
       } catch (error) {
         status.textContent = `Ошибка: ${error.message}`;
       }

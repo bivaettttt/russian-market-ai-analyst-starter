@@ -703,6 +703,8 @@ def build_adaptive_trade_calibration(
     policies, warnings = _generate_trade_policies(max_policies=max_policies)
     if len(base_samples) < min_samples_per_policy:
         warnings.append("Base sample count is below min_samples_per_policy; calibration is unstable.")
+    if not base_samples:
+        warnings.append("No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage.")
 
     results = [
         _evaluate_policy(
@@ -766,6 +768,11 @@ def build_adaptive_trade_calibration(
             "Daily candles do not provide intraday high/low order; if target and stop are both touched in one candle, stop_hit is assumed.",
             "Current instrument universe can introduce survivorship bias.",
             "Best policy can be overfit to this sample and must be validated with walk-forward or paper trading before production use.",
+            *(
+                ["No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage."]
+                if not base_samples
+                else []
+            ),
         ],
         "parameters": {
             "max_tickers": max_tickers,

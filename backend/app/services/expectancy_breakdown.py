@@ -451,6 +451,8 @@ def build_expectancy_breakdown(
     ]
     if total_samples < min_bucket_samples:
         limitations.append("Total sample count is below min_bucket_samples; all bucket diagnostics are unstable.")
+    if total_samples == 0:
+        limitations.append("No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage.")
     limitations.extend(outcome_warnings)
 
     top_positive_examples = sorted(samples, key=lambda item: _to_float(item.get("trade_return_pct")) or -999, reverse=True)[:10]

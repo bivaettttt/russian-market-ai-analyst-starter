@@ -88,6 +88,8 @@ from app.services.consumer_signal_backtest_audit import (
 from app.services.consumer_signal_backtest_audit_page_html import build_consumer_signal_backtest_audit_page_html
 from app.services.consumer_threshold_sweep_page_html import build_consumer_threshold_sweep_page_html
 from app.services.consumer_walk_forward_page_html import build_consumer_walk_forward_page_html
+from app.services.data_coverage_diagnostics import build_data_coverage_diagnostics
+from app.services.data_coverage_page_html import build_data_coverage_page_html
 from app.services.expectancy_breakdown import build_expectancy_breakdown
 from app.services.expectancy_breakdown_page_html import build_expectancy_breakdown_page_html
 from app.services.market_regime import build_market_regime
@@ -157,6 +159,30 @@ def market_regime_api(
         lookback=lookback,
         max_tickers=max_tickers,
     )
+
+
+@router.get("/signals/data-coverage")
+def signals_data_coverage_api(
+    max_tickers: int = Query(500, ge=1, le=5000),
+    min_history: int = Query(80, ge=10, le=500),
+    horizon: int = Query(20, ge=1, le=250),
+    candles_limit: int = Query(1000, ge=50, le=5000),
+    include_examples: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    return build_data_coverage_diagnostics(
+        db=db,
+        max_tickers=max_tickers,
+        min_history=min_history,
+        horizon=horizon,
+        candles_limit=candles_limit,
+        include_examples=include_examples,
+    )
+
+
+@router.get("/signals/data-coverage-page", response_class=AIReportHTMLResponse)
+def signals_data_coverage_page():
+    return build_data_coverage_page_html()
 
 
 @router.get("/signals/consumer/backtest-audit")

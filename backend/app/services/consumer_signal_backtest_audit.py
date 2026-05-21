@@ -990,6 +990,17 @@ def _backtest_response_from_samples(
         if item.get("action") in false_positive_actions and (item.get("outcome") == "stop_hit" or (_to_float(item.get("forward_return_pct")) or 0) < 0)
     ]
     false_positives = sorted(false_positives, key=lambda item: _to_float(item.get("forward_return_pct")) or 999)[:10]
+    limitations = [
+        "Historical audit approximates consumer decision logic using candle-only features.",
+        "ML probability is not replayed historically; ml layer is marked not_available.",
+        "Ticker news and global macro/geopolitical events are not replayed historically in this proxy audit.",
+        "Market regime filter is a proxy historical breadth layer when enabled.",
+        "Daily candles do not provide intraday event order; if target and stop are both touched in one candle, stop_hit is assumed.",
+        "No commissions, taxes, spreads or slippage are included.",
+        "Current instrument universe can introduce survivorship bias.",
+    ]
+    if not samples:
+        limitations.append("No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage.")
 
     return {
         "ok": True,
@@ -1027,15 +1038,7 @@ def _backtest_response_from_samples(
         "top_negative_examples": [_example(item) for item in top_negative],
         "near_miss_examples": [_example(item) for item in near_miss],
         "worst_false_positives": [_example(item) for item in false_positives],
-        "limitations": [
-            "Historical audit approximates consumer decision logic using candle-only features.",
-            "ML probability is not replayed historically; ml layer is marked not_available.",
-            "Ticker news and global macro/geopolitical events are not replayed historically in this proxy audit.",
-            "Market regime filter is a proxy historical breadth layer when enabled.",
-            "Daily candles do not provide intraday event order; if target and stop are both touched in one candle, stop_hit is assumed.",
-            "No commissions, taxes, spreads or slippage are included.",
-            "Current instrument universe can introduce survivorship bias.",
-        ],
+        "limitations": limitations,
         "note": "Historical audit approximates consumer decision logic using candle-only features; live news/global events are evaluated separately.",
         "parameters": {
             "max_tickers": max_tickers,
@@ -1520,6 +1523,8 @@ def build_consumer_threshold_sweep_audit(
 
     if max_base_samples < min_signals:
         warnings.append("Base sample count is below min_signals; sweep conclusions are unstable.")
+    if max_base_samples == 0:
+        warnings.append("No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage.")
     if not results:
         warnings.append("No configs were evaluated.")
 
@@ -1570,6 +1575,11 @@ def build_consumer_threshold_sweep_audit(
             "Commission and slippage are simplified bps penalties when provided; taxes and realistic order book fills are not included.",
             "Daily candles do not provide intraday order; same-day target and stop is treated conservatively as stop_hit.",
             "Current instrument universe can introduce survivorship bias.",
+            *(
+                ["No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage."]
+                if max_base_samples == 0
+                else []
+            ),
         ],
     }
 
@@ -1662,6 +1672,8 @@ def build_regime_historical_evaluation(
     warnings: list[str] = []
     if len(samples) < 100:
         warnings.append("sample_count_low")
+    if not samples:
+        warnings.append("No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage.")
     if any("insufficient_historical_regime_data" in ((sample.get("market_regime") or {}).get("warnings") or []) for sample in samples):
         warnings.append("some_samples_have_insufficient_historical_regime_data")
 
@@ -1715,6 +1727,11 @@ def build_regime_historical_evaluation(
             "Daily candles do not provide intraday high/low order; same-day target and stop is treated conservatively as stop_hit.",
             "Historical regime uses the current instrument universe and can include survivorship bias.",
             "The result does not automatically change production thresholds or live decision logic.",
+            *(
+                ["No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage."]
+                if not samples
+                else []
+            ),
         ],
     }
 
@@ -1931,6 +1948,10 @@ def build_consumer_walk_forward_validation(
     if config_frequency:
         most_common_config_id = sorted(config_frequency.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
+    total_cached_samples = sum(len(samples) for samples, _tickers in sample_cache.values())
+    if total_cached_samples == 0:
+        warnings.append("No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage.")
+
     recommended_config = None
     if most_common_config_id:
         for fold in fold_results:
@@ -1981,5 +2002,10 @@ def build_consumer_walk_forward_validation(
             "Daily candles do not provide intraday order; same-day target and stop is treated conservatively as stop_hit.",
             "Historical ticker news and global macro/geopolitical events are approximate/not replayed in this proxy layer.",
             "Current instrument universe can introduce survivorship bias.",
+            *(
+                ["No historical samples were built. Check /signals/data-coverage to diagnose instrument and candle coverage."]
+                if total_cached_samples == 0
+                else []
+            ),
         ],
     }

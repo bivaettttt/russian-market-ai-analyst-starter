@@ -162,6 +162,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
+        <a href="/signals/data-coverage-page">Data coverage</a>
         <a href="/signals/consumer.json?limit=50&scenario=all">Consumer JSON</a>
       </nav>
     </div>
@@ -306,7 +307,8 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
           `<section class="card full"><h2>Limitations</h2><p>${escapeHtml(data.note || "")}</p><ul>${(data.limitations || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`,
         ].join("");
 
-        status.textContent = `Готово: mode=${data.mode || "—"}, samples=${summary.samples || 0}.`;
+        status.innerHTML = `Готово: mode=${data.mode || "—"}, samples=${summary.samples || 0}.`
+          + (Number(summary.samples || 0) === 0 ? ' <a href="/signals/data-coverage-page">Проверить Data coverage</a>' : "");
       } catch (error) {
         status.textContent = `Ошибка загрузки отчёта: ${error.message}`;
       }

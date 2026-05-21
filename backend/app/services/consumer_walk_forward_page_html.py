@@ -130,6 +130,7 @@ def build_consumer_walk_forward_page_html() -> str:
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
+        <a href="/signals/data-coverage-page">Data coverage</a>
       </nav>
     </div>
   </header>
@@ -286,7 +287,8 @@ def build_consumer_walk_forward_page_html() -> str:
           `<section class="card"><h2>Warnings</h2><ul>${(summary.warnings || []).map(item => `<li>${escapeHtml(item)}</li>`).join("") || "<li>—</li>"}</ul></section>`,
           `<section class="card"><h2>Limitations</h2><ul>${(data.limitations || []).map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`,
         ].join("");
-        status.textContent = `Готово: mode=${data.mode || "—"}, folds=${summary.folds_completed || 0}.`;
+        status.innerHTML = `Готово: mode=${data.mode || "—"}, folds=${summary.folds_completed || 0}.`
+          + (Number(summary.folds_completed || 0) === 0 ? ' <a href="/signals/data-coverage-page">Проверить Data coverage</a>' : "");
       } catch (error) {
         status.textContent = `Ошибка walk-forward validation: ${error.message}`;
       }
