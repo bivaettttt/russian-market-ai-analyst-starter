@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import product
 from math import sqrt
 from statistics import mean
 from typing import Any
@@ -304,6 +305,247 @@ def _example(sample: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_proxy_samples(
+    *,
+    db: Session,
+    max_tickers: int,
+    max_samples: int,
+    horizon: int,
+    target_pct: float,
+    stop_pct: float,
+    min_history: int,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    instruments = db.scalars(
+        select(Instrument)
+        .where(Instrument.is_signal_eligible.is_(True))
+        .where(Instrument.asset_type.in_(["stock", "share", "equity", "unknown"]))
+        .order_by(Instrument.ticker.asc())
+        .limit(max_tickers)
+    ).all()
+
+    if not instruments:
+        instruments = db.scalars(
+            select(Instrument)
+            .where(Instrument.asset_type.in_(["stock", "share", "equity", "unknown"]))
+            .order_by(Instrument.ticker.asc())
+            .limit(max_tickers)
+        ).all()
+
+    samples: list[dict[str, Any]] = []
+    tickers_used: set[str] = set()
+    per_ticker_cap = max(1, max_samples // max(1, len(instruments)))
+
+    for instrument in instruments:
+        if len(samples) >= max_samples:
+            break
+
+        candles = [
+            _candle_to_dict(row)
+            for row in db.scalars(
+                select(Candle)
+                .where(Candle.ticker == instrument.ticker)
+                .order_by(Candle.trade_date.asc())
+            ).all()
+            if row.close is not None
+        ]
+        if len(candles) < min_history + horizon + 1:
+            continue
+
+        max_index = len(candles) - horizon - 1
+        candidate_indexes = list(range(min_history - 1, max_index + 1))
+        if not candidate_indexes:
+            continue
+
+        step = max(1, len(candidate_indexes) // per_ticker_cap)
+        selected_indexes = candidate_indexes[::step][:per_ticker_cap]
+
+        for index in selected_indexes:
+            if len(samples) >= max_samples:
+                break
+
+            history = candles[: index + 1]
+            current = candles[index]
+            future = candles[index + 1 : index + 1 + horizon]
+            price = _to_float(current.get("close"))
+            if price is None or price <= 0:
+                continue
+
+            technical = _build_proxy_technical(history)
+            signal, target_price = _build_proxy_signal(
+                price=price,
+                technical=technical,
+                target_pct=target_pct,
+                stop_pct=stop_pct,
+            )
+            rule_probability = _calculate_target_probability(
+                signal=signal,
+                technical=technical,
+                price=price,
+                target_price=target_price,
+                events=[],
+            )
+            probability = _round(rule_probability, 0)
+            reliability_level = "Высокая" if (probability or 0) >= 62 else "Средняя" if (probability or 0) >= 45 else "Низкая"
+            reliability_score = _round(max(0, min(100, (probability or 0) + 10)), 0)
+
+            target_distance_pct = _pct_change(target_price, price)
+            stop_distance_pct = stop_pct * 100
+            risk_reward_ratio = (
+                target_distance_pct / stop_distance_pct
+                if target_distance_pct is not None and target_distance_pct > 0 and stop_distance_pct > 0
+                else None
+            )
+            scenario_direction = "downside" if signal.get("action") == "risk_sell_watch" else "long" if target_distance_pct and target_distance_pct > 0 else "neutral"
+            scenario_reason = (
+                "Proxy candle-only model detected downside trend."
+                if scenario_direction == "downside"
+                else "Proxy candle-only model uses an upside target."
+            )
+
+            decision_gate = _consumer_signal_decision_gate(
+                probability=probability,
+                reliability_level=reliability_level,
+                risk_level=signal.get("risk_level"),
+                ml_adjustment_pct=None,
+                ml_probability_pct=None,
+                risk_reward_ratio=risk_reward_ratio,
+                target_distance_pct=target_distance_pct,
+                scenario_direction=scenario_direction,
+            )
+            position_sizing = _build_position_sizing(
+                action=decision_gate.get("action"),
+                price=price,
+                target_price=target_price,
+                stop_loss=signal.get("stop_loss"),
+                probability=probability,
+                risk_level=signal.get("risk_level"),
+                reliability_level=reliability_level,
+                reliability_score=reliability_score,
+                ml_probability=None,
+                ml_regime_multiplier=None,
+                volatility_pct=_to_float(technical.get("volatility_20d_pct")),
+            )
+            if target_distance_pct is not None and position_sizing.get("target_distance_pct") is None:
+                position_sizing["target_distance_pct"] = _round(target_distance_pct, 2)
+            if position_sizing.get("stop_distance_pct") is None:
+                position_sizing["stop_distance_pct"] = _round(stop_distance_pct, 2)
+            if risk_reward_ratio is not None and position_sizing.get("risk_reward_ratio") is None:
+                position_sizing["risk_reward_ratio"] = _round(risk_reward_ratio, 2)
+
+            probability_assessment = {
+                "probability_pct": probability,
+                "base_probability_pct": probability,
+                "reliability_level": reliability_level,
+                "reliability_score": reliability_score,
+                "internal": {
+                    "proxy_historical": True,
+                    "news_adjustment_pct": 0.0,
+                    "ticker_news_adjustment_pct": 0.0,
+                    "global_event_adjustment_pct": 0.0,
+                },
+            }
+            news_assessment = {
+                "has_events": False,
+                "news_effect": "none",
+                "adjustment_pct": 0.0,
+                "ticker_news_adjustment_pct": 0.0,
+                "risk_flags": [],
+                "summary": "Proxy historical audit does not replay ticker news.",
+            }
+            global_news_assessment = {
+                "has_global_events": False,
+                "adjustment_pct": 0.0,
+                "tags": [],
+                "macro_regime_flags": [],
+                "reason": "Proxy historical audit does not replay global macro/geopolitical events.",
+                "events": [],
+            }
+            audit = _build_signal_audit(
+                technical=technical,
+                signal=signal,
+                probability_assessment=probability_assessment,
+                position_sizing=position_sizing,
+                news_assessment=news_assessment,
+                global_news_assessment=global_news_assessment,
+                ml_probability_result=None,
+                decision_gate=decision_gate,
+                scenario_direction=scenario_direction,
+                scenario_reason=scenario_reason,
+                source_signal_action=signal.get("action"),
+                source_target_price=_to_float(signal.get("target_price")),
+                rule_probability_pct=rule_probability,
+                ml_probability_pct=None,
+                ml_weight=0.0,
+                ml_adjustment_pct=None,
+                ml_regime_multiplier=None,
+                ml_regime_reason=None,
+                target_probability_pct=probability,
+                ticker_news_adjustment_pct=0.0,
+                global_event_adjustment_pct=0.0,
+            )
+            outcome = _evaluate_outcome(
+                current=current,
+                future=future,
+                horizon=horizon,
+                target_pct=target_pct,
+                stop_pct=stop_pct,
+            )
+            sample = {
+                "ticker": instrument.ticker,
+                "date": current.get("trade_date"),
+                "action": decision_gate.get("action") or signal.get("action"),
+                "recommendation": decision_gate.get("recommendation"),
+                "probability_pct": probability,
+                "proxy_ml_probability_pct": probability,
+                "risk_reward_ratio": _round(risk_reward_ratio, 2),
+                "target_distance_pct": _round(target_distance_pct, 2),
+                "audit_score": audit.get("overall_score"),
+                "audit_confidence_level": audit.get("confidence_level"),
+                "blocked_by": audit.get("blocked_by") or ["none"],
+                "passed_layers": audit.get("passed_layers") or [],
+                "warning_layers": audit.get("warning_layers") or [],
+                "outcome": outcome.get("outcome"),
+                "success": outcome.get("success"),
+                "days_to_outcome": outcome.get("days_to_outcome"),
+                "forward_return_pct": outcome.get("forward_return_pct"),
+                "mfe_pct": outcome.get("max_favorable_excursion_pct"),
+                "mae_pct": outcome.get("max_adverse_excursion_pct"),
+            }
+            samples.append(sample)
+            tickers_used.add(instrument.ticker)
+
+    return samples, tickers_used
+
+
+def _calibration_score(metrics: dict[str, Any], *, min_signals: int) -> float:
+    signals = int(metrics.get("samples") or 0)
+    target_hit_rate = _to_float(metrics.get("target_hit_rate_pct")) or 0.0
+    stop_hit_rate = _to_float(metrics.get("stop_hit_rate_pct")) or 0.0
+    timeout_rate = _to_float(metrics.get("timeout_rate_pct")) or 0.0
+    avg_return = max(_to_float(metrics.get("avg_forward_return_pct")) or 0.0, -10.0)
+
+    score = 0.0
+    score += target_hit_rate * 1.5
+    score += avg_return * 4.0
+    score -= stop_hit_rate * 0.8
+    score -= timeout_rate * 0.2
+    score += 5 if signals >= min_signals else -20
+    if signals >= 50:
+        score += 5
+
+    return _round(max(-100.0, min(100.0, score)), 2) or 0.0
+
+
+def _quality_label(score: float, signals: int, min_signals: int) -> str:
+    if signals < min_signals:
+        return "unstable"
+    if score >= 30:
+        return "good"
+    if score >= 10:
+        return "medium"
+    return "weak"
+
+
 def build_consumer_signal_backtest_audit(
     db: Session,
     max_tickers: int = 80,
@@ -595,4 +837,168 @@ def build_consumer_signal_backtest_audit(
             "stop_pct": stop_pct,
             "min_history": min_history,
         },
+    }
+
+
+def build_consumer_threshold_sweep_audit(
+    db: Session,
+    max_tickers: int = 60,
+    max_samples: int = 1500,
+    horizons: list[int] | None = None,
+    target_pcts: list[float] | None = None,
+    stop_pcts: list[float] | None = None,
+    min_probabilities: list[float] | None = None,
+    min_ml_probabilities: list[float] | None = None,
+    min_rr_values: list[float] | None = None,
+    min_signals: int = 20,
+    max_configs: int = 120,
+) -> dict[str, Any]:
+    horizons = horizons or [15, 20, 30]
+    target_pcts = target_pcts or [0.03, 0.04, 0.05, 0.06]
+    stop_pcts = stop_pcts or [0.02, 0.03, 0.04]
+    min_probabilities = min_probabilities or [45, 50, 55, 60]
+    min_ml_probabilities = min_ml_probabilities or [0, 20, 25, 30, 35]
+    min_rr_values = min_rr_values or [0.8, 1.0, 1.2, 1.5]
+
+    warnings: list[str] = []
+    raw_configs = list(product(horizons, target_pcts, stop_pcts, min_probabilities, min_ml_probabilities, min_rr_values))
+    total_configs = len(raw_configs)
+    if total_configs > max_configs:
+        warnings.append(f"Grid truncated from {total_configs} to {max_configs} configs for runtime protection.")
+        raw_configs = raw_configs[:max_configs]
+
+    sample_cache: dict[tuple[int, float, float], tuple[list[dict[str, Any]], set[str]]] = {}
+    results: list[dict[str, Any]] = []
+    max_base_samples = 0
+
+    for horizon, target_pct, stop_pct, min_probability, min_ml_probability, min_rr in raw_configs:
+        sample_key = (int(horizon), float(target_pct), float(stop_pct))
+        if sample_key not in sample_cache:
+            sample_cache[sample_key] = _build_proxy_samples(
+                db=db,
+                max_tickers=max_tickers,
+                max_samples=max_samples,
+                horizon=int(horizon),
+                target_pct=float(target_pct),
+                stop_pct=float(stop_pct),
+                min_history=80,
+            )
+
+        base_samples, _tickers_used = sample_cache[sample_key]
+        max_base_samples = max(max_base_samples, len(base_samples))
+        selected = []
+        for sample in base_samples:
+            probability = _to_float(sample.get("probability_pct"))
+            proxy_ml = _to_float(sample.get("proxy_ml_probability_pct"))
+            rr = _to_float(sample.get("risk_reward_ratio"))
+            target_distance = _to_float(sample.get("target_distance_pct"))
+
+            if probability is None or probability < float(min_probability):
+                continue
+            if proxy_ml is None or proxy_ml < float(min_ml_probability):
+                continue
+            if rr is None or rr < float(min_rr):
+                continue
+            if target_distance is None or target_distance <= 0:
+                continue
+
+            selected.append(sample)
+
+        bucket = _empty_bucket()
+        for sample in selected:
+            _add_to_bucket(bucket, sample)
+        metrics = _finalize_bucket(bucket)
+        signals = int(metrics.get("samples") or 0)
+        coverage_pct = _rate(signals, len(base_samples)) or 0.0
+        score = _calibration_score(metrics, min_signals=min_signals)
+        config_warnings = []
+        if signals < min_signals:
+            config_warnings.append("signals below min_signals; unstable estimate")
+        if float(min_ml_probability) > 0:
+            config_warnings.append("min_ml_probability uses proxy probability because historical ML replay is unavailable")
+
+        config_id = (
+            f"h{int(horizon)}"
+            f"_t{int(round(float(target_pct) * 100))}"
+            f"_s{int(round(float(stop_pct) * 100))}"
+            f"_p{int(float(min_probability))}"
+            f"_ml{int(float(min_ml_probability))}"
+            f"_rr{str(float(min_rr)).replace('.', '_')}"
+        )
+        results.append(
+            {
+                "rank": None,
+                "config_id": config_id,
+                "horizon": int(horizon),
+                "target_pct": _round(float(target_pct) * 100, 2),
+                "stop_pct": _round(float(stop_pct) * 100, 2),
+                "min_probability": _round(float(min_probability), 2),
+                "min_ml_probability": _round(float(min_ml_probability), 2),
+                "min_rr": _round(float(min_rr), 2),
+                "signals": signals,
+                "coverage_pct": _round(coverage_pct, 2),
+                "target_hit_rate_pct": metrics.get("target_hit_rate_pct"),
+                "stop_hit_rate_pct": metrics.get("stop_hit_rate_pct"),
+                "timeout_rate_pct": metrics.get("timeout_rate_pct"),
+                "avg_forward_return_pct": metrics.get("avg_forward_return_pct"),
+                "avg_mfe_pct": metrics.get("avg_mfe_pct"),
+                "avg_mae_pct": metrics.get("avg_mae_pct"),
+                "success_count": int(bucket.get("successes") or 0),
+                "failure_count": int(bucket.get("stop_hits") or 0),
+                "score": score,
+                "quality_label": _quality_label(score, signals, min_signals),
+                "warnings": config_warnings,
+            }
+        )
+
+    results.sort(
+        key=lambda row: (
+            float(row.get("score") or -999),
+            int(row.get("signals") or 0),
+            float(row.get("avg_forward_return_pct") or -999),
+        ),
+        reverse=True,
+    )
+    for rank, row in enumerate(results, start=1):
+        row["rank"] = rank
+
+    if max_base_samples < min_signals:
+        warnings.append("Base sample count is below min_signals; sweep conclusions are unstable.")
+    if not results:
+        warnings.append("No configs were evaluated.")
+
+    best = results[0] if results else {}
+    return {
+        "ok": True,
+        "mode": "consumer_threshold_sweep_audit",
+        "summary": {
+            "configs_tested": len(results),
+            "best_config_id": best.get("config_id"),
+            "best_score": best.get("score"),
+            "max_tickers": max_tickers,
+            "max_samples": max_samples,
+            "min_signals": min_signals,
+            "base_samples": max_base_samples,
+            "warnings": warnings,
+        },
+        "best_configs": results[:10],
+        "results": results,
+        "parameter_grid": {
+            "horizons": horizons,
+            "target_pcts": target_pcts,
+            "stop_pcts": stop_pcts,
+            "min_probabilities": min_probabilities,
+            "min_ml_probabilities": min_ml_probabilities,
+            "min_rr_values": min_rr_values,
+            "max_configs": max_configs,
+            "total_requested_configs": total_configs,
+        },
+        "limitations": [
+            "Threshold sweep is a calibration/evaluation layer; it does not update production decision thresholds automatically.",
+            "Historical samples use the proxy candle-only consumer audit, not full live news/global/ML replay.",
+            "min_ml_probability is evaluated against proxy probability because historical ML replay is unavailable.",
+            "No commissions, taxes, spreads or slippage are included.",
+            "Daily candles do not provide intraday order; same-day target and stop is treated conservatively as stop_hit.",
+            "Current instrument universe can introduce survivorship bias.",
+        ],
     }

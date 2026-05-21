@@ -156,6 +156,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
       <p>Исторический proxy-аудит consumer decision model: actions, blockers, audit confidence и forward outcomes по дневным свечам.</p>
       <nav>
         <a href="/signals">← Сигналы</a>
+        <a href="/signals/consumer/threshold-sweep-page">Threshold sweep</a>
         <a href="/signals/consumer.json?limit=50&scenario=all">Consumer JSON</a>
       </nav>
     </div>

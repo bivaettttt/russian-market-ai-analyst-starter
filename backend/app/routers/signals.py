@@ -77,10 +77,38 @@ def market_signals_ml_report_page():
 
 from app.services.signals_data import list_market_signals
 from app.services.consumer_signals import build_consumer_signal_for_ticker, list_consumer_signals
-from app.services.consumer_signal_backtest_audit import build_consumer_signal_backtest_audit
+from app.services.consumer_signal_backtest_audit import (
+    build_consumer_signal_backtest_audit,
+    build_consumer_threshold_sweep_audit,
+)
 from app.services.consumer_signal_backtest_audit_page_html import build_consumer_signal_backtest_audit_page_html
+from app.services.consumer_threshold_sweep_page_html import build_consumer_threshold_sweep_page_html
 from app.services.signals_page_html import build_signals_page_html
 
+
+def _parse_number_list(
+    value: str | None,
+    *,
+    item_type: type,
+    min_value: float,
+    max_value: float,
+) -> list[int] | list[float] | None:
+    if not value:
+        return None
+
+    parsed: list[int] | list[float] = []
+    for raw_item in value.split(","):
+        text = raw_item.strip()
+        if not text:
+            continue
+        try:
+            number = item_type(text)
+        except Exception:
+            continue
+        if min_value <= float(number) <= max_value:
+            parsed.append(number)
+
+    return parsed or None
 
 
 
@@ -131,6 +159,40 @@ def consumer_signal_backtest_audit_api(
 @router.get("/signals/consumer/backtest-audit-page", response_class=AIReportHTMLResponse)
 def consumer_signal_backtest_audit_page():
     return build_consumer_signal_backtest_audit_page_html()
+
+
+@router.get("/signals/consumer/threshold-sweep")
+def consumer_threshold_sweep_audit_api(
+    max_tickers: int = Query(60, ge=1, le=200),
+    max_samples: int = Query(1500, ge=100, le=20000),
+    min_signals: int = Query(20, ge=1, le=500),
+    max_configs: int = Query(120, ge=10, le=500),
+    horizons: str | None = Query(None),
+    target_pcts: str | None = Query(None),
+    stop_pcts: str | None = Query(None),
+    min_probabilities: str | None = Query(None),
+    min_ml_probabilities: str | None = Query(None),
+    min_rr_values: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return build_consumer_threshold_sweep_audit(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizons=_parse_number_list(horizons, item_type=int, min_value=5, max_value=90),
+        target_pcts=_parse_number_list(target_pcts, item_type=float, min_value=0.005, max_value=0.25),
+        stop_pcts=_parse_number_list(stop_pcts, item_type=float, min_value=0.005, max_value=0.20),
+        min_probabilities=_parse_number_list(min_probabilities, item_type=float, min_value=0, max_value=100),
+        min_ml_probabilities=_parse_number_list(min_ml_probabilities, item_type=float, min_value=0, max_value=100),
+        min_rr_values=_parse_number_list(min_rr_values, item_type=float, min_value=0.1, max_value=5.0),
+        min_signals=min_signals,
+        max_configs=max_configs,
+    )
+
+
+@router.get("/signals/consumer/threshold-sweep-page", response_class=AIReportHTMLResponse)
+def consumer_threshold_sweep_page():
+    return build_consumer_threshold_sweep_page_html()
 
 
 @router.get("/signals/consumer/{ticker}.json")
