@@ -30,6 +30,8 @@ Acceptance criteria:
 
 ## 2. Regime-Aware Historical Evaluation
 
+Статус: реализовано в первом proxy-варианте; следующий шаг - интерпретация результатов и калибровка thresholds.
+
 Цель: проверить, улучшает ли market regime filter историческое качество сигналов.
 
 Что сделать:

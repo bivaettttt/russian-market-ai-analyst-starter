@@ -17,7 +17,7 @@ from app.services.consumer_signals import (
     _round,
     _to_float,
 )
-from app.services.market_regime import build_market_regime_for_date_proxy
+from app.services.market_regime import build_market_regime_for_history_index
 
 
 def _pct_change(current: float | None, previous: float | None) -> float | None:
@@ -299,11 +299,24 @@ def _example(sample: dict[str, Any]) -> dict[str, Any]:
         "probability_pct": sample.get("probability_pct"),
         "audit_score": sample.get("audit_score"),
         "blocked_by": sample.get("blocked_by") or [],
+        "market_regime_name": sample.get("market_regime_name"),
+        "market_regime_score": sample.get("market_regime_score"),
         "outcome": sample.get("outcome"),
         "forward_return_pct": sample.get("forward_return_pct"),
         "mfe_pct": sample.get("mfe_pct"),
         "mae_pct": sample.get("mae_pct"),
     }
+
+
+def _sample_would_be_blocked_by_regime(sample: dict[str, Any]) -> bool:
+    action = str(sample.get("baseline_action") or sample.get("action") or "")
+    scenario = str(sample.get("scenario_direction") or "").lower()
+    return bool(
+        scenario != "downside"
+        and sample.get("market_regime_name") == "risk_off"
+        and not sample.get("market_regime_long_allowed", True)
+        and action in {"buy", "consider_buy", "watch", "watch_ml_confirmed", "watch_bad_rr", "watch_ml_rejected"}
+    )
 
 
 def _build_proxy_samples(
@@ -316,6 +329,8 @@ def _build_proxy_samples(
     stop_pct: float,
     min_history: int,
     use_market_regime_filter: bool = False,
+    market_regime_lookback: int = 60,
+    market_regime_min_tickers: int = 20,
 ) -> tuple[list[dict[str, Any]], set[str]]:
     instruments = db.scalars(
         select(Instrument)
@@ -337,6 +352,7 @@ def _build_proxy_samples(
     tickers_used: set[str] = set()
     per_ticker_cap = max(1, max_samples // max(1, len(instruments)))
     candles_by_ticker: dict[str, list[dict[str, Any]]] = {}
+    effective_market_regime_min_tickers = max(1, min(market_regime_min_tickers, max_tickers))
 
     for instrument in instruments:
         candles_by_ticker[instrument.ticker] = [
@@ -364,6 +380,25 @@ def _build_proxy_samples(
             if selected_index is not None:
                 indexes[ticker] = selected_index
         return indexes
+
+    regime_cache: dict[str, dict[str, Any]] = {}
+
+    def _regime_for_date(trade_date: str | None) -> dict[str, Any]:
+        key = str(trade_date or "")
+        if key not in regime_cache:
+            indexes = _index_by_date(trade_date)
+            available_tickers = sum(
+                1
+                for ticker, index in indexes.items()
+                if index >= 20 and len(candles_by_ticker.get(ticker) or []) > index
+            )
+            regime_cache[key] = build_market_regime_for_history_index(
+                candles_by_ticker=candles_by_ticker,
+                index_by_ticker=indexes,
+                lookback=market_regime_lookback,
+                min_tickers=max(5, min(effective_market_regime_min_tickers, available_tickers or effective_market_regime_min_tickers)),
+            )
+        return regime_cache[key]
 
     for instrument in instruments:
         if len(samples) >= max_samples:
@@ -434,31 +469,26 @@ def _build_proxy_samples(
                 target_distance_pct=target_distance_pct,
                 scenario_direction=scenario_direction,
             )
-            market_regime = None
-            market_regime_blocked = False
-            if use_market_regime_filter:
-                market_regime = build_market_regime_for_date_proxy(
-                    candles_by_ticker=candles_by_ticker,
-                    index_by_ticker=_index_by_date(current.get("trade_date")),
-                    lookback=60,
-                )
-                if (
-                    scenario_direction != "downside"
-                    and market_regime.get("regime") == "risk_off"
-                    and not bool(market_regime.get("long_allowed", True))
-                    and str(decision_gate.get("action") or "") in {"buy", "consider_buy", "watch", "watch_ml_confirmed", "watch_bad_rr", "watch_ml_rejected"}
-                ):
-                    market_regime_blocked = True
-                    decision_gate = {
-                        **decision_gate,
-                        "action": "watch_market_risk" if (probability or 0) >= 45 else "avoid_market_risk",
-                        "recommendation": "Наблюдать" if (probability or 0) >= 45 else "Не покупать",
-                        "decision": "Long ограничен proxy market regime",
-                        "decision_level": "neutral" if (probability or 0) >= 45 else "negative",
-                        "decision_reason": "Proxy historical market regime risk_off blocked long entry.",
-                        "is_buy_candidate": False,
-                        "market_regime_blocked": True,
-                    }
+            baseline_decision_gate = dict(decision_gate)
+            market_regime = _regime_for_date(current.get("trade_date"))
+            market_regime_would_block = bool(
+                scenario_direction != "downside"
+                and market_regime.get("regime") == "risk_off"
+                and not bool(market_regime.get("long_allowed", True))
+                and str(baseline_decision_gate.get("action") or "") in {"buy", "consider_buy", "watch", "watch_ml_confirmed", "watch_bad_rr", "watch_ml_rejected"}
+            )
+            market_regime_blocked = bool(use_market_regime_filter and market_regime_would_block)
+            if market_regime_blocked:
+                decision_gate = {
+                    **decision_gate,
+                    "action": "watch_market_risk" if (probability or 0) >= 45 else "avoid_market_risk",
+                    "recommendation": "Наблюдать" if (probability or 0) >= 45 else "Не покупать",
+                    "decision": "Long ограничен proxy market regime",
+                    "decision_level": "neutral" if (probability or 0) >= 45 else "negative",
+                    "decision_reason": "Proxy historical market regime risk_off blocked long entry.",
+                    "is_buy_candidate": False,
+                    "market_regime_blocked": True,
+                }
             position_sizing = _build_position_sizing(
                 action=decision_gate.get("action"),
                 price=price,
@@ -543,11 +573,13 @@ def _build_proxy_samples(
                 "ticker": instrument.ticker,
                 "date": current.get("trade_date"),
                 "action": decision_gate.get("action") or signal.get("action"),
+                "baseline_action": baseline_decision_gate.get("action") or signal.get("action"),
                 "recommendation": decision_gate.get("recommendation"),
                 "probability_pct": probability,
                 "proxy_ml_probability_pct": probability,
                 "risk_reward_ratio": _round(risk_reward_ratio, 2),
                 "target_distance_pct": _round(target_distance_pct, 2),
+                "scenario_direction": scenario_direction,
                 "audit_score": audit.get("overall_score"),
                 "audit_confidence_level": audit.get("confidence_level"),
                 "blocked_by": audit.get("blocked_by") or ["none"],
@@ -555,7 +587,13 @@ def _build_proxy_samples(
                 "warning_layers": audit.get("warning_layers") or [],
                 "market_regime": market_regime,
                 "market_regime_filter_blocked": market_regime_blocked,
+                "market_regime_would_block": market_regime_would_block,
+                "market_regime_name": (market_regime or {}).get("regime") or "unknown",
                 "market_regime_regime": (market_regime or {}).get("regime"),
+                "market_regime_score": (market_regime or {}).get("regime_score"),
+                "market_regime_long_allowed": bool((market_regime or {}).get("long_allowed", True)),
+                "market_regime_position_multiplier": (market_regime or {}).get("position_multiplier"),
+                "market_regime_reason": "; ".join(((market_regime or {}).get("reasons") or [])[:2]),
                 "outcome": outcome.get("outcome"),
                 "success": outcome.get("success"),
                 "days_to_outcome": outcome.get("days_to_outcome"),
@@ -657,8 +695,13 @@ def _generate_threshold_configs(
     return configs, parameter_grid, warnings
 
 
-def _sample_passes_config(sample: dict[str, Any], config: dict[str, Any]) -> bool:
-    if sample.get("market_regime_filter_blocked"):
+def _sample_passes_config(
+    sample: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    respect_regime_filter: bool = True,
+) -> bool:
+    if respect_regime_filter and sample.get("market_regime_filter_blocked"):
         return False
 
     probability = _to_float(sample.get("probability_pct"))
@@ -723,6 +766,107 @@ def _evaluate_config_on_samples(
         "warnings": warnings,
     }
     return row, selected
+
+
+def _finalize_regime_bucket(bucket: dict[str, Any]) -> dict[str, Any]:
+    result = _finalize_bucket(bucket)
+    samples = int(bucket.get("samples") or 0)
+    audit_scores = bucket.get("audit_scores") or []
+    regime_scores = bucket.get("regime_scores") or []
+    long_allowed = int(bucket.get("long_allowed") or 0)
+    result.update(
+        {
+            "signals": samples,
+            "avg_audit_score": _safe_avg(audit_scores),
+            "avg_regime_score": _safe_avg(regime_scores),
+            "long_allowed_rate_pct": _rate(long_allowed, samples),
+        }
+    )
+    return result
+
+
+def _add_to_regime_bucket(bucket: dict[str, Any], sample: dict[str, Any]) -> None:
+    _add_to_bucket(bucket, sample)
+    audit_score = _to_float(sample.get("audit_score"))
+    if audit_score is not None:
+        bucket.setdefault("audit_scores", []).append(audit_score)
+    regime_score = _to_float(sample.get("market_regime_score"))
+    if regime_score is not None:
+        bucket.setdefault("regime_scores", []).append(regime_score)
+    if sample.get("market_regime_long_allowed"):
+        bucket["long_allowed"] = int(bucket.get("long_allowed") or 0) + 1
+
+
+def _by_market_regime(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    buckets: dict[str, dict[str, Any]] = {
+        "risk_on": _empty_bucket(),
+        "neutral": _empty_bucket(),
+        "risk_off": _empty_bucket(),
+        "unknown": _empty_bucket(),
+    }
+    for sample in samples:
+        regime = str(sample.get("market_regime_name") or "unknown")
+        if regime not in buckets:
+            regime = "unknown"
+        _add_to_regime_bucket(buckets[regime], sample)
+    return {key: _finalize_regime_bucket(value) for key, value in buckets.items()}
+
+
+def _metrics_for_samples(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    bucket = _empty_bucket()
+    for sample in samples:
+        _add_to_bucket(bucket, sample)
+    metrics = _finalize_bucket(bucket)
+    metrics["signals"] = int(bucket.get("samples") or 0)
+    return metrics
+
+
+def _regime_filter_comparison(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    baseline = _metrics_for_samples(samples)
+    filtered_samples = [sample for sample in samples if not _sample_would_be_blocked_by_regime(sample)]
+    with_filter = _metrics_for_samples(filtered_samples)
+    baseline_count = int(baseline.get("signals") or 0)
+    filtered_count = int(with_filter.get("signals") or 0)
+
+    def delta(key: str) -> float | None:
+        left = _to_float(with_filter.get(key))
+        right = _to_float(baseline.get(key))
+        if left is None or right is None:
+            return None
+        return _round(left - right, 2)
+
+    stop_delta = delta("stop_hit_rate_pct")
+    return {
+        "baseline": baseline,
+        "with_regime_filter": with_filter,
+        "delta": {
+            "signals": filtered_count - baseline_count,
+            "target_hit_rate_pct": delta("target_hit_rate_pct"),
+            "stop_hit_rate_pct": stop_delta,
+            "avg_forward_return_pct": delta("avg_forward_return_pct"),
+            "coverage_pct": _round((filtered_count / baseline_count * 100), 2) if baseline_count else None,
+        },
+        "interpretation": (
+            "Regime filter reduced stop-hit rate in this proxy sample."
+            if stop_delta is not None and stop_delta < 0
+            else "Regime filter did not reduce stop-hit rate in this proxy sample."
+        ),
+    }
+
+
+def _regime_filter_effect_for_samples(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    comparison = _regime_filter_comparison(samples)
+    baseline = comparison.get("baseline") or {}
+    filtered = comparison.get("with_regime_filter") or {}
+    delta = comparison.get("delta") or {}
+    return {
+        "signals_before": baseline.get("signals"),
+        "signals_after": filtered.get("signals"),
+        "filtered": (baseline.get("signals") or 0) - (filtered.get("signals") or 0),
+        "target_hit_rate_delta": delta.get("target_hit_rate_pct"),
+        "stop_hit_rate_delta": delta.get("stop_hit_rate_pct"),
+        "avg_return_delta": delta.get("avg_forward_return_pct"),
+    }
 
 
 def _backtest_response_from_samples(
@@ -795,6 +939,8 @@ def _backtest_response_from_samples(
         "by_blocker": {key: _finalize_bucket(value) for key, value in sorted(by_blocker_raw.items())},
         "by_audit_confidence": {key: _finalize_bucket(value) for key, value in sorted(by_conf_raw.items())},
         "by_layer_support": {key: _finalize_bucket(value) for key, value in sorted(by_layer_raw.items())},
+        "by_market_regime": _by_market_regime(samples),
+        "regime_filter_comparison": _regime_filter_comparison(samples),
         "top_positive_examples": [_example(item) for item in top_positive],
         "top_negative_examples": [_example(item) for item in top_negative],
         "near_miss_examples": [_example(item) for item in near_miss],
@@ -831,28 +977,27 @@ def build_consumer_signal_backtest_audit(
     min_history: int = 80,
     use_market_regime_filter: bool = False,
 ) -> dict[str, Any]:
-    if use_market_regime_filter:
-        samples, tickers_used = _build_proxy_samples(
-            db=db,
-            max_tickers=max_tickers,
-            max_samples=max_samples,
-            horizon=horizon,
-            target_pct=target_pct,
-            stop_pct=stop_pct,
-            min_history=min_history,
-            use_market_regime_filter=True,
-        )
-        return _backtest_response_from_samples(
-            samples=samples,
-            tickers_used=tickers_used,
-            max_tickers=max_tickers,
-            max_samples=max_samples,
-            horizon=horizon,
-            target_pct=target_pct,
-            stop_pct=stop_pct,
-            min_history=min_history,
-            use_market_regime_filter=True,
-        )
+    samples, tickers_used = _build_proxy_samples(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        min_history=min_history,
+        use_market_regime_filter=use_market_regime_filter,
+    )
+    return _backtest_response_from_samples(
+        samples=samples,
+        tickers_used=tickers_used,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        min_history=min_history,
+        use_market_regime_filter=use_market_regime_filter,
+    )
 
     instruments = db.scalars(
         select(Instrument)
@@ -1196,7 +1341,12 @@ def build_consumer_threshold_sweep_audit(
             "min_ml_probability": float(min_ml_probability),
             "min_rr": float(min_rr),
         }
-        selected = [sample for sample in base_samples if _sample_passes_config(sample, config)]
+        baseline_selected = [
+            sample
+            for sample in base_samples
+            if _sample_passes_config(sample, config, respect_regime_filter=False)
+        ]
+        selected = [sample for sample in baseline_selected if not sample.get("market_regime_filter_blocked")]
 
         bucket = _empty_bucket()
         for sample in selected:
@@ -1210,6 +1360,9 @@ def build_consumer_threshold_sweep_audit(
             config_warnings.append("signals below min_signals; unstable estimate")
         if float(min_ml_probability) > 0:
             config_warnings.append("min_ml_probability uses proxy probability because historical ML replay is unavailable")
+        regime_breakdown = _by_market_regime(selected)
+        risk_off_metrics = regime_breakdown.get("risk_off") or {}
+        risk_off_filtered = sum(1 for sample in baseline_selected if _sample_would_be_blocked_by_regime(sample))
 
         config_id = (
             f"h{int(horizon)}"
@@ -1239,6 +1392,10 @@ def build_consumer_threshold_sweep_audit(
                 "avg_mae_pct": metrics.get("avg_mae_pct"),
                 "success_count": int(bucket.get("successes") or 0),
                 "failure_count": int(bucket.get("stop_hits") or 0),
+                "regime_filtered_signals": len(baseline_selected) - len(selected),
+                "risk_off_signals_filtered": risk_off_filtered,
+                "risk_off_stop_hit_rate_pct": risk_off_metrics.get("stop_hit_rate_pct"),
+                "by_market_regime": regime_breakdown,
                 "score": score,
                 "quality_label": _quality_label(score, signals, min_signals),
                 "warnings": config_warnings,
@@ -1262,6 +1419,8 @@ def build_consumer_threshold_sweep_audit(
         warnings.append("No configs were evaluated.")
 
     best = results[0] if results else {}
+    risk_off_rates = [_to_float(row.get("risk_off_stop_hit_rate_pct")) for row in results]
+    risk_off_rates = [value for value in risk_off_rates if value is not None]
     return {
         "ok": True,
         "mode": "consumer_threshold_sweep_audit",
@@ -1274,6 +1433,12 @@ def build_consumer_threshold_sweep_audit(
             "min_signals": min_signals,
             "base_samples": max_base_samples,
             "use_market_regime_filter": use_market_regime_filter,
+            "regime_filter_enabled": use_market_regime_filter,
+            "avg_risk_off_stop_hit_rate": _safe_avg(risk_off_rates),
+            "best_config_regime_notes": (
+                f"Best config risk_off stop-hit: {best.get('risk_off_stop_hit_rate_pct')}%, filtered risk_off signals: {best.get('risk_off_signals_filtered')}."
+                if best else None
+            ),
             "warnings": warnings,
         },
         "best_configs": results[:10],
@@ -1350,6 +1515,99 @@ def _recommendation_from_walk_forward(summary: dict[str, Any]) -> str:
     if stable + moderate >= max(1, completed // 2) and avg_test >= 0:
         return "use_with_caution"
     return "reject"
+
+
+def build_regime_historical_evaluation(
+    db: Session,
+    max_tickers: int = 60,
+    max_samples: int = 2000,
+    horizon: int = 20,
+    target_pct: float = 0.05,
+    stop_pct: float = 0.03,
+    lookback: int = 60,
+    min_tickers: int = 20,
+) -> dict[str, Any]:
+    effective_min_tickers = max(1, min(min_tickers, max_tickers))
+    samples, tickers_used = _build_proxy_samples(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        min_history=max(80, lookback + 20),
+        use_market_regime_filter=False,
+        market_regime_lookback=lookback,
+        market_regime_min_tickers=effective_min_tickers,
+    )
+    by_regime = _by_market_regime(samples)
+    comparison = _regime_filter_comparison(samples)
+    regime_counts = {key: int((value or {}).get("samples") or 0) for key, value in by_regime.items()}
+    scored_regimes = [
+        (key, _to_float(value.get("avg_forward_return_pct")))
+        for key, value in by_regime.items()
+        if int(value.get("samples") or 0) > 0 and _to_float(value.get("avg_forward_return_pct")) is not None
+    ]
+    best_regime = max(scored_regimes, key=lambda item: item[1])[0] if scored_regimes else None
+    worst_regime = min(scored_regimes, key=lambda item: item[1])[0] if scored_regimes else None
+    warnings: list[str] = []
+    if len(samples) < 100:
+        warnings.append("sample_count_low")
+    if any("insufficient_historical_regime_data" in ((sample.get("market_regime") or {}).get("warnings") or []) for sample in samples):
+        warnings.append("some_samples_have_insufficient_historical_regime_data")
+
+    risk_off_bad_longs = [
+        sample for sample in samples
+        if sample.get("market_regime_name") == "risk_off"
+        and sample.get("target_distance_pct")
+        and sample.get("outcome") == "stop_hit"
+    ]
+    risk_on_good_longs = [
+        sample for sample in samples
+        if sample.get("market_regime_name") == "risk_on"
+        and sample.get("outcome") == "target_hit"
+    ]
+    neutral_examples = [sample for sample in samples if sample.get("market_regime_name") == "neutral"][:10]
+
+    return {
+        "ok": True,
+        "mode": "regime_historical_evaluation",
+        "summary": {
+            "samples": len(samples),
+            "tickers_used": len(tickers_used),
+            "regime_counts": regime_counts,
+            "best_regime": best_regime,
+            "worst_regime": worst_regime,
+            "risk_off_stop_hit_rate_pct": (by_regime.get("risk_off") or {}).get("stop_hit_rate_pct"),
+            "risk_on_target_hit_rate_pct": (by_regime.get("risk_on") or {}).get("target_hit_rate_pct"),
+            "warnings": warnings,
+        },
+        "by_market_regime": by_regime,
+        "regime_filter_comparison": comparison,
+        "examples": {
+            "risk_off_bad_longs": [_example(item) for item in sorted(risk_off_bad_longs, key=lambda row: _to_float(row.get("forward_return_pct")) or 999)[:10]],
+            "risk_on_good_longs": [_example(item) for item in sorted(risk_on_good_longs, key=lambda row: _to_float(row.get("forward_return_pct")) or -999, reverse=True)[:10]],
+            "neutral_examples": [_example(item) for item in neutral_examples],
+        },
+        "parameters": {
+            "max_tickers": max_tickers,
+            "max_samples": max_samples,
+            "horizon": horizon,
+            "target_pct": target_pct,
+            "stop_pct": stop_pct,
+            "lookback": lookback,
+            "min_tickers": min_tickers,
+            "effective_min_tickers": effective_min_tickers,
+        },
+        "limitations": [
+            "Regime historical evaluation is proxy candle-only validation, not full live endpoint replay.",
+            "Historical ticker news, global macro events and ML are not replayed in this layer.",
+            "No commissions, taxes, spreads or slippage are included.",
+            "Daily candles do not provide intraday high/low order; same-day target and stop is treated conservatively as stop_hit.",
+            "Historical regime uses the current instrument universe and can include survivorship bias.",
+            "The result does not automatically change production thresholds or live decision logic.",
+        ],
+    }
 
 
 def build_consumer_walk_forward_validation(
@@ -1493,6 +1751,9 @@ def build_consumer_walk_forward_validation(
         )
         config_id = _config_id(config)
         config_frequency[config_id] = config_frequency.get(config_id, 0) + 1
+        train_by_regime = _by_market_regime(selected["train_samples"])
+        test_by_regime = _by_market_regime(test_samples)
+        regime_filter_effect = _regime_filter_effect_for_samples(test_samples)
 
         fold_results.append(
             {
@@ -1512,6 +1773,11 @@ def build_consumer_walk_forward_validation(
                 "test_metrics": test_row,
                 "score_decay": score_decay,
                 "generalization_ratio": generalization_ratio,
+                "train_by_market_regime": train_by_regime,
+                "test_by_market_regime": test_by_regime,
+                "risk_off_test_signals": (test_by_regime.get("risk_off") or {}).get("samples"),
+                "risk_off_filtered_signals": sum(1 for sample in test_samples if _sample_would_be_blocked_by_regime(sample)),
+                "regime_filter_effect": regime_filter_effect,
                 "stability_label": stability,
                 "warnings": fold_warnings,
             }
@@ -1523,6 +1789,25 @@ def build_consumer_walk_forward_validation(
     test_targets = [_to_float((fold.get("test_metrics") or {}).get("target_hit_rate_pct")) for fold in fold_results]
     test_stops = [_to_float((fold.get("test_metrics") or {}).get("stop_hit_rate_pct")) for fold in fold_results]
     test_returns = [_to_float((fold.get("test_metrics") or {}).get("avg_forward_return_pct")) for fold in fold_results]
+    risk_off_test_stops = [
+        _to_float(((fold.get("test_by_market_regime") or {}).get("risk_off") or {}).get("stop_hit_rate_pct"))
+        for fold in fold_results
+    ]
+    signal_reductions = []
+    helped_folds = 0
+    hurt_folds = 0
+    for fold in fold_results:
+        effect = fold.get("regime_filter_effect") or {}
+        before = _to_float(effect.get("signals_before"))
+        after = _to_float(effect.get("signals_after"))
+        if before and before > 0 and after is not None:
+            signal_reductions.append((before - after) / before * 100)
+        stop_delta = _to_float(effect.get("stop_hit_rate_delta"))
+        return_delta = _to_float(effect.get("avg_return_delta"))
+        if (stop_delta is not None and stop_delta < 0) or (return_delta is not None and return_delta > 0):
+            helped_folds += 1
+        elif (stop_delta is not None and stop_delta > 0) or (return_delta is not None and return_delta < 0):
+            hurt_folds += 1
 
     stable_folds = sum(1 for fold in fold_results if fold.get("stability_label") == "stable")
     moderate_folds = sum(1 for fold in fold_results if fold.get("stability_label") == "moderate")
@@ -1557,6 +1842,10 @@ def build_consumer_walk_forward_validation(
         "most_common_config_id": most_common_config_id,
         "recommended_config": recommended_config,
         "use_market_regime_filter": use_market_regime_filter,
+        "avg_risk_off_test_stop_hit_rate": _safe_avg([value for value in risk_off_test_stops if value is not None]),
+        "avg_regime_filter_signal_reduction_pct": _safe_avg(signal_reductions),
+        "regime_filter_helped_folds": helped_folds,
+        "regime_filter_hurt_folds": hurt_folds,
         "warnings": warnings,
     }
     summary["recommendation"] = _recommendation_from_walk_forward(summary)

@@ -81,11 +81,13 @@ from app.services.consumer_signal_backtest_audit import (
     build_consumer_signal_backtest_audit,
     build_consumer_threshold_sweep_audit,
     build_consumer_walk_forward_validation,
+    build_regime_historical_evaluation,
 )
 from app.services.consumer_signal_backtest_audit_page_html import build_consumer_signal_backtest_audit_page_html
 from app.services.consumer_threshold_sweep_page_html import build_consumer_threshold_sweep_page_html
 from app.services.consumer_walk_forward_page_html import build_consumer_walk_forward_page_html
 from app.services.market_regime import build_market_regime
+from app.services.regime_historical_evaluation_page_html import build_regime_historical_evaluation_page_html
 from app.services.signals_page_html import build_signals_page_html
 
 
@@ -257,6 +259,34 @@ def consumer_walk_forward_validation_api(
 @router.get("/signals/consumer/walk-forward-page", response_class=AIReportHTMLResponse)
 def consumer_walk_forward_page():
     return build_consumer_walk_forward_page_html()
+
+
+@router.get("/signals/consumer/regime-historical-evaluation")
+def consumer_regime_historical_evaluation_api(
+    max_tickers: int = Query(60, ge=5, le=300),
+    max_samples: int = Query(2000, ge=100, le=30000),
+    horizon: int = Query(20, ge=5, le=90),
+    target_pct: float = Query(0.05, ge=0.005, le=0.25),
+    stop_pct: float = Query(0.03, ge=0.005, le=0.20),
+    lookback: int = Query(60, ge=20, le=250),
+    min_tickers: int = Query(20, ge=5, le=200),
+    db: Session = Depends(get_db),
+):
+    return build_regime_historical_evaluation(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        lookback=lookback,
+        min_tickers=min_tickers,
+    )
+
+
+@router.get("/signals/consumer/regime-historical-evaluation-page", response_class=AIReportHTMLResponse)
+def consumer_regime_historical_evaluation_page():
+    return build_regime_historical_evaluation_page_html()
 
 
 @router.get("/signals/consumer/{ticker}.json")

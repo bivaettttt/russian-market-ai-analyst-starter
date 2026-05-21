@@ -108,11 +108,13 @@ def _build_regime_from_metrics(
     mode: str,
     lookback: int,
     warnings: list[str] | None = None,
+    min_tickers: int = 10,
+    insufficient_warning: str = "insufficient_market_regime_data",
 ) -> dict[str, Any]:
     warnings = list(warnings or [])
     sample_size = len(metrics)
-    if sample_size < 10:
-        warnings.append("insufficient_market_regime_data")
+    if sample_size < min_tickers:
+        warnings.append(insufficient_warning)
         return {
             "ok": True,
             "mode": mode,
@@ -130,6 +132,19 @@ def _build_regime_from_metrics(
             "lookback": lookback,
             "reasons": ["Недостаточно широкой истории рынка, режим считается neutral."],
             "warnings": warnings,
+            "components": {
+                "pct_above_sma20": 0.0,
+                "pct_positive_ret5": 0.0,
+                "pct_ret5_positive": 0.0,
+                "pct_positive_ret20": 0.0,
+                "pct_ret20_positive": 0.0,
+                "pct_ret20_below_minus5": 0.0,
+                "pct_near_20d_low": 0.0,
+                "pct_negative_momentum": 0.0,
+                "avg_ret20_pct": None,
+                "avg_volatility20_pct": None,
+                "high_volatility_pct": 0.0,
+            },
         }
 
     pct_above_sma20 = _rate(sum(1 for item in metrics if item["above_sma20"]), sample_size)
@@ -139,6 +154,8 @@ def _build_regime_from_metrics(
     pct_near_low = _rate(sum(1 for item in metrics if item["near_20d_low"]), sample_size)
     pct_negative_momentum = _rate(sum(1 for item in metrics if item["negative_momentum"]), sample_size)
     vol_values = [item["volatility20_pct"] for item in metrics if item.get("volatility20_pct") is not None]
+    ret20_values = [item["ret20_pct"] for item in metrics if item.get("ret20_pct") is not None]
+    avg_ret20 = mean(ret20_values) if ret20_values else 0.0
     avg_vol20 = mean(vol_values) if vol_values else 0.0
     high_vol_pct = _rate(sum(1 for item in metrics if (_to_float(item.get("volatility20_pct")) or 0) >= 4.0), sample_size)
 
@@ -203,11 +220,14 @@ def _build_regime_from_metrics(
         "lookback": lookback,
         "components": {
             "pct_above_sma20": _round(pct_above_sma20, 2),
+            "pct_positive_ret5": _round(pct_ret5_positive, 2),
             "pct_ret5_positive": _round(pct_ret5_positive, 2),
+            "pct_positive_ret20": _round(pct_ret20_positive, 2),
             "pct_ret20_positive": _round(pct_ret20_positive, 2),
             "pct_ret20_below_minus5": _round(pct_ret20_bad, 2),
             "pct_near_20d_low": _round(pct_near_low, 2),
             "pct_negative_momentum": _round(pct_negative_momentum, 2),
+            "avg_ret20_pct": _round(avg_ret20, 2),
             "avg_volatility20_pct": _round(avg_vol20, 2),
             "high_volatility_pct": _round(high_vol_pct, 2),
         },
@@ -273,6 +293,20 @@ def build_market_regime_for_date_proxy(
     index_by_ticker: dict[str, int],
     lookback: int = 60,
 ) -> dict[str, Any]:
+    return build_market_regime_for_history_index(
+        candles_by_ticker=candles_by_ticker,
+        index_by_ticker=index_by_ticker,
+        lookback=lookback,
+        min_tickers=10,
+    )
+
+
+def build_market_regime_for_history_index(
+    candles_by_ticker: dict[str, list[dict[str, Any]]],
+    index_by_ticker: dict[str, int],
+    lookback: int = 60,
+    min_tickers: int = 20,
+) -> dict[str, Any]:
     metrics: list[dict[str, Any]] = []
     for ticker, candles in candles_by_ticker.items():
         index = index_by_ticker.get(ticker)
@@ -290,4 +324,6 @@ def build_market_regime_for_date_proxy(
         mode="proxy_historical_market_regime",
         lookback=lookback,
         warnings=[],
+        min_tickers=min_tickers,
+        insufficient_warning="insufficient_historical_regime_data",
     )

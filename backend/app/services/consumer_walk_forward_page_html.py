@@ -126,6 +126,7 @@ def build_consumer_walk_forward_page_html() -> str:
         <a href="/signals">← Сигналы</a>
         <a href="/signals/consumer/backtest-audit-page">Backtest audit</a>
         <a href="/signals/consumer/threshold-sweep-page">Threshold sweep</a>
+        <a href="/signals/consumer/regime-historical-evaluation-page">Regime evaluation</a>
       </nav>
     </div>
   </header>
