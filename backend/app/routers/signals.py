@@ -77,6 +77,8 @@ def market_signals_ml_report_page():
 
 from app.services.signals_data import list_market_signals
 from app.services.consumer_signals import build_consumer_signal_for_ticker, list_consumer_signals
+from app.services.consumer_signal_backtest_audit import build_consumer_signal_backtest_audit
+from app.services.consumer_signal_backtest_audit_page_html import build_consumer_signal_backtest_audit_page_html
 from app.services.signals_page_html import build_signals_page_html
 
 
@@ -103,6 +105,32 @@ def consumer_signals_data_api(
         scenario=scenario,
         news=news,
     )
+
+
+@router.get("/signals/consumer/backtest-audit")
+def consumer_signal_backtest_audit_api(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(2000, ge=50, le=20000),
+    horizon: int = Query(20, ge=5, le=90),
+    target_pct: float = Query(0.05, ge=0.005, le=0.25),
+    stop_pct: float = Query(0.03, ge=0.005, le=0.20),
+    min_history: int = Query(80, ge=30, le=250),
+    db: Session = Depends(get_db),
+):
+    return build_consumer_signal_backtest_audit(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        horizon=horizon,
+        target_pct=target_pct,
+        stop_pct=stop_pct,
+        min_history=min_history,
+    )
+
+
+@router.get("/signals/consumer/backtest-audit-page", response_class=AIReportHTMLResponse)
+def consumer_signal_backtest_audit_page():
+    return build_consumer_signal_backtest_audit_page_html()
 
 
 @router.get("/signals/consumer/{ticker}.json")

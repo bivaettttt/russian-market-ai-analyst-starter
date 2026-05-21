@@ -464,6 +464,7 @@ def build_signals_page_html() -> str:
         <a href="/dashboard">← Рынок</a>
         <a href="/portfolio/construct/demo">Конструктор портфеля</a>
         <a href="/ai/report/demo">AI Report</a>
+        <a href="/signals/consumer/backtest-audit-page">Backtest audit</a>
         <a href="/tickers/SBER">Пример тикера</a>
       </nav>
     </div>
