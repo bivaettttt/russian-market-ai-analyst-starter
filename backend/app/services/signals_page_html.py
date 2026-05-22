@@ -544,6 +544,15 @@ def build_signals_page_html() -> str:
           ML v2 threshold, %
           <input id="mlV2ThresholdInput" type="number" min="0" max="100" step="1" value="55" />
         </label>
+
+        <label>
+          ML v2 gate mode
+          <select id="mlV2ModeInput">
+            <option value="diagnostic_only" selected>Diagnostic only</option>
+            <option value="soft_downgrade">Soft downgrade</option>
+            <option value="hard_gate">Hard gate</option>
+          </select>
+        </label>
       </div>
 
       <div class="filters">
@@ -685,6 +694,13 @@ def build_signals_page_html() -> str:
         ml_v2_gate_reason: source.ml_v2_gate_reason || "",
         ml_v2_research_note: source.ml_v2_research_note || "",
         ml_v2_research_gate: source.ml_v2_research_gate || {},
+        ml_v2_gate_mode: source.ml_v2_gate_mode || "diagnostic_only",
+        ml_v2_gate_effect: source.ml_v2_gate_effect || source.ml_v2_research_gate_effect || "none_disabled",
+        ml_v2_original_action: source.ml_v2_original_action || "",
+        ml_v2_original_recommendation: source.ml_v2_original_recommendation || "",
+        ml_v2_final_action_changed: Boolean(source.ml_v2_final_action_changed),
+        ml_v2_gate_blocked_reason: source.ml_v2_gate_blocked_reason || "",
+        ml_v2_gate_research_basis: source.ml_v2_gate_research_basis || "",
         ml_v2_research_gate_effect: source.ml_v2_research_gate_effect || "none",
         target_price: toNumber(source.target_price),
         current_price: toNumber(source.current_price || source.price),
@@ -907,6 +923,9 @@ def build_signals_page_html() -> str:
     }
 
     function mlV2BadgeClass(item) {
+      const effect = String(item.ml_v2_gate_effect || item.ml_v2_research_gate_effect || "").toLowerCase();
+      if (effect === "hard_rejected") return "negative";
+      if (effect === "soft_downgraded") return "warning";
       const status = String(item.ml_v2_gate_status || "disabled").toLowerCase();
       if (status === "passed") return "positive";
       if (status === "rejected") return "warning";
@@ -915,10 +934,13 @@ def build_signals_page_html() -> str:
     }
 
     function mlV2BadgeText(item) {
+      const effect = String(item.ml_v2_gate_effect || item.ml_v2_research_gate_effect || "").toLowerCase();
       const status = String(item.ml_v2_gate_status || "disabled").toLowerCase();
       if (status === "disabled") return "ML v2: off";
       if (status === "not_available") return "ML v2: n/a";
       if (status === "error") return "ML v2: error";
+      if (effect === "soft_downgraded") return "ML v2: downgraded";
+      if (effect === "hard_rejected") return "ML v2: hard rejected";
       const probability = item.ml_v2_probability_pct;
       const probabilityText = probability === null || Number.isNaN(probability) ? "—" : `${probability.toFixed(1)}%`;
       return `ML v2: ${status} ${probabilityText}`;
@@ -929,14 +951,26 @@ def build_signals_page_html() -> str:
       const status = forecast.ml_v2_gate_status || signal.ml_v2_gate_status || gate.status || "disabled";
       const probability = forecast.ml_v2_probability_pct ?? signal.ml_v2_probability_pct ?? gate.probability_pct;
       const threshold = forecast.ml_v2_gate_threshold_pct ?? signal.ml_v2_gate_threshold_pct ?? gate.threshold_pct;
+      const mode = forecast.ml_v2_gate_mode || signal.ml_v2_gate_mode || "diagnostic_only";
+      const effect = forecast.ml_v2_gate_effect || signal.ml_v2_gate_effect || signal.ml_v2_research_gate_effect || "none_disabled";
+      const originalAction = forecast.ml_v2_original_action || signal.ml_v2_original_action || forecast.source_signal_action || "—";
+      const finalAction = forecast.action || signal.consumer_action || signal.action || "—";
+      const changed = Boolean(forecast.ml_v2_final_action_changed || signal.ml_v2_final_action_changed);
+      const blockedReason = forecast.ml_v2_gate_blocked_reason || signal.ml_v2_gate_blocked_reason || "";
+      const researchBasis = forecast.ml_v2_gate_research_basis || signal.ml_v2_gate_research_basis || "";
       return `
         <h4>ML v2 research gate</h4>
         <p>${escapeHtml(forecast.ml_v2_gate_reason || signal.ml_v2_gate_reason || gate.reason || "ML v2 research gate выключен по умолчанию.")}</p>
         <p class="small muted">
           Status: ${escapeHtml(status)} ·
           Probability: ${formatPct(probability)} ·
-          Threshold: ${formatPct(threshold)}
+          Threshold: ${formatPct(threshold)} ·
+          Mode: ${escapeHtml(mode)} ·
+          Effect: ${escapeHtml(effect)}
         </p>
+        ${changed ? `<p class="small muted">Action: ${escapeHtml(originalAction)} → ${escapeHtml(finalAction)}</p>` : ""}
+        ${blockedReason ? `<p class="small muted">${escapeHtml(blockedReason)}</p>` : ""}
+        ${researchBasis ? `<p class="small muted">${escapeHtml(researchBasis)}</p>` : ""}
         <p class="small muted">${escapeHtml(forecast.ml_v2_research_note || signal.ml_v2_research_note || gate.research_note || "Diagnostic-only layer; production recommendation is unchanged.")}</p>
       `;
     }
@@ -1132,9 +1166,11 @@ def build_signals_page_html() -> str:
         const detailParams = new URLSearchParams();
         const mlV2Gate = document.getElementById("mlV2GateInput");
         const mlV2Threshold = document.getElementById("mlV2ThresholdInput");
+        const mlV2Mode = document.getElementById("mlV2ModeInput");
         if (mlV2Gate && mlV2Gate.value === "true") {
           detailParams.set("use_ml_v2_research_gate", "true");
           detailParams.set("ml_v2_gate_threshold_pct", mlV2Threshold?.value || "55");
+          detailParams.set("ml_v2_gate_mode", mlV2Mode?.value || "diagnostic_only");
         }
         const detailQuery = detailParams.toString();
         const response = await fetch(`/signals/consumer/${encodeURIComponent(ticker)}.json${detailQuery ? `?${detailQuery}` : ""}`);
@@ -1208,6 +1244,9 @@ def build_signals_page_html() -> str:
         const decisionText = item.decision || item.decision_reason || item.recommendation;
         const target = item.target_price;
         const current = item.current_price;
+        const mlV2ActionChange = item.ml_v2_final_action_changed
+          ? `<div class="small muted">ML v2: ${escapeHtml(item.ml_v2_original_action || "—")} → ${escapeHtml(item.consumer_action || item.action || "—")}</div>`
+          : "";
 
         return `
           <article class="signal-card">
@@ -1245,6 +1284,7 @@ def build_signals_page_html() -> str:
 
             <div class="decision ${cls}">
               ${escapeHtml(decisionText)}
+              ${mlV2ActionChange}
             </div>
 
             <div class="diagnostics-row">
@@ -1298,9 +1338,11 @@ def build_signals_page_html() -> str:
 
       const mlV2Gate = document.getElementById("mlV2GateInput");
       const mlV2Threshold = document.getElementById("mlV2ThresholdInput");
+      const mlV2Mode = document.getElementById("mlV2ModeInput");
       if (mlV2Gate && mlV2Gate.value === "true") {
         params.set("use_ml_v2_research_gate", "true");
         params.set("ml_v2_gate_threshold_pct", mlV2Threshold?.value || "55");
+        params.set("ml_v2_gate_mode", mlV2Mode?.value || "diagnostic_only");
       }
 
       return `/signals/consumer.json?${params.toString()}`;
@@ -1350,6 +1392,7 @@ def build_signals_page_html() -> str:
     document.getElementById("limitInput").addEventListener("change", loadSignals);
     document.getElementById("mlV2GateInput").addEventListener("change", loadSignals);
     document.getElementById("mlV2ThresholdInput").addEventListener("change", loadSignals);
+    document.getElementById("mlV2ModeInput").addEventListener("change", loadSignals);
 
     window.loadSignals = loadSignals;
     window.clearFilters = clearFilters;

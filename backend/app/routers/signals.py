@@ -281,7 +281,11 @@ from app.services.candidate_filter_calibration import build_candidate_filter_cal
 from app.services.candidate_filter_calibration_page_html import build_candidate_filter_calibration_page_html
 from app.services.composite_rule_calibration import build_composite_rule_calibration
 from app.services.composite_rule_calibration_page_html import build_composite_rule_calibration_page_html
-from app.services.consumer_signals import build_consumer_signal_for_ticker, list_consumer_signals
+from app.services.consumer_signals import (
+    build_consumer_signal_for_ticker,
+    compare_consumer_ml_v2_gate_snapshot,
+    list_consumer_signals,
+)
 from app.services.consumer_signal_backtest_audit import (
     build_consumer_signal_backtest_audit,
     build_consumer_threshold_sweep_audit,
@@ -340,6 +344,7 @@ def consumer_signals_data_api(
     news: str = Query("all", description="all, with_events, no_events, boost, penalty, veto или info_only"),
     use_ml_v2_research_gate: bool = Query(False),
     ml_v2_gate_threshold_pct: float = Query(55.0, ge=0, le=100),
+    ml_v2_gate_mode: str = Query("diagnostic_only"),
     db: Session = Depends(get_db),
 ):
     return list_consumer_signals(
@@ -353,6 +358,24 @@ def consumer_signals_data_api(
         news=news,
         use_ml_v2_research_gate=use_ml_v2_research_gate,
         ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
+        ml_v2_gate_mode=ml_v2_gate_mode,
+    )
+
+
+@router.get("/signals/consumer/ml-v2-gate-compare")
+def consumer_ml_v2_gate_compare_api(
+    limit: int = Query(100, ge=1, le=500),
+    candles_limit: int = Query(240, ge=20, le=1000),
+    ml_v2_gate_threshold_pct: float = Query(55.0, ge=0, le=100),
+    ml_v2_gate_mode: str = Query("soft_downgrade"),
+    db: Session = Depends(get_db),
+):
+    return compare_consumer_ml_v2_gate_snapshot(
+        db=db,
+        limit=limit,
+        candles_limit=candles_limit,
+        ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
+        ml_v2_gate_mode=ml_v2_gate_mode,
     )
 
 
@@ -712,6 +735,7 @@ def consumer_signal_ticker_api(
     candles_limit: int = Query(240, ge=20, le=1000),
     use_ml_v2_research_gate: bool = Query(False),
     ml_v2_gate_threshold_pct: float = Query(55.0, ge=0, le=100),
+    ml_v2_gate_mode: str = Query("diagnostic_only"),
     db: Session = Depends(get_db),
 ):
     return build_consumer_signal_for_ticker(
@@ -720,6 +744,7 @@ def consumer_signal_ticker_api(
         candles_limit=candles_limit,
         use_ml_v2_research_gate=use_ml_v2_research_gate,
         ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
+        ml_v2_gate_mode=ml_v2_gate_mode,
     )
 
 
