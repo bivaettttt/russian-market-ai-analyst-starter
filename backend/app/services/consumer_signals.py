@@ -2065,6 +2065,7 @@ def _build_signal_audit(
     target_probability_pct: float | None,
     ticker_news_adjustment_pct: float | None,
     global_event_adjustment_pct: float | None,
+    ml_v2_research_gate: dict[str, Any] | None = None,
     market_regime: dict[str, Any] | None = None,
     market_regime_adjustment_pct: float | None = None,
 ) -> dict[str, Any]:
@@ -2203,6 +2204,61 @@ def _build_signal_audit(
         ml_layer = layer("positive", min(100, 55 + (ml_value - 35) * 1.1), ml_reason, diagnostics=ml_diagnostics)
         add_unique(passed_layers, "ml")
         add_unique(strengths, "ML подтверждает сценарий.")
+
+    ml_v2_gate = ml_v2_research_gate if isinstance(ml_v2_research_gate, dict) else {}
+    ml_v2_status = str(ml_v2_gate.get("status") or "disabled")
+    ml_v2_probability = _to_float(ml_v2_gate.get("probability_pct"))
+    ml_v2_diagnostics = {
+        "status": ml_v2_status,
+        "probability_pct": _round(ml_v2_probability, 1),
+        "threshold_pct": _round(ml_v2_gate.get("threshold_pct"), 1),
+        "gate_passed": ml_v2_gate.get("gate_passed"),
+        "label": ml_v2_gate.get("label"),
+        "model_version": ml_v2_gate.get("model_version"),
+        "feature_set": ml_v2_gate.get("feature_set"),
+        "warnings": ml_v2_gate.get("warnings") or [],
+    }
+    if ml_v2_status == "passed":
+        ml_v2_layer = layer(
+            "positive",
+            ml_v2_probability,
+            str(ml_v2_gate.get("reason") or "ML v2 research gate supports this signal."),
+            diagnostics=ml_v2_diagnostics,
+        )
+        add_unique(passed_layers, "ml_v2_research_gate")
+        add_unique(strengths, "ML v2 research gate поддерживает сигнал.")
+    elif ml_v2_status == "rejected":
+        ml_v2_layer = layer(
+            "negative",
+            ml_v2_probability,
+            str(ml_v2_gate.get("reason") or "ML v2 research gate does not support this signal."),
+            diagnostics=ml_v2_diagnostics,
+        )
+        add_unique(warning_layers, "ml_v2_research_gate")
+        add_unique(weaknesses, "ML v2 research gate не подтверждает сигнал.")
+        add_unique(improvements, "Для research-upgrade нужна ML v2 probability выше диагностического threshold.")
+    elif ml_v2_status == "error":
+        ml_v2_layer = layer(
+            "not_available",
+            None,
+            str(ml_v2_gate.get("reason") or "ML v2 research gate failed."),
+            diagnostics=ml_v2_diagnostics,
+        )
+        add_unique(warning_layers, "ml_v2_research_gate")
+    elif ml_v2_status == "not_available":
+        ml_v2_layer = layer(
+            "not_available",
+            None,
+            str(ml_v2_gate.get("reason") or "ML v2 research artifact is not available."),
+            diagnostics=ml_v2_diagnostics,
+        )
+    else:
+        ml_v2_layer = layer(
+            "not_available",
+            None,
+            str(ml_v2_gate.get("reason") or "ML v2 research gate disabled by default."),
+            diagnostics=ml_v2_diagnostics,
+        )
 
     rr_value = _to_float(position_sizing.get("risk_reward_ratio"))
     max_position = _to_float(position_sizing.get("max_position_pct")) or 0.0
@@ -2413,6 +2469,7 @@ def _build_signal_audit(
     layer_scores = {
         "technical": technical_layer,
         "ml": ml_layer,
+        "ml_v2_research_gate": ml_v2_layer,
         "risk": risk_layer,
         "ticker_news": ticker_news_layer,
         "global_macro": global_layer,
@@ -2522,6 +2579,8 @@ def build_consumer_forecast(
     global_events: list[dict[str, Any]] | None = None,
     ml_probability_result: dict[str, Any] | None = None,
     market_regime: dict[str, Any] | None = None,
+    ml_v2_research_gate: dict[str, Any] | None = None,
+    ml_v2_gate_threshold_pct: float = 55.0,
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
     regime_features = _build_consumer_regime_features(candles)
@@ -2531,6 +2590,22 @@ def build_consumer_forecast(
     scenario_direction, scenario_reason = _infer_source_scenario_direction(signal, price)
     global_events = global_events or []
     market_regime = market_regime or {}
+    if not isinstance(ml_v2_research_gate, dict):
+        try:
+            from app.services.ml_v2_research_gate import disabled_ml_v2_research_gate
+
+            ml_v2_research_gate = disabled_ml_v2_research_gate(ml_v2_gate_threshold_pct)
+        except Exception:  # noqa: BLE001
+            ml_v2_research_gate = {
+                "ok": True,
+                "status": "disabled",
+                "probability_pct": None,
+                "threshold_pct": _round(ml_v2_gate_threshold_pct, 1),
+                "gate_passed": None,
+                "reason": "ML v2 research gate is disabled by default.",
+                "research_note": "ML v2 research gate is diagnostic-only by default.",
+                "warnings": [],
+            }
     target_price = _derive_target_price(price, signal, technical)
     forecast_range = _derive_forecast_range(price, target_price, signal, technical)
     stop_loss_value = _to_float(signal.get("stop_loss"))
@@ -2622,6 +2697,7 @@ def build_consumer_forecast(
     probability_assessment["internal"]["market_regime_adjustment_pct"] = _round(market_regime_adjustment_pct, 1)
     probability_assessment["internal"]["effective_min_rr"] = effective_min_rr
     probability_assessment["internal"]["effective_min_ml_probability"] = effective_min_ml_probability
+    probability_assessment["internal"]["ml_v2_research_gate"] = ml_v2_research_gate
 
     preliminary_target_distance_pct = _pct_change(target_price, price)
     preliminary_stop_distance_pct = None
@@ -2715,9 +2791,13 @@ def build_consumer_forecast(
         target_probability_pct=probability,
         ticker_news_adjustment_pct=ticker_news_adjustment_pct,
         global_event_adjustment_pct=global_event_adjustment_pct,
+        ml_v2_research_gate=ml_v2_research_gate,
         market_regime=market_regime,
         market_regime_adjustment_pct=market_regime_adjustment_pct,
     )
+
+    ml_v2_status = str(ml_v2_research_gate.get("status") or "disabled")
+    ml_v2_effect = "support" if ml_v2_status == "passed" else "warning" if ml_v2_status == "rejected" else "none"
 
     return {
         "ticker": ticker,
@@ -2770,6 +2850,14 @@ def build_consumer_forecast(
         "news_risk_flags": news_assessment.get("risk_flags") or [],
         "ml_regime_multiplier": regime_multiplier,
         "ml_regime_reason": regime_reason,
+        "ml_v2_probability_pct": _round(ml_v2_research_gate.get("probability_pct"), 1),
+        "ml_v2_gate_threshold_pct": _round(ml_v2_research_gate.get("threshold_pct"), 1),
+        "ml_v2_gate_passed": ml_v2_research_gate.get("gate_passed"),
+        "ml_v2_gate_status": ml_v2_status,
+        "ml_v2_gate_reason": ml_v2_research_gate.get("reason"),
+        "ml_v2_research_note": ml_v2_research_gate.get("research_note"),
+        "ml_v2_research_gate": ml_v2_research_gate,
+        "ml_v2_research_gate_effect": ml_v2_effect,
         "source_signal_action": source_signal_action,
         "source_signal_type": source_signal_type,
         "source_target_price": _round(source_target_price),
@@ -2884,6 +2972,8 @@ def build_consumer_signal_for_ticker(
     ticker: str,
     candles_limit: int = 240,
     market_regime: dict[str, Any] | None = None,
+    use_ml_v2_research_gate: bool = False,
+    ml_v2_gate_threshold_pct: float = 55.0,
 ) -> dict[str, Any]:
     ticker = ticker.upper().strip()
 
@@ -2971,6 +3061,47 @@ def build_consumer_signal_for_ticker(
             "message": str(exc),
         }
 
+    if use_ml_v2_research_gate:
+        try:
+            from app.services.ml_v2_research_gate import score_ml_v2_research_gate
+
+            ml_v2_research_gate = score_ml_v2_research_gate(
+                candles=candles,
+                instrument=instrument,
+                market_regime=market_regime,
+                threshold_pct=ml_v2_gate_threshold_pct,
+            )
+        except Exception as exc:  # noqa: BLE001
+            ml_v2_research_gate = {
+                "ok": False,
+                "status": "error",
+                "probability_pct": None,
+                "threshold_pct": _round(ml_v2_gate_threshold_pct, 1),
+                "gate_passed": None,
+                "label": "positive_trade_return",
+                "model_version": None,
+                "feature_set": "v2_trade_pnl_features",
+                "reason": f"ML v2 research gate failed: {exc}",
+                "research_note": "ML v2 research gate is diagnostic-only by default.",
+                "warnings": [str(exc)],
+            }
+    else:
+        try:
+            from app.services.ml_v2_research_gate import disabled_ml_v2_research_gate
+
+            ml_v2_research_gate = disabled_ml_v2_research_gate(ml_v2_gate_threshold_pct)
+        except Exception:  # noqa: BLE001
+            ml_v2_research_gate = {
+                "ok": True,
+                "status": "disabled",
+                "probability_pct": None,
+                "threshold_pct": _round(ml_v2_gate_threshold_pct, 1),
+                "gate_passed": None,
+                "reason": "ML v2 research gate is disabled by default.",
+                "research_note": "ML v2 research gate is diagnostic-only by default.",
+                "warnings": [],
+            }
+
     forecast = build_consumer_forecast(
         ticker=ticker,
         instrument=instrument,
@@ -2982,6 +3113,8 @@ def build_consumer_signal_for_ticker(
         global_events=global_events,
         ml_probability_result=ml_probability_result,
         market_regime=market_regime,
+        ml_v2_research_gate=ml_v2_research_gate,
+        ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
     )
 
     return {
@@ -3000,6 +3133,14 @@ def build_consumer_signal_for_ticker(
             "ml_adjustment_pct": forecast.get("ml_adjustment_pct"),
             "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
             "ml_regime_reason": forecast.get("ml_regime_reason"),
+            "ml_v2_probability_pct": forecast.get("ml_v2_probability_pct"),
+            "ml_v2_gate_threshold_pct": forecast.get("ml_v2_gate_threshold_pct"),
+            "ml_v2_gate_passed": forecast.get("ml_v2_gate_passed"),
+            "ml_v2_gate_status": forecast.get("ml_v2_gate_status"),
+            "ml_v2_gate_reason": forecast.get("ml_v2_gate_reason"),
+            "ml_v2_research_note": forecast.get("ml_v2_research_note"),
+            "ml_v2_research_gate": forecast.get("ml_v2_research_gate"),
+            "ml_v2_research_gate_effect": forecast.get("ml_v2_research_gate_effect"),
             "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
             "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
@@ -3057,6 +3198,8 @@ def list_consumer_signals(
     q: str | None = None,
     scenario: str = "all",
     news: str = "all",
+    use_ml_v2_research_gate: bool = False,
+    ml_v2_gate_threshold_pct: float = 55.0,
 ) -> dict[str, Any]:
     from app.services.market_universe import search_instruments
 
@@ -3121,6 +3264,8 @@ def list_consumer_signals(
             ticker=ticker,
             candles_limit=candles_limit,
             market_regime=market_regime,
+            use_ml_v2_research_gate=use_ml_v2_research_gate,
+            ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
         )
         if not data.get("ok"):
             continue
@@ -3161,6 +3306,14 @@ def list_consumer_signals(
                 "ml_adjustment_pct": forecast.get("ml_adjustment_pct"),
                 "ml_regime_multiplier": forecast.get("ml_regime_multiplier"),
                 "ml_regime_reason": forecast.get("ml_regime_reason"),
+                "ml_v2_probability_pct": forecast.get("ml_v2_probability_pct"),
+                "ml_v2_gate_threshold_pct": forecast.get("ml_v2_gate_threshold_pct"),
+                "ml_v2_gate_passed": forecast.get("ml_v2_gate_passed"),
+                "ml_v2_gate_status": forecast.get("ml_v2_gate_status"),
+                "ml_v2_gate_reason": forecast.get("ml_v2_gate_reason"),
+                "ml_v2_research_note": forecast.get("ml_v2_research_note"),
+                "ml_v2_research_gate": forecast.get("ml_v2_research_gate"),
+                "ml_v2_research_gate_effect": forecast.get("ml_v2_research_gate_effect"),
                 "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
             "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
@@ -3277,6 +3430,16 @@ def list_consumer_signals(
         ),
     }
 
+    ml_v2_counts = {
+        "enabled": bool(use_ml_v2_research_gate),
+        "threshold_pct": _round(ml_v2_gate_threshold_pct, 1),
+        "passed": sum(1 for row in rows if row.get("ml_v2_gate_status") == "passed"),
+        "rejected": sum(1 for row in rows if row.get("ml_v2_gate_status") == "rejected"),
+        "not_available": sum(1 for row in rows if row.get("ml_v2_gate_status") == "not_available"),
+        "error": sum(1 for row in rows if row.get("ml_v2_gate_status") == "error"),
+        "disabled": sum(1 for row in rows if row.get("ml_v2_gate_status") == "disabled"),
+    }
+
     summary = {
         "total": len(rows),
         "scenario_filter": scenario_filter,
@@ -3285,6 +3448,7 @@ def list_consumer_signals(
         "news_counts": news_counts,
         "global_event_counts": global_event_counts,
         "audit_counts": audit_counts,
+        "ml_v2_research_gate": ml_v2_counts,
         "market_regime": market_regime,
         "positive": sum(1 for row in rows if row.get("action") in positive_actions),
         "watch": sum(1 for row in rows if row.get("action") in watch_actions),
@@ -3413,6 +3577,10 @@ def list_consumer_signals(
                 "probability_pct": row.get("target_probability_pct"),
                 "rule_probability_pct": row.get("rule_probability_pct"),
                 "ml_probability_pct": row.get("ml_probability_pct"),
+                "ml_v2_probability_pct": row.get("ml_v2_probability_pct"),
+                "ml_v2_gate_status": row.get("ml_v2_gate_status"),
+                "ml_v2_gate_reason": row.get("ml_v2_gate_reason"),
+                "ml_v2_gate_passed": row.get("ml_v2_gate_passed"),
                 "ml_weight": row.get("ml_weight"),
                 "ml_regime_multiplier": row.get("ml_regime_multiplier"),
                 "news_adjustment_pct": row.get("news_adjustment_pct"),
@@ -3500,6 +3668,8 @@ def build_consumer_signal_for_ticker(
     ticker: str,
     candles_limit: int = 240,
     market_regime: dict[str, Any] | None = None,
+    use_ml_v2_research_gate: bool = False,
+    ml_v2_gate_threshold_pct: float = 55.0,
 ) -> dict[str, Any]:
     resolution = resolve_ticker_alias(ticker)
     result = _build_consumer_signal_for_ticker_without_alias(
@@ -3507,6 +3677,8 @@ def build_consumer_signal_for_ticker(
         ticker=resolution["resolved_ticker"],
         candles_limit=candles_limit,
         market_regime=market_regime,
+        use_ml_v2_research_gate=use_ml_v2_research_gate,
+        ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
     )
 
     if isinstance(result, dict):

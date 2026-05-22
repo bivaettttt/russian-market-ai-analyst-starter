@@ -271,7 +271,7 @@ Acceptance criteria:
 
 ## 13. ML v2 High-Confidence Validation
 
-Статус: текущий этап.
+Статус: реализовано. Quick result: threshold 55% получил stable quality и recommendation `use_as_research_gate`.
 
 Цель: проверить, устойчив ли ML v2 high-confidence bucket на walk-forward splits.
 
@@ -291,7 +291,30 @@ Acceptance criteria:
 
 Почему важно: слабый общий AUC не исключает маленький полезный high-confidence bucket, но его нужно проверить на устойчивость во времени.
 
-## 14. Production News Pipeline
+## 14. ML v2 Research Gate Integration
+
+Статус: текущий этап.
+
+Цель: подключить ML v2 high-confidence result как diagnostic-only layer в consumer signals.
+
+Что сделать:
+
+- добавить query flag `use_ml_v2_research_gate`;
+- показывать `ml_v2_probability_pct`, threshold, status, reason и research note;
+- добавить `signal_audit.layer_scores.ml_v2_research_gate`;
+- не менять production action/recommendation по умолчанию;
+- graceful fallback, если ML v2 artifact отсутствует.
+
+Acceptance criteria:
+
+- `/signals/consumer/SBER.json` работает без ML v2 artifact;
+- `/signals/consumer/SBER.json?use_ml_v2_research_gate=true` возвращает status `passed/rejected/not_available/error`;
+- список сигналов и UI показывают ML v2 badge только как research diagnostic;
+- ML v1 остаётся production ML layer.
+
+Почему важно: high-confidence bucket показал research edge, но его нужно сначала наблюдать в текущих consumer signals без автоматического veto.
+
+## 15. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -310,7 +333,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 15. Signal History / Paper Trading
+## 16. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -329,7 +352,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 16. Portfolio Risk Office
+## 17. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 

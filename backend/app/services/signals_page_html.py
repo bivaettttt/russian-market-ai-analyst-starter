@@ -529,6 +529,19 @@ def build_signals_page_html() -> str:
             <option value="100">100</option>
           </select>
         </label>
+
+        <label>
+          ML v2 research gate
+          <select id="mlV2GateInput">
+            <option value="false" selected>Выключен</option>
+            <option value="true">Включен</option>
+          </select>
+        </label>
+
+        <label>
+          ML v2 threshold, %
+          <input id="mlV2ThresholdInput" type="number" min="0" max="100" step="1" value="55" />
+        </label>
       </div>
 
       <div class="filters">
@@ -663,6 +676,14 @@ def build_signals_page_html() -> str:
         rule_probability_pct: toNumber(source.rule_probability_pct),
         ml_probability_pct: toNumber(source.ml_probability_pct),
         ml_adjustment_pct: toNumber(source.ml_adjustment_pct),
+        ml_v2_probability_pct: toNumber(source.ml_v2_probability_pct),
+        ml_v2_gate_threshold_pct: toNumber(source.ml_v2_gate_threshold_pct),
+        ml_v2_gate_passed: source.ml_v2_gate_passed,
+        ml_v2_gate_status: source.ml_v2_gate_status || "disabled",
+        ml_v2_gate_reason: source.ml_v2_gate_reason || "",
+        ml_v2_research_note: source.ml_v2_research_note || "",
+        ml_v2_research_gate: source.ml_v2_research_gate || {},
+        ml_v2_research_gate_effect: source.ml_v2_research_gate_effect || "none",
         target_price: toNumber(source.target_price),
         current_price: toNumber(source.current_price || source.price),
         potential_pct: toNumber(source.potential_pct || source.expected_return_pct || source.target_potential_pct),
@@ -883,6 +904,41 @@ def build_signals_page_html() -> str:
       return `Audit: ${Math.round(score)} / ${confidence}`;
     }
 
+    function mlV2BadgeClass(item) {
+      const status = String(item.ml_v2_gate_status || "disabled").toLowerCase();
+      if (status === "passed") return "positive";
+      if (status === "rejected") return "warning";
+      if (status === "error") return "negative";
+      return "";
+    }
+
+    function mlV2BadgeText(item) {
+      const status = String(item.ml_v2_gate_status || "disabled").toLowerCase();
+      if (status === "disabled") return "ML v2: off";
+      if (status === "not_available") return "ML v2: n/a";
+      if (status === "error") return "ML v2: error";
+      const probability = item.ml_v2_probability_pct;
+      const probabilityText = probability === null || Number.isNaN(probability) ? "—" : `${probability.toFixed(1)}%`;
+      return `ML v2: ${status} ${probabilityText}`;
+    }
+
+    function mlV2GateHtml(forecast, signal) {
+      const gate = forecast.ml_v2_research_gate || signal.ml_v2_research_gate || {};
+      const status = forecast.ml_v2_gate_status || signal.ml_v2_gate_status || gate.status || "disabled";
+      const probability = forecast.ml_v2_probability_pct ?? signal.ml_v2_probability_pct ?? gate.probability_pct;
+      const threshold = forecast.ml_v2_gate_threshold_pct ?? signal.ml_v2_gate_threshold_pct ?? gate.threshold_pct;
+      return `
+        <h4>ML v2 research gate</h4>
+        <p>${escapeHtml(forecast.ml_v2_gate_reason || signal.ml_v2_gate_reason || gate.reason || "ML v2 research gate выключен по умолчанию.")}</p>
+        <p class="small muted">
+          Status: ${escapeHtml(status)} ·
+          Probability: ${formatPct(probability)} ·
+          Threshold: ${formatPct(threshold)}
+        </p>
+        <p class="small muted">${escapeHtml(forecast.ml_v2_research_note || signal.ml_v2_research_note || gate.research_note || "Diagnostic-only layer; production recommendation is unchanged.")}</p>
+      `;
+    }
+
 
     function fmtPercent(value) {
       const number = toNumber(value);
@@ -1071,7 +1127,15 @@ def build_signals_page_html() -> str:
       box.innerHTML = "<p class='muted'>Загружаю объяснение...</p>";
 
       try {
-        const response = await fetch(`/signals/consumer/${encodeURIComponent(ticker)}.json`);
+        const detailParams = new URLSearchParams();
+        const mlV2Gate = document.getElementById("mlV2GateInput");
+        const mlV2Threshold = document.getElementById("mlV2ThresholdInput");
+        if (mlV2Gate && mlV2Gate.value === "true") {
+          detailParams.set("use_ml_v2_research_gate", "true");
+          detailParams.set("ml_v2_gate_threshold_pct", mlV2Threshold?.value || "55");
+        }
+        const detailQuery = detailParams.toString();
+        const response = await fetch(`/signals/consumer/${encodeURIComponent(ticker)}.json${detailQuery ? `?${detailQuery}` : ""}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const data = await response.json();
@@ -1098,12 +1162,15 @@ def build_signals_page_html() -> str:
 
           ${marketRegimeHtml(forecast)}
 
+          ${mlV2GateHtml(forecast, signal)}
+
           <h4>Риски</h4>
           ${listHtml(explanation.risks)}
 
           <p class="small muted">
             Rule: ${formatPct(forecast.rule_probability_pct || signal.rule_probability_pct)} ·
             ML: ${formatPct(forecast.ml_probability_pct || signal.ml_probability_pct)} ·
+            ML v2: ${formatPct(forecast.ml_v2_probability_pct || signal.ml_v2_probability_pct)} ·
             Источник: ${escapeHtml(forecast.probability_source || signal.probability_source || "—")}
           </p>
         `;
@@ -1184,6 +1251,7 @@ def build_signals_page_html() -> str:
               </span>
               <span class="diag-pill">Источник: ${escapeHtml(item.source_signal_action || "—")}</span>
               <span class="diag-pill">ML: ${fmtPercent(item.ml_probability_pct)}</span>
+              <span class="diag-pill ${mlV2BadgeClass(item)}">${escapeHtml(mlV2BadgeText(item))}</span>
               <span class="diag-pill ${newsBadgeClass(item.news_assessment || {})}">
                 ${escapeHtml(newsBadgeText(item))}
               </span>
@@ -1224,6 +1292,13 @@ def build_signals_page_html() -> str:
       const query = document.getElementById("searchInput").value.trim();
       if (query) {
         params.set("q", query);
+      }
+
+      const mlV2Gate = document.getElementById("mlV2GateInput");
+      const mlV2Threshold = document.getElementById("mlV2ThresholdInput");
+      if (mlV2Gate && mlV2Gate.value === "true") {
+        params.set("use_ml_v2_research_gate", "true");
+        params.set("ml_v2_gate_threshold_pct", mlV2Threshold?.value || "55");
       }
 
       return `/signals/consumer.json?${params.toString()}`;
@@ -1271,6 +1346,8 @@ def build_signals_page_html() -> str:
     if (newsFilter) newsFilter.addEventListener("change", loadSignals);
     document.getElementById("sortBy").addEventListener("change", renderSignals);
     document.getElementById("limitInput").addEventListener("change", loadSignals);
+    document.getElementById("mlV2GateInput").addEventListener("change", loadSignals);
+    document.getElementById("mlV2ThresholdInput").addEventListener("change", loadSignals);
 
     window.loadSignals = loadSignals;
     window.clearFilters = clearFilters;

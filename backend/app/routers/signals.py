@@ -248,6 +248,8 @@ def consumer_signals_data_api(
     q: str | None = Query(None),
     scenario: str = Query("all", description="all, long, downside или neutral"),
     news: str = Query("all", description="all, with_events, no_events, boost, penalty, veto или info_only"),
+    use_ml_v2_research_gate: bool = Query(False),
+    ml_v2_gate_threshold_pct: float = Query(55.0, ge=0, le=100),
     db: Session = Depends(get_db),
 ):
     return list_consumer_signals(
@@ -259,6 +261,8 @@ def consumer_signals_data_api(
         q=q,
         scenario=scenario,
         news=news,
+        use_ml_v2_research_gate=use_ml_v2_research_gate,
+        ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
     )
 
 
@@ -616,12 +620,16 @@ def consumer_adaptive_trade_calibration_page():
 def consumer_signal_ticker_api(
     ticker: str,
     candles_limit: int = Query(240, ge=20, le=1000),
+    use_ml_v2_research_gate: bool = Query(False),
+    ml_v2_gate_threshold_pct: float = Query(55.0, ge=0, le=100),
     db: Session = Depends(get_db),
 ):
     return build_consumer_signal_for_ticker(
         db=db,
         ticker=ticker,
         candles_limit=candles_limit,
+        use_ml_v2_research_gate=use_ml_v2_research_gate,
+        ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
     )
 
 
