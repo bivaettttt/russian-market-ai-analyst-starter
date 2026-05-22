@@ -17,6 +17,9 @@ from app.services.ml_probability_engine import get_ml_probability_status
 from app.services.ml_probability_evaluation import evaluate_ml_probability_model
 from app.services.ml_model_report import build_ml_model_report
 from app.services.ml_model_report_page_html import build_ml_model_report_page_html
+from app.services.ml_v2_dataset import build_ml_v2_trade_dataset
+from app.services.ml_v2_evaluation import evaluate_ml_v2_trade_model
+from app.services.ml_v2_report_page_html import build_ml_v2_report_page_html
 
 
 @router.get("/signals/ml/status")
@@ -71,6 +74,70 @@ def market_signals_ml_report(
 @router.get("/signals/ml/report-page", response_class=AIReportHTMLResponse)
 def market_signals_ml_report_page():
     return build_ml_model_report_page_html()
+
+
+@router.get("/signals/ml-v2/dataset-summary")
+def market_signals_ml_v2_dataset_summary(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    db: Session = Depends(get_db),
+):
+    dataset = build_ml_v2_trade_dataset(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+    )
+    return {
+        "ok": dataset.get("ok"),
+        "mode": dataset.get("mode"),
+        "feature_set": dataset.get("feature_set"),
+        "feature_count": len(dataset.get("feature_names") or []),
+        "feature_names": dataset.get("feature_names") or [],
+        "summary": dataset.get("summary") or {},
+        "warnings": dataset.get("warnings") or [],
+    }
+
+
+@router.get("/signals/ml-v2/evaluation")
+def market_signals_ml_v2_evaluation(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    label: str = Query("positive_trade_return"),
+    test_size: float = Query(0.25, ge=0.1, le=0.5),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    db: Session = Depends(get_db),
+):
+    return evaluate_ml_v2_trade_model(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        label=label,
+        test_size=test_size,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+    )
+
+
+@router.get("/signals/ml-v2/report-page", response_class=AIReportHTMLResponse)
+def market_signals_ml_v2_report_page():
+    return build_ml_v2_report_page_html()
 
 
 # --- Market signals dashboard ---

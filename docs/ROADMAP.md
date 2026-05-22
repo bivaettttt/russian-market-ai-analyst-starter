@@ -207,7 +207,7 @@ Acceptance criteria:
 
 ## 10. Composite Decision Rule Calibration
 
-Статус: текущий этап.
+Статус: реализовано. Quick result: best rule остался weak, recommendation `no_material_rule`; простые composite conditions не нашли устойчивого edge.
 
 Цель: проверить комбинации условий входа, а не одиночные filters.
 
@@ -248,11 +248,15 @@ Acceptance criteria:
 
 ## 12. ML v2 / Model Quality Upgrade
 
+Статус: текущий этап.
+
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
 Что сделать:
 
 - пересмотреть признаки и train/test split;
+- перейти от одного target-before-stop label к trade PnL labels: positive return, avoid stop, good trade;
+- добавить PnL-aware threshold report;
 - добавить regime-aware features;
 - сравнить lift по probability buckets;
 - валидировать ML-veto отдельно от rule-based signal.
