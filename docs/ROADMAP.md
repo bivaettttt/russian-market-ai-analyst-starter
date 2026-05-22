@@ -185,7 +185,7 @@ Acceptance criteria:
 
 ## 9. Candidate Filter Calibration
 
-Статус: текущий этап.
+Статус: реализовано. Quick result: одиночные ticker/bucket filters дали только weak improvement, поэтому следующий шаг — composite decision rules.
 
 Цель: проверить, улучшают ли простые фильтры по negative/positive pockets expectancy без разрушения coverage.
 
@@ -205,7 +205,29 @@ Acceptance criteria:
 
 Почему важно: adaptive target/stop почти вывел expectancy в ноль, но нужен отдельный слой проверки, какие отрицательные сегменты портят результат.
 
-## 10. Target / Stop / RR Calibration Follow-Up
+## 10. Composite Decision Rule Calibration
+
+Статус: текущий этап.
+
+Цель: проверить комбинации условий входа, а не одиночные filters.
+
+Что сделать:
+
+- сгенерировать bounded grid composite rules по probability, RR, ML proxy, market regime, volatility, liquidity, audit confidence, news/macro;
+- оценить selected samples vs baseline по avg trade return, profit factor, win rate, stop-hit и coverage;
+- помечать tiny-coverage rules как unstable;
+- не применять найденные правила автоматически в production.
+
+Acceptance criteria:
+
+- endpoint возвращает ranked composite rules;
+- UI показывает summary, best rules, conditions, warnings и limitations;
+- score penalizes low coverage and overfitting risk;
+- следующий шаг — walk-forward validation лучших rule candidates.
+
+Почему важно: single filters не дали material improvement, а входное качество может зависеть от сочетания probability + RR + regime + liquidity.
+
+## 11. Target / Stop / RR Calibration Follow-Up
 
 Цель: проверить лучшие adaptive policies на устойчивость.
 
@@ -224,7 +246,7 @@ Acceptance criteria:
 
 Почему важно: хороший single-sample policy может быть случайной подгонкой.
 
-## 11. ML v2 / Model Quality Upgrade
+## 12. ML v2 / Model Quality Upgrade
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -243,7 +265,7 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 12. Production News Pipeline
+## 13. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -262,7 +284,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 13. Signal History / Paper Trading
+## 14. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -281,7 +303,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 14. Portfolio Risk Office
+## 15. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -300,7 +322,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 15. Production Layer
+## 16. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

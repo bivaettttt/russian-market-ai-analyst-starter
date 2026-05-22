@@ -59,6 +59,7 @@ def build_expectancy_breakdown_page_html() -> str:
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/consumer/candidate-filter-calibration-page">Filter calibration</a>
+        <a href="/signals/consumer/composite-rule-calibration-page">Composite rules</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
       </nav>
     </div>

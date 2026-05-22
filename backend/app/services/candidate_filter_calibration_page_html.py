@@ -57,6 +57,7 @@ def build_candidate_filter_calibration_page_html() -> str:
         <a href="/signals/consumer/walk-forward-page">Walk-forward</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
+        <a href="/signals/consumer/composite-rule-calibration-page">Composite rules</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
       </nav>
     </div>

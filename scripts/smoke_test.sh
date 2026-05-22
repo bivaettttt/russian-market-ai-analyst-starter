@@ -125,6 +125,8 @@ check_get "signals consumer expectancy breakdown" "/signals/consumer/expectancy-
 check_get "signals consumer expectancy breakdown page" "/signals/consumer/expectancy-breakdown-page"
 check_get "signals consumer candidate filter calibration" "/signals/consumer/candidate-filter-calibration?max_tickers=5&max_samples=120&max_filters=20"
 check_get "signals consumer candidate filter calibration page" "/signals/consumer/candidate-filter-calibration-page"
+check_get "signals consumer composite rule calibration" "/signals/consumer/composite-rule-calibration?max_tickers=5&max_samples=120&max_rules=20"
+check_get "signals consumer composite rule calibration page" "/signals/consumer/composite-rule-calibration-page"
 check_get "signals consumer adaptive trade calibration costs" "/signals/consumer/adaptive-trade-calibration?max_tickers=5&max_samples=120&max_policies=20&commission_bps=10&slippage_bps=5"
 check_get "signals consumer expectancy breakdown costs" "/signals/consumer/expectancy-breakdown?max_tickers=5&max_samples=120&commission_bps=10&slippage_bps=5"
 check_get "signals consumer backtest audit costs" "/signals/consumer/backtest-audit?max_tickers=5&max_samples=100&commission_bps=10&slippage_bps=5"

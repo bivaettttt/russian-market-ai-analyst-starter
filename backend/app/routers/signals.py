@@ -80,6 +80,8 @@ from app.services.adaptive_trade_calibration import build_adaptive_trade_calibra
 from app.services.adaptive_trade_calibration_page_html import build_adaptive_trade_calibration_page_html
 from app.services.candidate_filter_calibration import build_candidate_filter_calibration
 from app.services.candidate_filter_calibration_page_html import build_candidate_filter_calibration_page_html
+from app.services.composite_rule_calibration import build_composite_rule_calibration
+from app.services.composite_rule_calibration_page_html import build_composite_rule_calibration_page_html
 from app.services.consumer_signals import build_consumer_signal_for_ticker, list_consumer_signals
 from app.services.consumer_signal_backtest_audit import (
     build_consumer_signal_backtest_audit,
@@ -291,6 +293,38 @@ def consumer_candidate_filter_calibration_api(
 @router.get("/signals/consumer/candidate-filter-calibration-page", response_class=AIReportHTMLResponse)
 def consumer_candidate_filter_calibration_page():
     return build_candidate_filter_calibration_page_html()
+
+
+@router.get("/signals/consumer/composite-rule-calibration")
+def consumer_composite_rule_calibration_api(
+    max_tickers: int = Query(100, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    max_rules: int = Query(120, ge=10, le=500),
+    horizon: int = Query(30, ge=5, le=90),
+    min_history: int = Query(80, ge=30, le=250),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_trades: int = Query(50, ge=10, le=2000),
+    use_best_adaptive_policy: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    return build_composite_rule_calibration(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        max_rules=max_rules,
+        horizon=horizon,
+        min_history=min_history,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_trades=min_trades,
+        use_best_adaptive_policy=use_best_adaptive_policy,
+    )
+
+
+@router.get("/signals/consumer/composite-rule-calibration-page", response_class=AIReportHTMLResponse)
+def consumer_composite_rule_calibration_page():
+    return build_composite_rule_calibration_page_html()
 
 
 @router.get("/signals/consumer/threshold-sweep")

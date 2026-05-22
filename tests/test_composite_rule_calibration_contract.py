@@ -1,0 +1,5 @@
+from app.services.composite_rule_calibration import build_composite_rule_calibration
+
+
+def test_build_composite_rule_calibration_importable_and_callable():
+    assert callable(build_composite_rule_calibration)
