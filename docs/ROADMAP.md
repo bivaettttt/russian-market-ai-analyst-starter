@@ -293,7 +293,7 @@ Acceptance criteria:
 
 ## 14. ML v2 Research Gate Integration
 
-Статус: текущий этап.
+Статус: реализовано. ML v2 gate подключён как diagnostic-only layer с safe fallback при отсутствии artifact.
 
 Цель: подключить ML v2 high-confidence result как diagnostic-only layer в consumer signals.
 
@@ -314,7 +314,31 @@ Acceptance criteria:
 
 Почему важно: high-confidence bucket показал research edge, но его нужно сначала наблюдать в текущих consumer signals без автоматического veto.
 
-## 15. Production News Pipeline
+## 15. ML v2 Gate Impact Evaluation
+
+Статус: текущий этап.
+
+Цель: исторически сравнить diagnostic-only, soft downgrade и hard gate режимы ML v2 research gate.
+
+Что сделать:
+
+- использовать сохранённый ML v2 artifact для scoring historical samples;
+- сравнить thresholds 50/55/60/65/70%;
+- считать baseline vs selected PnL, profit factor, win-rate, stop-hit и coverage;
+- считать avoided losses и missed wins;
+- явно предупреждать о possible training leakage artifact-based evaluation;
+- не менять production consumer logic.
+
+Acceptance criteria:
+
+- endpoint возвращает artifact_missing без падения, если artifact отсутствует;
+- при наличии artifact возвращает ranked gate mode/threshold results;
+- UI показывает best mode, threshold, deltas, warnings и limitations;
+- результаты требуют walk-forward/paper validation перед production.
+
+Почему важно: high-confidence validation показал research edge, но нужно понять impact на consumer-like decisions и цену coverage loss.
+
+## 16. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -333,7 +357,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 16. Signal History / Paper Trading
+## 17. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -352,7 +376,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 17. Portfolio Risk Office
+## 18. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -371,7 +395,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 17. Production Layer
+## 19. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

@@ -19,6 +19,12 @@ from app.services.ml_model_report import build_ml_model_report
 from app.services.ml_model_report_page_html import build_ml_model_report_page_html
 from app.services.ml_v2_dataset import build_ml_v2_trade_dataset
 from app.services.ml_v2_evaluation import evaluate_ml_v2_trade_model
+from app.services.ml_v2_gate_impact_evaluation import (
+    build_ml_v2_gate_impact_evaluation,
+    parse_gate_impact_thresholds,
+    parse_gate_modes,
+)
+from app.services.ml_v2_gate_impact_page_html import build_ml_v2_gate_impact_page_html
 from app.services.ml_v2_high_confidence_page_html import build_ml_v2_high_confidence_page_html
 from app.services.ml_v2_high_confidence_validation import build_ml_v2_high_confidence_validation, parse_thresholds
 from app.services.ml_v2_report_page_html import build_ml_v2_report_page_html
@@ -180,6 +186,40 @@ def market_signals_ml_v2_high_confidence_validation(
 @router.get("/signals/ml-v2/high-confidence-page", response_class=AIReportHTMLResponse)
 def market_signals_ml_v2_high_confidence_page():
     return build_ml_v2_high_confidence_page_html()
+
+
+@router.get("/signals/ml-v2/gate-impact")
+def market_signals_ml_v2_gate_impact(
+    max_tickers: int = Query(120, ge=1, le=300),
+    max_samples: int = Query(10000, ge=300, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    thresholds: str | None = Query(None),
+    gate_modes: str | None = Query(None),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_signals: int = Query(50, ge=10, le=5000),
+    db: Session = Depends(get_db),
+):
+    return build_ml_v2_gate_impact_evaluation(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        thresholds=parse_gate_impact_thresholds(thresholds),
+        gate_modes=parse_gate_modes(gate_modes),
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_signals=min_signals,
+    )
+
+
+@router.get("/signals/ml-v2/gate-impact-page", response_class=AIReportHTMLResponse)
+def market_signals_ml_v2_gate_impact_page():
+    return build_ml_v2_gate_impact_page_html()
 
 
 # --- Market signals dashboard ---
