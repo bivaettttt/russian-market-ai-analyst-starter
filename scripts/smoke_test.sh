@@ -115,6 +115,8 @@ check_get "signals ml v2 high confidence validation" "/signals/ml-v2/high-confid
 check_get "signals ml v2 high confidence page" "/signals/ml-v2/high-confidence-page"
 check_get "signals ml v2 gate impact" "/signals/ml-v2/gate-impact?max_tickers=5&max_samples=300&min_signals=10"
 check_get "signals ml v2 gate impact page" "/signals/ml-v2/gate-impact-page"
+check_get "signals ml v2 gate walk forward" "/signals/ml-v2/gate-walk-forward?max_tickers=5&max_samples=300&folds=2&min_train_samples=100&min_test_samples=50&min_signals=10"
+check_get "signals ml v2 gate walk forward page" "/signals/ml-v2/gate-walk-forward-page"
 check_get "signals data coverage" "/signals/data-coverage?max_tickers=100&min_history=80&horizon=20"
 check_get "signals data coverage page" "/signals/data-coverage-page"
 check_get "signals data bootstrap status" "/signals/data-bootstrap-status"

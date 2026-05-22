@@ -316,7 +316,7 @@ Acceptance criteria:
 
 ## 15. ML v2 Gate Impact Evaluation
 
-Статус: текущий этап.
+Статус: реализовано. Artifact-based impact показал сильный hard_gate 60%, но с caveat possible training leakage.
 
 Цель: исторически сравнить diagnostic-only, soft downgrade и hard gate режимы ML v2 research gate.
 
@@ -338,7 +338,30 @@ Acceptance criteria:
 
 Почему важно: high-confidence validation показал research edge, но нужно понять impact на consumer-like decisions и цену coverage loss.
 
-## 16. Production News Pipeline
+## 16. Leakage-safe ML v2 Gate Walk-forward
+
+Статус: текущий этап.
+
+Цель: проверить ML v2 gate без training leakage через expanding train windows и future test windows.
+
+Что сделать:
+
+- строить ML v2 dataset и сортировать samples по date;
+- на каждом fold обучать ML v2 только на train-period;
+- применять diagnostic_only, soft_downgrade и hard_gate только на future test-period;
+- агрегировать coverage, avg trade return, profit factor, stop-hit, positive folds и stability;
+- не менять production consumer logic.
+
+Acceptance criteria:
+
+- endpoint возвращает fold reports и aggregate gate mode/threshold results;
+- результаты не требуют сохранённого artifact;
+- low-sample thresholds помечаются unstable;
+- recommendation отделяет promising research gate от production readiness.
+
+Почему важно: только leakage-safe walk-forward может подтвердить, что ML v2 gate действительно улучшает будущие consumer/trade outcomes.
+
+## 17. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -357,7 +380,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 17. Signal History / Paper Trading
+## 18. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -376,7 +399,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 18. Portfolio Risk Office
+## 19. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -395,7 +418,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 19. Production Layer
+## 20. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 

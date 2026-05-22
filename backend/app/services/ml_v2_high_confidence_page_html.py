@@ -53,6 +53,7 @@ def build_ml_v2_high_confidence_page_html() -> str:
         <a href="/signals">← Сигналы</a>
         <a href="/signals/ml-v2/report-page">ML v2 report</a>
         <a href="/signals/ml-v2/gate-impact-page">ML v2 gate impact</a>
+        <a href="/signals/ml-v2/gate-walk-forward-page">ML v2 gate walk-forward</a>
         <a href="/signals/consumer/composite-rule-calibration-page">Composite rules</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/data-coverage-page">Data coverage</a>

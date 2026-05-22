@@ -25,6 +25,12 @@ from app.services.ml_v2_gate_impact_evaluation import (
     parse_gate_modes,
 )
 from app.services.ml_v2_gate_impact_page_html import build_ml_v2_gate_impact_page_html
+from app.services.ml_v2_gate_walk_forward import (
+    build_ml_v2_gate_walk_forward,
+    parse_gate_walk_forward_modes,
+    parse_gate_walk_forward_thresholds,
+)
+from app.services.ml_v2_gate_walk_forward_page_html import build_ml_v2_gate_walk_forward_page_html
 from app.services.ml_v2_high_confidence_page_html import build_ml_v2_high_confidence_page_html
 from app.services.ml_v2_high_confidence_validation import build_ml_v2_high_confidence_validation, parse_thresholds
 from app.services.ml_v2_report_page_html import build_ml_v2_report_page_html
@@ -220,6 +226,50 @@ def market_signals_ml_v2_gate_impact(
 @router.get("/signals/ml-v2/gate-impact-page", response_class=AIReportHTMLResponse)
 def market_signals_ml_v2_gate_impact_page():
     return build_ml_v2_gate_impact_page_html()
+
+
+@router.get("/signals/ml-v2/gate-walk-forward")
+def market_signals_ml_v2_gate_walk_forward(
+    max_tickers: int = Query(120, ge=1, le=300),
+    max_samples: int = Query(10000, ge=300, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    label: str = Query("positive_trade_return"),
+    folds: int = Query(4, ge=2, le=8),
+    train_ratio: float = Query(0.6, ge=0.4, le=0.85),
+    min_train_samples: int = Query(500, ge=100, le=10000),
+    min_test_samples: int = Query(150, ge=50, le=5000),
+    thresholds: str | None = Query(None),
+    gate_modes: str | None = Query(None),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_signals: int = Query(50, ge=10, le=5000),
+    db: Session = Depends(get_db),
+):
+    return build_ml_v2_gate_walk_forward(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        label=label,
+        folds=folds,
+        train_ratio=train_ratio,
+        min_train_samples=min_train_samples,
+        min_test_samples=min_test_samples,
+        thresholds=parse_gate_walk_forward_thresholds(thresholds),
+        gate_modes=parse_gate_walk_forward_modes(gate_modes),
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_signals=min_signals,
+    )
+
+
+@router.get("/signals/ml-v2/gate-walk-forward-page", response_class=AIReportHTMLResponse)
+def market_signals_ml_v2_gate_walk_forward_page():
+    return build_ml_v2_gate_walk_forward_page_html()
 
 
 # --- Market signals dashboard ---
