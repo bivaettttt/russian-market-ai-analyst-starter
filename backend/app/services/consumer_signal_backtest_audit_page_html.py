@@ -164,6 +164,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
         <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
         <a href="/signals/consumer/candidate-filter-calibration-page">Filter calibration</a>
         <a href="/signals/consumer/composite-rule-calibration-page">Composite rules</a>
+        <a href="/signals/ml-v2/high-confidence-page">ML v2 high-confidence</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
         <a href="/signals/consumer.json?limit=50&scenario=all">Consumer JSON</a>
       </nav>

@@ -1,0 +1,5 @@
+from app.services.ml_v2_high_confidence_validation import build_ml_v2_high_confidence_validation
+
+
+def test_build_ml_v2_high_confidence_validation_importable_and_callable():
+    assert callable(build_ml_v2_high_confidence_validation)

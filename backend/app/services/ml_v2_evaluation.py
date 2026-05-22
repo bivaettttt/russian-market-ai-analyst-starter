@@ -73,6 +73,42 @@ def _feature_importance(model: Any, feature_names: list[str]) -> list[dict[str, 
     return rows[:30]
 
 
+def train_ml_v2_classifier(X_train: list[list[float]], y_train: list[int]) -> tuple[Any | None, str | None]:
+    with _SKLEARN_LOCK:
+        try:
+            from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+        except Exception as exc:  # noqa: BLE001
+            return None, f"ML dependencies are missing: {exc}"
+        try:
+            model = RandomForestClassifier(
+                random_state=42,
+                n_estimators=180,
+                max_depth=6,
+                min_samples_leaf=20,
+                n_jobs=1,
+            )
+            model.fit(X_train, y_train)
+            return model, None
+        except Exception:  # noqa: BLE001
+            model = HistGradientBoostingClassifier(
+                random_state=42,
+                max_iter=160,
+                learning_rate=0.04,
+                max_leaf_nodes=24,
+                l2_regularization=0.05,
+            )
+            model.fit(X_train, y_train)
+            return model, None
+
+
+def predict_ml_v2_probabilities(model: Any, X_test: list[list[float]]) -> list[float]:
+    return [float(item[1]) for item in model.predict_proba(X_test)]
+
+
+def ml_v2_feature_importance(model: Any, feature_names: list[str]) -> list[dict[str, Any]]:
+    return _feature_importance(model, feature_names)
+
+
 def _period(dates: list[str]) -> dict[str, Any]:
     return {
         "samples": len(dates),
@@ -152,35 +188,15 @@ def evaluate_ml_v2_trade_model(
             "warnings": warnings + ["Use more samples/tickers or another label."],
         }
 
-    with _SKLEARN_LOCK:
-        try:
-            from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "ok": False,
-                "mode": "ml_v2_trade_model_evaluation",
-                "label": label,
-                "message": f"ML dependencies are missing: {exc}",
-            }
-        try:
-            model = RandomForestClassifier(
-                random_state=42,
-                n_estimators=180,
-                max_depth=6,
-                min_samples_leaf=20,
-                n_jobs=1,
-            )
-            model.fit(X_train, y_train)
-        except Exception:  # noqa: BLE001
-            model = HistGradientBoostingClassifier(
-                random_state=42,
-                max_iter=160,
-                learning_rate=0.04,
-                max_leaf_nodes=24,
-                l2_regularization=0.05,
-            )
-            model.fit(X_train, y_train)
-        probabilities = [float(item[1]) for item in model.predict_proba(X_test)]
+    model, error = train_ml_v2_classifier(X_train, y_train)
+    if model is None:
+        return {
+            "ok": False,
+            "mode": "ml_v2_trade_model_evaluation",
+            "label": label,
+            "message": error or "Could not train ML v2 classifier.",
+        }
+    probabilities = predict_ml_v2_probabilities(model, X_test)
     threshold_report = build_ml_v2_threshold_report(rows_test, y_test, probabilities)
     test_pnl = aggregate_trade_pnl_metrics(
         [{"outcome": row.get("outcome"), "trade_return_pct": row.get("trade_return_pct")} for row in rows_test]
@@ -204,7 +220,7 @@ def evaluate_ml_v2_trade_model(
         "test_period": _period(test_dates),
         "metrics": metrics,
         "threshold_report": threshold_report,
-        "feature_importance": _feature_importance(model, dataset.get("feature_names") or []),
+        "feature_importance": ml_v2_feature_importance(model, dataset.get("feature_names") or []),
         "warnings": warnings,
         "limitations": [
             "ML v2 is a research layer and is not used by production consumer signal logic.",

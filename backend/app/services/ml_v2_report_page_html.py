@@ -52,6 +52,7 @@ def build_ml_v2_report_page_html() -> str:
       <nav>
         <a href="/signals">← Сигналы</a>
         <a href="/signals/ml/report-page">ML v1 report</a>
+        <a href="/signals/ml-v2/high-confidence-page">ML v2 high-confidence</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/consumer/composite-rule-calibration-page">Composite rules</a>
         <a href="/signals/data-coverage-page">Data coverage</a>

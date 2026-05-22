@@ -248,7 +248,7 @@ Acceptance criteria:
 
 ## 12. ML v2 / Model Quality Upgrade
 
-Статус: текущий этап.
+Статус: реализовано как research layer. Quick result: общий AUC слабый, но high-confidence threshold 60% дал небольшой positive PnL pocket, поэтому нужен rolling validation.
 
 Цель: улучшить ML probability layer без подмены explainable risk logic.
 
@@ -269,7 +269,29 @@ Acceptance criteria:
 
 Почему важно: ML слой должен быть фильтром качества, а не источником непрозрачной рекомендации.
 
-## 13. Production News Pipeline
+## 13. ML v2 High-Confidence Validation
+
+Статус: текущий этап.
+
+Цель: проверить, устойчив ли ML v2 high-confidence bucket на walk-forward splits.
+
+Что сделать:
+
+- обучать ML v2 на expanding train windows;
+- проверять thresholds 50/55/60/65/70% на forward test windows;
+- агрегировать PnL, profit factor, coverage и stable positive folds;
+- не применять threshold автоматически в production.
+
+Acceptance criteria:
+
+- endpoint возвращает fold reports и threshold summary;
+- high-confidence thresholds получают quality_label и recommendation;
+- low-sample thresholds помечаются unstable;
+- результаты требуют paper trading validation.
+
+Почему важно: слабый общий AUC не исключает маленький полезный high-confidence bucket, но его нужно проверить на устойчивость во времени.
+
+## 14. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
@@ -288,7 +310,7 @@ Acceptance criteria:
 
 Почему важно: news и macro layers полезны только если события имеют понятное время, источник и надёжность.
 
-## 14. Signal History / Paper Trading
+## 15. Signal History / Paper Trading
 
 Цель: перейти от proxy backtest к сохранению реальных daily consumer signals.
 
@@ -307,7 +329,7 @@ Acceptance criteria:
 
 Почему важно: это снижает риск look-ahead и показывает качество именно того сигнала, который видел пользователь.
 
-## 15. Portfolio Risk Office
+## 16. Portfolio Risk Office
 
 Цель: поднять уровень от отдельных сигналов до портфельного risk control.
 
@@ -326,7 +348,7 @@ Acceptance criteria:
 
 Почему важно: инвестиционное решение зависит не только от тикера, но и от уже существующего портфеля.
 
-## 16. Production Layer
+## 17. Production Layer
 
 Цель: подготовить систему к безопасной эксплуатации.
 
