@@ -434,7 +434,7 @@ Acceptance criteria:
 
 ## 20. Consumer Candidate Generation Redesign / Setup Family Research
 
-Статус: реализовано как setup family research layer.
+Статус: реализовано как setup family research layer. Research result: pure OHLCV setup families improved old consumer baseline but still found no stable positive long edge.
 
 Цель: проверить альтернативные способы генерации long-candidates через прозрачные setup families до изменения production rules.
 
@@ -455,7 +455,24 @@ Acceptance criteria:
 
 Почему важно: если ML поверх candidates не помогает, нужно улучшать саму генерацию candidates и искать setup families с положительной expectancy.
 
-## 21. Production News Pipeline
+## 21. Event-Aware Setup Research
+
+Статус: реализовано как research layer.
+
+Цель: проверить, появляется ли edge, когда technical setup подтверждён event/news/macro catalyst.
+
+Что сделано:
+
+- добавлен deterministic mapping event category/tag → ticker/sector/market impact;
+- добавлен coverage endpoint для локальной истории событий;
+- добавлен research endpoint для сравнения setup-only, event-only, setup+event confirmation/conflict/neutral buckets;
+- добавлен bounded sweep по lookback/decay/min event score/confirmation mode/setup mode;
+- добавлена HTML-страница `/signals/event-aware/research-page`;
+- production consumer recommendations не меняются.
+
+Почему важно: предыдущий этап показал, что на текущих OHLCV/technical features устойчивого long-edge нет; следующий проверяемый источник edge — внешний catalyst.
+
+## 22. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 

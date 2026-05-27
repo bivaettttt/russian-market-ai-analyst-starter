@@ -53,6 +53,7 @@ def build_ml_v3_consumer_candidate_page_html() -> str:
         <a href="/signals/ml-v2/gate-walk-forward-page">ML v2 gate walk-forward</a>
         <a href="/signals/ml-v2/report-page">ML v2 report</a>
         <a href="/signals/setup-family/research-page">Setup families</a>
+        <a href="/signals/event-aware/research-page">Event-aware setups</a>
       </nav>
     </div>
   </header>
