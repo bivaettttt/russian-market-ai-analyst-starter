@@ -23,6 +23,27 @@ EVENT_FAMILIES = {
 }
 
 EXPORTER_SECTORS = {"oil_gas", "metals", "mining", "exporters", "нефтегаз", "металлурги", "экспортёры"}
+KNOWN_MARKET_TICKERS = {
+    "AFLT",
+    "ETLN",
+    "GAZP",
+    "GMKN",
+    "IMOEX",
+    "LKOH",
+    "LSRG",
+    "MOEX",
+    "NVTK",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RUAL",
+    "SBER",
+    "SMLT",
+    "SNGS",
+    "SPBE",
+    "TATN",
+    "VTBR",
+}
 
 
 def _as_text(value: Any) -> str:
@@ -48,6 +69,8 @@ def _event_text(event: dict[str, Any]) -> str:
         event.get("summary"),
         event.get("reasoning"),
         event.get("category"),
+        event.get("event_family"),
+        event.get("direction"),
         event.get("event_type"),
         event.get("impact"),
         event.get("tags"),
@@ -79,7 +102,7 @@ def _unique(items: list[Any]) -> list[str]:
 def _ticker_mentions(text: str) -> list[str]:
     candidates = re.findall(r"\b[A-Z]{3,6}\b", text.upper())
     ignored = {"RUB", "USD", "EUR", "OIL", "GAS", "OFZ", "РФ", "ЦБ"}
-    return _unique([item for item in candidates if item not in ignored])
+    return _unique([item for item in candidates if item not in ignored and item in KNOWN_MARKET_TICKERS])
 
 
 def normalize_event_tags(event: dict[str, Any]) -> list[str]:
@@ -121,15 +144,35 @@ def normalize_event_tags(event: dict[str, Any]) -> list[str]:
 def classify_event_family(event: dict[str, Any]) -> dict[str, Any]:
     tags = normalize_event_tags(event)
     text = _event_text(event)
-    family = "unknown"
-    direction = "unknown"
-    scope = "unknown"
-    sectors: list[str] = []
-    asset_types: list[str] = []
-    tickers = _ticker_mentions(text)
-    score = 0
-    confidence = "low"
-    reason = "Event family is unknown or too ambiguous."
+    explicit_family = str(event.get("event_family") or "").lower().strip()
+    explicit_direction = str(event.get("direction") or "").lower().strip()
+    family = explicit_family if explicit_family in EVENT_FAMILIES else "unknown"
+    direction = explicit_direction if explicit_direction in {"positive", "negative", "mixed", "neutral", "unknown"} else "unknown"
+    scope = str(event.get("impact_scope") or "unknown").lower().strip() or "unknown"
+    sectors: list[str] = _list_field(event, "affected_sectors")
+    asset_types: list[str] = _list_field(event, "affected_asset_types")
+    tickers = _ticker_mentions(text) + _list_field(event, "affected_tickers") + _list_field(event, "affected_assets")
+    score = int(float(event.get("score") or 0)) if str(event.get("score") or "").strip() else 0
+    confidence = str(event.get("confidence") or "low").lower()
+    reason = str(event.get("reason") or "Event family is unknown or too ambiguous.")
+
+    if family != "unknown":
+        if direction == "unknown":
+            direction = _direction_from_impact(event)
+        if score == 0:
+            score = 35 if direction == "positive" else -35 if direction == "negative" else 10
+        return {
+            "event_family": family,
+            "direction": direction,
+            "impact_scope": scope,
+            "affected_sectors": _unique(sectors),
+            "affected_asset_types": _unique(asset_types),
+            "affected_tickers": _unique(tickers),
+            "score": int(max(-100, min(100, score))),
+            "confidence": confidence if confidence in {"low", "medium", "high"} else "low",
+            "tags": tags,
+            "reason": reason,
+        }
 
     if any(tag in tags for tag in ["rate_cut", "rate_hike", "rates", "bonds"]):
         family = "rates"
@@ -230,9 +273,9 @@ def classify_event_family(event: dict[str, Any]) -> dict[str, Any]:
         "event_family": family if family in EVENT_FAMILIES else "unknown",
         "direction": direction,
         "impact_scope": scope,
-        "affected_sectors": _unique(sectors + _list_field(event, "affected_sectors")),
+        "affected_sectors": _unique(sectors),
         "affected_asset_types": _unique(asset_types),
-        "affected_tickers": _unique(tickers + _list_field(event, "affected_tickers") + _list_field(event, "affected_assets")),
+        "affected_tickers": _unique(tickers),
         "score": int(max(-100, min(100, score))),
         "confidence": confidence,
         "tags": tags,

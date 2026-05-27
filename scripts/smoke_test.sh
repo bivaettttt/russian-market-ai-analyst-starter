@@ -131,6 +131,7 @@ check_get "signals setup family research" "/signals/setup-family/research?max_ti
 check_get "signals setup family sweep" "/signals/setup-family/sweep?max_tickers=5&max_samples=200&max_configs=10&min_signals=5"
 check_get "signals setup family research page" "/signals/setup-family/research-page"
 check_get "signals event coverage" "/signals/events/coverage?max_events=100"
+check_get "signals event bootstrap status" "/signals/events/bootstrap-status"
 check_get "signals event aware research" "/signals/event-aware/research?max_tickers=5&max_samples=200&max_events=100&min_signals=5"
 check_get "signals event aware sweep" "/signals/event-aware/sweep?max_tickers=5&max_samples=200&max_events=100&max_configs=10&min_signals=5"
 check_get "signals event aware research page" "/signals/event-aware/research-page"

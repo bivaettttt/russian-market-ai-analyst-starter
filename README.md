@@ -101,6 +101,23 @@ Troubleshooting:
 - Slow loading/rate limiting: уменьшите `--max-tickers` или увеличьте `--sleep-sec`.
 - Only candles update: `python3 -m app.tasks.bootstrap_market_data --skip-universe --max-tickers 100 --days 900`.
 
+## Bootstrap Historical Events
+
+Event-aware validation needs historical event coverage, not only current live events. The local curated seed is offline and research-only:
+
+```bash
+cd /Users/bivaettttt/Desktop/russian-market-ai-analyst-starter/backend
+python3 -m app.tasks.bootstrap_historical_events --dry-run
+python3 -m app.tasks.bootstrap_historical_events
+```
+
+Check coverage:
+
+```bash
+curl "http://127.0.0.1:8010/signals/events/coverage?max_events=10000"
+curl "http://127.0.0.1:8010/signals/events/bootstrap-status"
+```
+
 ## Важные Endpoints
 
 Consumer signals:

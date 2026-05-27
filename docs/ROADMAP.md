@@ -457,7 +457,7 @@ Acceptance criteria:
 
 ## 21. Event-Aware Setup Research
 
-Статус: реализовано как research layer.
+Статус: реализовано как research layer. Research result: слой готов, но был заблокирован отсутствием исторического покрытия событий (`event_samples=0` при live-only events).
 
 Цель: проверить, появляется ли edge, когда technical setup подтверждён event/news/macro catalyst.
 
@@ -472,7 +472,23 @@ Acceptance criteria:
 
 Почему важно: предыдущий этап показал, что на текущих OHLCV/technical features устойчивого long-edge нет; следующий проверяемый источник edge — внешний catalyst.
 
-## 22. Production News Pipeline
+## 22. Historical Event Data Bootstrap
+
+Статус: реализовано как offline curated seed bootstrap.
+
+Цель: заполнить локальную `MarketEvent` историю, чтобы event-aware setup research мог сопоставлять candle samples с catalyst events.
+
+Что сделано:
+
+- добавлен seed `backend/app/data/seed/historical_events_seed.json` с curated macro/rates/fx/oil/dividend/sanctions markers за 2022-2026;
+- добавлен idempotent import/upsert в существующую `MarketEvent`;
+- добавлен dry-run CLI `python3 -m app.tasks.bootstrap_historical_events --dry-run`;
+- добавлен read-only endpoint `/signals/events/bootstrap-status`;
+- coverage diagnostics показывает source/year/family/direction и рекомендации.
+
+Почему важно: без исторических событий event-aware layer не может отличить setup-only от setup+event candidates.
+
+## 23. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 

@@ -47,6 +47,7 @@ from app.services.event_aware_setup_research import (
     build_event_aware_setup_sweep,
     build_event_coverage_diagnostics,
 )
+from app.services.historical_event_bootstrap import DEFAULT_SEED_PATH
 from app.services.setup_family_research import build_setup_family_parameter_sweep, build_setup_family_research
 from app.services.setup_family_research_page_html import build_setup_family_research_page_html
 
@@ -522,6 +523,29 @@ def market_signals_event_coverage(
     db: Session = Depends(get_db),
 ):
     return build_event_coverage_diagnostics(db=db, max_events=max_events)
+
+
+@router.get("/signals/events/bootstrap-status")
+def market_signals_event_bootstrap_status(
+    max_events: int = Query(5000, ge=0, le=50000),
+    db: Session = Depends(get_db),
+):
+    coverage = build_event_coverage_diagnostics(db=db, max_events=max_events)
+    total_events = int((coverage.get("summary") or {}).get("total_events") or 0)
+    recommendations = list(coverage.get("recommendations") or [])
+    if total_events < 100:
+        recommendations.append("Run the curated seed import before event-aware backtests.")
+    return {
+        "ok": True,
+        "mode": "event_bootstrap_status",
+        "coverage": coverage,
+        "default_seed_path": str(DEFAULT_SEED_PATH),
+        "suggested_commands": [
+            "cd backend && python3 -m app.tasks.bootstrap_historical_events --dry-run",
+            "cd backend && python3 -m app.tasks.bootstrap_historical_events",
+        ],
+        "recommendations": recommendations,
+    }
 
 
 @router.get("/signals/event-aware/research-page", response_class=AIReportHTMLResponse)

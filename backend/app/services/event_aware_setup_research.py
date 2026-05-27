@@ -84,7 +84,14 @@ def _event_to_dict(event: MarketEvent) -> dict[str, Any]:
         "impact": getattr(event, "impact", None) or raw.get("impact"),
         "affected_assets": raw.get("affected_assets") or [],
         "affected_sectors": raw.get("affected_sectors") or [],
-        "event_type": raw.get("event_type"),
+        "affected_asset_types": raw.get("affected_asset_types") or [],
+        "affected_tickers": raw.get("affected_tickers") or [],
+        "event_family": raw.get("event_family"),
+        "direction": raw.get("direction"),
+        "impact_scope": raw.get("impact_scope"),
+        "score": raw.get("score"),
+        "confidence": raw.get("confidence"),
+        "event_type": raw.get("event_type") or raw.get("event_family"),
         "tags": raw.get("tags") or [],
         "reasoning": getattr(event, "reasoning", None) or raw.get("reasoning"),
         "raw_analysis": raw,
@@ -464,22 +471,38 @@ def build_event_coverage_diagnostics(
 ) -> dict[str, Any]:
     events = _load_events(db, max_events=max_events)
     family_counter: Counter[str] = Counter()
+    direction_counter: Counter[str] = Counter()
     scope_counter: Counter[str] = Counter()
+    source_counter: Counter[str] = Counter()
+    year_counter: Counter[str] = Counter()
     with_ticker = 0
+    with_sector_scope = 0
+    with_market_scope = 0
     with_tags = 0
+    curated_seed_events = 0
     dates: list[date] = []
     examples: list[dict[str, Any]] = []
     for event in events:
         mapped = classify_event_family(event)
         family_counter[str(mapped.get("event_family") or "unknown")] += 1
+        direction_counter[str(mapped.get("direction") or "unknown")] += 1
         scope_counter[str(mapped.get("impact_scope") or "unknown")] += 1
+        source = str(event.get("source") or "unknown")
+        source_counter[source] += 1
+        if source == "curated_seed":
+            curated_seed_events += 1
         if mapped.get("affected_tickers"):
             with_ticker += 1
+        if mapped.get("impact_scope") == "sector":
+            with_sector_scope += 1
+        if mapped.get("impact_scope") in {"market", "global", "asset_class"}:
+            with_market_scope += 1
         if mapped.get("tags"):
             with_tags += 1
         event_date = event.get("event_date")
         if isinstance(event_date, date):
             dates.append(event_date)
+            year_counter[str(event_date.year)] += 1
         if len(examples) < 10:
             examples.append(
                 {
@@ -492,20 +515,35 @@ def build_event_coverage_diagnostics(
                 }
             )
     warnings = [] if events else ["no historical events found"]
+    recommendations: list[str] = []
+    if len(events) < 100:
+        recommendations.append("Run bootstrap_historical_events to import the curated historical event seed.")
+    if dates and min(dates).year >= date.today().year:
+        recommendations.append("Historical event coverage is insufficient for backtest; import events covering candle sample dates.")
+    if not events:
+        recommendations.append("Import historical events covering 2022-2026 before relying on event-aware research.")
     return {
         "ok": True,
         "mode": "event_coverage_diagnostics",
         "summary": {
             "total_events": len(events),
+            "curated_seed_events": curated_seed_events,
+            "live_events": len(events) - curated_seed_events,
+            "events_by_source": dict(source_counter),
             "events_with_ticker": with_ticker,
+            "events_with_sector_scope": with_sector_scope,
+            "events_with_market_scope": with_market_scope,
             "events_with_date": len(dates),
             "events_with_tags": with_tags,
             "date_range": {"from": min(dates).isoformat(), "to": max(dates).isoformat()} if dates else {},
+            "events_by_year": dict(year_counter),
             "by_event_family": dict(family_counter),
+            "by_direction": dict(direction_counter),
             "by_scope": dict(scope_counter),
         },
         "examples": examples,
         "warnings": warnings,
+        "recommendations": recommendations,
     }
 
 

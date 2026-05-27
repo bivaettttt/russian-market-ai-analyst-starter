@@ -55,10 +55,26 @@ Key fields:
 
 The endpoint still returns HTTP 200 and `ok=true`, with warnings and recommendation `needs_more_event_data`. In that case the live event layer can remain useful as a diagnostic, but historical validation needs event ingestion/backfill before conclusions are reliable.
 
+## Historical Event Bootstrap
+
+Use `/signals/events/bootstrap-status` to check current coverage and suggested commands. The offline curated seed can be imported with:
+
+```bash
+cd backend
+python3 -m app.tasks.bootstrap_historical_events --dry-run
+python3 -m app.tasks.bootstrap_historical_events
+```
+
+The seed is research bootstrap data for 2022-2026. It should be replaced or expanded with verified source-based ingestion before production use.
+
 ## Curl Examples
 
 ```bash
 curl "http://127.0.0.1:8010/signals/events/coverage?max_events=5000"
+```
+
+```bash
+curl "http://127.0.0.1:8010/signals/events/bootstrap-status"
 ```
 
 ```bash
