@@ -387,7 +387,7 @@ Acceptance criteria:
 
 ## 18. Experimental ML v2 Gate Historical Backtest
 
-Статус: реализовано как research endpoint/page для proxy consumer-сигналов.
+Статус: реализовано как research endpoint/page для proxy consumer-сигналов. Leakage-safe consumer backtest дал recommendation `reject` для ML v2 gate на consumer distribution.
 
 Цель: исторически проверить, улучшает ли experimental ML v2 decision gate именно consumer long candidates.
 
@@ -408,7 +408,31 @@ Acceptance criteria:
 
 Почему важно: walk-forward подтвердил общий gate на trade dataset, но consumer decision layer требует отдельной исторической проверки перед paper trading.
 
-## 19. Production News Pipeline
+## 19. Consumer Candidate ML v3 Dataset & Validation
+
+Статус: реализовано как research layer.
+
+Цель: обучать модель не на generic trade samples, а только на historical consumer long-candidates.
+
+Что сделать:
+
+- собрать dataset по `buy`, `consider_buy`, `watch_ml_confirmed` и legacy long actions;
+- добавить consumer decision, technical, trade setup, regime и instrument features;
+- обучить ML v3 time-split evaluation;
+- проверить thresholds через leakage-safe walk-forward;
+- сравнить baseline candidates, diagnostic buckets, soft_downgrade и hard_gate;
+- не менять production consumer logic.
+
+Acceptance criteria:
+
+- endpoints dataset/evaluation/walk-forward возвращают JSON research reports;
+- page `/signals/ml-v3/consumer-candidate/page` показывает summary, thresholds, folds и features;
+- training task сохраняет локальный artifact без добавления его в git;
+- результаты используются только для следующего research этапа experimental ML v3 gate.
+
+Почему важно: ML v2 провалился как consumer decision gate из-за distribution mismatch; ML v3 проверяет именно ту выборку, которую реально создаёт consumer layer.
+
+## 20. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 

@@ -54,3 +54,4 @@ backend/data/candle_update_state.json
 # Runtime ML artifacts
 backend/data/ml_probability_model.joblib
 backend/data/ml_v2_trade_pnl_model.joblib
+backend/data/ml_v3_consumer_candidate_model.joblib

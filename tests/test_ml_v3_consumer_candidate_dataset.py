@@ -1,0 +1,5 @@
+from app.services.ml_v3_consumer_candidate_dataset import build_ml_v3_consumer_candidate_dataset
+
+
+def test_build_ml_v3_consumer_candidate_dataset_importable():
+    assert callable(build_ml_v3_consumer_candidate_dataset)

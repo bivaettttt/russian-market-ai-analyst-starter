@@ -34,6 +34,13 @@ from app.services.ml_v2_gate_walk_forward_page_html import build_ml_v2_gate_walk
 from app.services.ml_v2_high_confidence_page_html import build_ml_v2_high_confidence_page_html
 from app.services.ml_v2_high_confidence_validation import build_ml_v2_high_confidence_validation, parse_thresholds
 from app.services.ml_v2_report_page_html import build_ml_v2_report_page_html
+from app.services.ml_v3_consumer_candidate_dataset import build_ml_v3_consumer_candidate_dataset
+from app.services.ml_v3_consumer_candidate_evaluation import (
+    build_ml_v3_consumer_candidate_walk_forward,
+    evaluate_ml_v3_consumer_candidate_model,
+    parse_ml_v3_thresholds,
+)
+from app.services.ml_v3_consumer_candidate_page_html import build_ml_v3_consumer_candidate_page_html
 
 
 @router.get("/signals/ml/status")
@@ -270,6 +277,116 @@ def market_signals_ml_v2_gate_walk_forward(
 @router.get("/signals/ml-v2/gate-walk-forward-page", response_class=AIReportHTMLResponse)
 def market_signals_ml_v2_gate_walk_forward_page():
     return build_ml_v2_gate_walk_forward_page_html()
+
+
+@router.get("/signals/ml-v3/consumer-candidate/dataset-summary")
+def market_signals_ml_v3_consumer_candidate_dataset_summary(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    include_watch_candidates: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    dataset = build_ml_v3_consumer_candidate_dataset(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        include_watch_candidates=include_watch_candidates,
+    )
+    return {
+        "ok": dataset.get("ok"),
+        "mode": dataset.get("mode"),
+        "feature_set": dataset.get("feature_set"),
+        "feature_count": dataset.get("feature_count"),
+        "feature_names": dataset.get("feature_names") or [],
+        "summary": dataset.get("summary") or {},
+        "warnings": dataset.get("warnings") or [],
+        "limitations": dataset.get("limitations") or [],
+    }
+
+
+@router.get("/signals/ml-v3/consumer-candidate/evaluation")
+def market_signals_ml_v3_consumer_candidate_evaluation(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    label: str = Query("positive_trade_return"),
+    test_size: float = Query(0.25, ge=0.1, le=0.5),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    include_watch_candidates: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return evaluate_ml_v3_consumer_candidate_model(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        label=label,
+        test_size=test_size,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        include_watch_candidates=include_watch_candidates,
+    )
+
+
+@router.get("/signals/ml-v3/consumer-candidate/walk-forward")
+def market_signals_ml_v3_consumer_candidate_walk_forward(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    label: str = Query("positive_trade_return"),
+    folds: int = Query(4, ge=2, le=8),
+    train_ratio: float = Query(0.6, ge=0.4, le=0.85),
+    min_train_samples: int = Query(300, ge=30, le=10000),
+    min_test_samples: int = Query(100, ge=20, le=5000),
+    thresholds: str | None = Query(None),
+    gate_modes: str | None = Query(None),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_signals: int = Query(30, ge=10, le=5000),
+    include_watch_candidates: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return build_ml_v3_consumer_candidate_walk_forward(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        label=label,
+        folds=folds,
+        train_ratio=train_ratio,
+        min_train_samples=min_train_samples,
+        min_test_samples=min_test_samples,
+        thresholds=parse_ml_v3_thresholds(thresholds),
+        gate_modes=parse_gate_modes(gate_modes),
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_signals=min_signals,
+        include_watch_candidates=include_watch_candidates,
+    )
+
+
+@router.get("/signals/ml-v3/consumer-candidate/page", response_class=AIReportHTMLResponse)
+def market_signals_ml_v3_consumer_candidate_page():
+    return build_ml_v3_consumer_candidate_page_html()
 
 
 # --- Market signals dashboard ---
