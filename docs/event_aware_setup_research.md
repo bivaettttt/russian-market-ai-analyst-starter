@@ -67,6 +67,10 @@ python3 -m app.tasks.bootstrap_historical_events
 
 The seed is research bootstrap data for 2022-2026. It should be replaced or expanded with verified source-based ingestion before production use.
 
+## Walk-Forward Validation
+
+After a promising combo appears in the static event-aware research, validate it with `/signals/event-aware/walk-forward`. That endpoint selects combinations only on past train windows and evaluates them on future test windows, with concentration checks by ticker/event/year.
+
 ## Curl Examples
 
 ```bash
@@ -87,6 +91,10 @@ curl "http://127.0.0.1:8010/signals/event-aware/research?max_tickers=80&max_samp
 
 ```bash
 curl "http://127.0.0.1:8010/signals/event-aware/sweep?max_tickers=80&max_samples=3000&max_events=5000&max_configs=60&min_signals=20"
+```
+
+```bash
+curl "http://127.0.0.1:8010/signals/event-aware/walk-forward?max_tickers=80&max_samples=3000&max_events=10000&folds=4&top_k_combos=5"
 ```
 
 ## Limitations

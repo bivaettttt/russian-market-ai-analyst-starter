@@ -185,6 +185,7 @@ def _best_event_for_sample(
             continue
         impact["effective_score"] = effective
         impact["event_age_days"] = age_days
+        impact["event_id"] = event.get("id") or (event.get("raw_analysis") or {}).get("event_id")
         impact["event_title"] = event.get("title")
         impact["event_date"] = event_date.isoformat()
         candidates.append(impact)
@@ -259,9 +260,9 @@ def _event_rows(
                     else "setup_event_neutral" if row_confirmation == "neutral"
                     else "setup_only"
                 )
-                rows.append(_sample_row(sample, family, setup, best_event, row_confirmation, sample_type))
+                rows.append(_sample_row(sample, family, setup, classified, best_event, row_confirmation, sample_type))
         elif best_event and confirmation in {"confirmed", "neutral"}:
-            rows.append(_sample_row(sample, None, {}, best_event, "event_only", "event_only"))
+            rows.append(_sample_row(sample, None, {}, classified, best_event, "event_only", "event_only"))
     return rows
 
 
@@ -269,6 +270,7 @@ def _sample_row(
     sample: dict[str, Any],
     setup_family: str | None,
     setup: dict[str, Any],
+    classified: dict[str, Any],
     event_impact: dict[str, Any] | None,
     event_confirmation: str,
     sample_type: str,
@@ -276,22 +278,85 @@ def _sample_row(
     return {
         "ticker": sample.get("ticker"),
         "date": sample.get("date"),
+        "sector": sample.get("sector") or (_instrument(sample).get("sector")),
         "setup_family": setup_family,
         "setup_score": setup.get("score"),
         "setup_confidence": setup.get("confidence"),
+        "primary_setup_family": classified.get("primary_setup_family"),
         "event_family": event_impact.get("event_family") if event_impact else None,
         "event_direction": event_impact.get("direction") if event_impact else None,
         "event_scope": event_impact.get("impact_scope") if event_impact else None,
         "event_score": event_impact.get("effective_score") if event_impact else None,
         "event_raw_score": event_impact.get("score") if event_impact else None,
         "event_age_days": event_impact.get("event_age_days") if event_impact else None,
+        "event_id": event_impact.get("event_id") if event_impact else None,
         "event_confirmation": event_confirmation,
         "event_title": event_impact.get("event_title") if event_impact else None,
         "sample_type": sample_type,
         "outcome": sample.get("outcome"),
         "trade_return_pct": sample.get("trade_return_pct"),
+        "target_pct": sample.get("target_return_pct"),
+        "stop_pct": sample.get("stop_return_pct"),
         "mfe_pct": sample.get("mfe_pct"),
         "mae_pct": sample.get("mae_pct"),
+    }
+
+
+def build_event_aware_samples(
+    db: Session,
+    *,
+    max_tickers: int,
+    max_samples: int,
+    max_events: int,
+    min_history: int,
+    horizon: int,
+    policy_id: str,
+    event_lookback_days: int,
+    event_decay_days: int,
+    commission_bps: float,
+    slippage_bps: float,
+    include_global_events: bool = True,
+    include_ticker_events: bool = True,
+) -> dict[str, Any]:
+    base_samples, tickers_used, warnings, policy = _build_policy_samples(
+        db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+    )
+    events = _load_events(db, max_events=max_events)
+    if not events:
+        warnings.append("no historical events found; event-aware samples contain setup-only rows")
+    rows = _event_rows(
+        base_samples,
+        events,
+        event_lookback_days=event_lookback_days,
+        event_decay_days=event_decay_days,
+        include_global_events=include_global_events,
+        include_ticker_events=include_ticker_events,
+    )
+    event_rows = [row for row in rows if row.get("event_family")]
+    confirmed_rows = [row for row in rows if row.get("event_confirmation") == "confirmed"]
+    if events and not event_rows:
+        warnings.append("no event-linked samples found; event dates may not overlap historical candle samples/lookback window")
+    return {
+        "ok": True,
+        "mode": "event_aware_samples",
+        "samples": rows,
+        "summary": {
+            "samples": len(rows),
+            "base_samples": len(base_samples),
+            "event_samples": len(event_rows),
+            "confirmed_samples": len(confirmed_rows),
+            "tickers_used": len(tickers_used),
+            "events_used": len(events),
+            "policy": policy,
+        },
+        "warnings": warnings,
     }
 
 
@@ -382,31 +447,26 @@ def build_event_aware_setup_research(
     include_global_events: bool = True,
     include_ticker_events: bool = True,
 ) -> dict[str, Any]:
-    samples, tickers_used, warnings, policy = _build_policy_samples(
+    sample_data = build_event_aware_samples(
         db,
         max_tickers=max_tickers,
         max_samples=max_samples,
+        max_events=max_events,
         min_history=min_history,
         horizon=horizon,
         policy_id=policy_id,
-        commission_bps=commission_bps,
-        slippage_bps=slippage_bps,
-    )
-    events = _load_events(db, max_events=max_events)
-    if not events:
-        warnings.append("no historical events found; event-aware research degraded to setup-only context")
-    rows = _event_rows(
-        samples,
-        events,
         event_lookback_days=event_lookback_days,
         event_decay_days=event_decay_days,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
         include_global_events=include_global_events,
         include_ticker_events=include_ticker_events,
     )
+    rows = list(sample_data.get("samples") or [])
+    sample_summary = sample_data.get("summary") or {}
+    warnings = list(sample_data.get("warnings") or [])
     event_rows = [row for row in rows if row.get("event_family")]
     confirmed_rows = [row for row in rows if row.get("event_confirmation") == "confirmed"]
-    if events and not event_rows:
-        warnings.append("no event-linked samples found; event dates may not overlap historical candle samples/lookback window")
 
     by_event_family = _group_rows(event_rows, lambda row: row.get("event_family") or "none", min_signals=min_signals)
     by_combo = _group_rows(
@@ -415,7 +475,7 @@ def build_event_aware_setup_research(
         min_signals=min_signals,
     )
     best = by_combo[0] if by_combo else by_event_family[0] if by_event_family else None
-    if not samples:
+    if not sample_summary.get("base_samples"):
         recommendation = "needs_more_event_data"
     elif not event_rows:
         recommendation = "needs_more_event_data"
@@ -427,15 +487,15 @@ def build_event_aware_setup_research(
     event_families = Counter(row.get("event_family") for row in event_rows if row.get("event_family"))
     summary = {
         "samples": len(rows),
-        "base_samples": len(samples),
+        "base_samples": sample_summary.get("base_samples"),
         "event_samples": len(event_rows),
         "setup_event_confirmed_samples": len(confirmed_rows),
-        "tickers_used": len(tickers_used),
-        "events_used": len(events),
+        "tickers_used": sample_summary.get("tickers_used"),
+        "events_used": sample_summary.get("events_used"),
         "event_families": dict(event_families),
         "best_group_key": best.get("group_key") if best else None,
         "best_quality_label": best.get("quality_label") if best else None,
-        "policy": policy,
+        "policy": sample_summary.get("policy"),
         "recommendation": recommendation,
         "warnings": warnings,
     }

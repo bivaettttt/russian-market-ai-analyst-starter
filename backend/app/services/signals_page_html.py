@@ -481,6 +481,7 @@ def build_signals_page_html() -> str:
         <a href="/signals/ml-v3/consumer-candidate/page">ML v3 consumer candidates</a>
         <a href="/signals/setup-family/research-page">Setup families</a>
         <a href="/signals/event-aware/research-page">Event-aware setups</a>
+        <a href="/signals/event-aware/walk-forward-page">Event-aware walk-forward</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
         <a href="/tickers/SBER">Пример тикера</a>
       </nav>

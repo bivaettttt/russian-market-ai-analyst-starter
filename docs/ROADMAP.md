@@ -474,7 +474,7 @@ Acceptance criteria:
 
 ## 22. Historical Event Data Bootstrap
 
-Статус: реализовано как offline curated seed bootstrap.
+Статус: реализовано как offline curated seed bootstrap. После импорта event-aware research начал возвращать non-zero event samples.
 
 Цель: заполнить локальную `MarketEvent` историю, чтобы event-aware setup research мог сопоставлять candle samples с catalyst events.
 
@@ -488,7 +488,23 @@ Acceptance criteria:
 
 Почему важно: без исторических событий event-aware layer не может отличить setup-only от setup+event candidates.
 
-## 23. Production News Pipeline
+## 23. Event-Aware Walk-forward Validation
+
+Статус: реализовано как leakage-safe validation layer.
+
+Цель: проверить, не является ли лучший event/setup combo результатом overfit на одном событии, году, секторе или тикере.
+
+Что сделано:
+
+- train folds выбирают лучшие combos только на прошлом окне;
+- test folds применяют выбранные combos только к будущим samples;
+- результат сравнивается с all event-aware baseline, confirmed-only и setup-only buckets;
+- добавлены concentration checks по ticker/event/year;
+- добавлены endpoint `/signals/event-aware/walk-forward` и page `/signals/event-aware/walk-forward-page`.
+
+Почему важно: статический PF на малой выборке не является достаточным основанием для нового candidate generator.
+
+## 24. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 
