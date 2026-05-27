@@ -57,6 +57,7 @@ def build_ml_v2_consumer_gate_backtest_page_html() -> str:
         <a href="/signals/ml-v2/gate-impact-page">ML v2 gate impact</a>
         <a href="/signals/ml-v2/high-confidence-page">ML v2 high-confidence</a>
         <a href="/signals/ml-v3/consumer-candidate/page">ML v3 consumer candidates</a>
+        <a href="/signals/setup-family/research-page">Setup families</a>
         <a href="/signals/consumer/backtest-audit-page">Backtest audit</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Adaptive calibration</a>
       </nav>

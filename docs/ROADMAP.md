@@ -410,7 +410,7 @@ Acceptance criteria:
 
 ## 19. Consumer Candidate ML v3 Dataset & Validation
 
-Статус: реализовано как research layer.
+Статус: реализовано как research layer. Результат на текущей DB: ML v3 не нашёл stable edge, recommendation `reject`.
 
 Цель: обучать модель не на generic trade samples, а только на historical consumer long-candidates.
 
@@ -432,7 +432,30 @@ Acceptance criteria:
 
 Почему важно: ML v2 провалился как consumer decision gate из-за distribution mismatch; ML v3 проверяет именно ту выборку, которую реально создаёт consumer layer.
 
-## 20. Production News Pipeline
+## 20. Consumer Candidate Generation Redesign / Setup Family Research
+
+Статус: реализовано как setup family research layer.
+
+Цель: проверить альтернативные способы генерации long-candidates через прозрачные setup families до изменения production rules.
+
+Что сделать:
+
+- классифицировать historical candle samples по breakout, pullback, mean reversion, momentum, squeeze, trend и liquidity/quality setups;
+- считать target/stop PnL по existing adaptive policy;
+- сравнить setup families с old consumer candidates;
+- выполнить bounded parameter sweep по ключевым thresholds;
+- оставить результаты research-only.
+
+Acceptance criteria:
+
+- endpoints `/signals/setup-family/research` и `/signals/setup-family/sweep` возвращают ranked setup reports;
+- page `/signals/setup-family/research-page` показывает family metrics, sweep configs, examples и limitations;
+- tests покрывают setup classifier и quality/scoring helpers;
+- production consumer recommendations не меняются.
+
+Почему важно: если ML поверх candidates не помогает, нужно улучшать саму генерацию candidates и искать setup families с положительной expectancy.
+
+## 21. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 

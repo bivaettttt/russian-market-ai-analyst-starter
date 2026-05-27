@@ -41,6 +41,8 @@ from app.services.ml_v3_consumer_candidate_evaluation import (
     parse_ml_v3_thresholds,
 )
 from app.services.ml_v3_consumer_candidate_page_html import build_ml_v3_consumer_candidate_page_html
+from app.services.setup_family_research import build_setup_family_parameter_sweep, build_setup_family_research
+from app.services.setup_family_research_page_html import build_setup_family_research_page_html
 
 
 @router.get("/signals/ml/status")
@@ -387,6 +389,67 @@ def market_signals_ml_v3_consumer_candidate_walk_forward(
 @router.get("/signals/ml-v3/consumer-candidate/page", response_class=AIReportHTMLResponse)
 def market_signals_ml_v3_consumer_candidate_page():
     return build_ml_v3_consumer_candidate_page_html()
+
+
+@router.get("/signals/setup-family/research")
+def market_signals_setup_family_research(
+    max_tickers: int = Query(120, ge=1, le=300),
+    max_samples: int = Query(10000, ge=100, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_signals: int = Query(30, ge=5, le=5000),
+    max_setups: int = Query(100, ge=10, le=1000),
+    db: Session = Depends(get_db),
+):
+    return build_setup_family_research(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_signals=min_signals,
+        max_setups=max_setups,
+    )
+
+
+@router.get("/signals/setup-family/sweep")
+def market_signals_setup_family_sweep(
+    max_tickers: int = Query(80, ge=1, le=300),
+    max_samples: int = Query(3000, ge=100, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    setup_family: str | None = Query(None),
+    max_configs: int = Query(60, ge=5, le=300),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_signals: int = Query(30, ge=5, le=5000),
+    db: Session = Depends(get_db),
+):
+    return build_setup_family_parameter_sweep(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        setup_family=setup_family,
+        max_configs=max_configs,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_signals=min_signals,
+    )
+
+
+@router.get("/signals/setup-family/research-page", response_class=AIReportHTMLResponse)
+def market_signals_setup_family_research_page():
+    return build_setup_family_research_page_html()
 
 
 # --- Market signals dashboard ---
