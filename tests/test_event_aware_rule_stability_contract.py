@@ -1,0 +1,5 @@
+from app.services.event_aware_rule_stability import build_event_aware_rule_stability_diagnostics
+
+
+def test_event_aware_rule_stability_contract_importable():
+    assert callable(build_event_aware_rule_stability_diagnostics)

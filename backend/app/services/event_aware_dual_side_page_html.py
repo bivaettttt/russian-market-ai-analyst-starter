@@ -49,6 +49,7 @@ def build_event_aware_dual_side_page_html() -> str:
       <a href="/signals/event-aware/research-page">Event-aware setups</a>
       <a href="/signals/event-aware/walk-forward-page">Event-aware walk-forward</a>
       <a href="/signals/event-aware/rule-search-page">Event rule search</a>
+      <a href="/signals/event-aware/rule-stability-page">Rule stability</a>
     </nav>
   </div></header>
   <main>

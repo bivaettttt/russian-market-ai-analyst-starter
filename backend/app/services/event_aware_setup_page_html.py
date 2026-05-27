@@ -52,6 +52,7 @@ def build_event_aware_setup_page_html() -> str:
       <a href="/signals/event-aware/walk-forward-page">Event-aware walk-forward</a>
       <a href="/signals/event-aware/rule-search-page">Event rule search</a>
       <a href="/signals/event-aware/dual-side-page">Dual-side event risk</a>
+      <a href="/signals/event-aware/rule-stability-page">Rule stability</a>
       <a href="/signals/events/bootstrap-status">Bootstrap status JSON</a>
     </nav>
   </div></header>

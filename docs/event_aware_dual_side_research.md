@@ -50,6 +50,8 @@ Walk-forward validation avoids leakage:
 3. Matching trades are blocked/avoided.
 4. Remaining kept trades are compared with baseline test event trades.
 
+If static avoid-long rules look strong but walk-forward rejects them, use Event-Aware Rule Stability Diagnostics to identify year/event concentration, missed-winner risk and regime-specific behavior.
+
 Key fields:
 
 - `avg_return_delta_pct`;

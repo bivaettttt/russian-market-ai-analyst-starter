@@ -538,7 +538,7 @@ Acceptance criteria:
 
 ## 23.2 Dual-Side Event-Aware Outcome Research
 
-Статус: реализовано как research layer для risk/avoid-long проверки.
+Статус: реализовано как research layer для risk/avoid-long проверки. Static diagnostics promising, но walk-forward risk filter rejected: positive impact folds `0/4`, avg return/PF delta отрицательные.
 
 Цель: проверить, полезен ли event-aware слой не как long-entry engine, а как downside watch / avoid-long / reduce-exposure filter.
 
@@ -551,6 +551,22 @@ Acceptance criteria:
 - walk-forward выбирает risk rules на train и применяет их как фильтр на future test.
 
 Почему важно: отрицательный long-edge не означает, что event layer бесполезен; он может быть сильнее в роли risk filter.
+
+## 23.3 Event-Aware Rule Stability Diagnostics
+
+Статус: реализовано как diagnostics/research layer.
+
+Цель: объяснить, почему static event risk rules не переносятся в walk-forward.
+
+Что сделано:
+
+- добавлен endpoint `/signals/event-aware/rule-stability`;
+- добавлена page `/signals/event-aware/rule-stability-page`;
+- stability metrics считаются by year, chronological bucket, market regime, event family, setup group;
+- добавлена concentration диагностика по ticker/event/year/sector;
+- failure analysis объясняет: rule instability, missed winners, concentration, regime shift, sparse transfer.
+
+Почему важно: следующий шаг должен быть основан не на static best rules, а на правилах, которые стабильны во времени и не зависят от одного события или режима.
 
 ## 24. Production News Pipeline
 

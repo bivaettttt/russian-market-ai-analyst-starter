@@ -143,6 +143,8 @@ check_get "signals event aware rule search page" "/signals/event-aware/rule-sear
 check_get "signals event aware dual side research" "/signals/event-aware/dual-side-research?max_tickers=5&max_samples=200&max_events=200&min_signals=2&max_rules=30"
 check_get "signals event aware dual side walk forward" "/signals/event-aware/dual-side-walk-forward?max_tickers=5&max_samples=200&max_events=200&folds=2&min_train_samples=20&min_test_samples=10&min_signals=2&max_rules=30&top_k_rules=3"
 check_get "signals event aware dual side page" "/signals/event-aware/dual-side-page"
+check_get "signals event aware rule stability" "/signals/event-aware/rule-stability?max_tickers=5&max_samples=200&max_events=200&min_signals=2&max_rules=30"
+check_get "signals event aware rule stability page" "/signals/event-aware/rule-stability-page"
 check_get "signals data coverage" "/signals/data-coverage?max_tickers=100&min_history=80&horizon=20"
 check_get "signals data coverage page" "/signals/data-coverage-page"
 check_get "signals data bootstrap status" "/signals/data-bootstrap-status"
