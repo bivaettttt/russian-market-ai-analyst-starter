@@ -103,12 +103,12 @@ Troubleshooting:
 
 ## Bootstrap Historical Events
 
-Event-aware validation needs historical event coverage, not only current live events. The local curated seed is offline and research-only:
+Event-aware validation needs historical event coverage, not only current live events. The local curated seed v2 is offline, research-only, and covers 2022-2026 with macro, sector and issuer markers:
 
 ```bash
 cd /Users/bivaettttt/Desktop/russian-market-ai-analyst-starter/backend
 python3 -m app.tasks.bootstrap_historical_events --dry-run
-python3 -m app.tasks.bootstrap_historical_events
+python3 -m app.tasks.bootstrap_historical_events --replace-existing-seed
 ```
 
 Check coverage:

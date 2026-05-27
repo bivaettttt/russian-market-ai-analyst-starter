@@ -423,6 +423,64 @@ def _rank(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+def event_density_score(total_events: int, events_by_year: dict[str, int]) -> str:
+    if total_events <= 0:
+        return "empty"
+    covered_years = sum(1 for count in events_by_year.values() if int(count or 0) >= 20)
+    core_years = [int(events_by_year.get(str(year), 0) or 0) for year in range(2022, 2026)]
+    if total_events >= 300 and all(count >= 40 for count in core_years):
+        return "good"
+    if total_events >= 250 and covered_years >= 4 and all(count >= 20 for count in core_years):
+        return "medium"
+    return "weak"
+
+
+def event_coverage_recommendations(
+    *,
+    total_events: int,
+    events_by_year: dict[str, int],
+    by_event_family: dict[str, int],
+    events_with_ticker: int,
+    dates: list[date],
+) -> list[str]:
+    recommendations: list[str] = []
+    if total_events < 250:
+        recommendations.append("Expand historical event seed to at least 250 events before relying on event-aware validation.")
+    for year in range(2022, 2027):
+        count = int(events_by_year.get(str(year), 0) or 0)
+        if count < 20:
+            recommendations.append(f"Add more historical events for {year}; current coverage is {count}.")
+    if events_with_ticker <= 0:
+        recommendations.append("Add corporate/ticker-level historical events for liquid MOEX names.")
+    macro_count = sum(int(by_event_family.get(name, 0) or 0) for name in ["macro", "inflation", "rates", "fx"])
+    if macro_count <= 0:
+        recommendations.append("Add macro, rates and FX events to support event-aware research.")
+    if dates and min(dates).year >= date.today().year:
+        recommendations.append("Historical event coverage is insufficient for backtest; import events covering candle sample dates.")
+    if total_events <= 0:
+        recommendations.append("Import historical events covering 2022-2026 before relying on event-aware research.")
+    return recommendations
+
+
+def _missing_months(dates: list[date]) -> list[str]:
+    if not dates:
+        return []
+    start = date(min(dates).year, min(dates).month, 1)
+    end = date(max(dates).year, max(dates).month, 1)
+    present = {f"{item.year}-{item.month:02d}" for item in dates}
+    missing: list[str] = []
+    cursor = start
+    while cursor <= end:
+        key = f"{cursor.year}-{cursor.month:02d}"
+        if key not in present:
+            missing.append(key)
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
+    return missing
+
+
 def _group_rows(rows: list[dict[str, Any]], key_fn: Any, *, min_signals: int) -> list[dict[str, Any]]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -535,11 +593,13 @@ def build_event_coverage_diagnostics(
     scope_counter: Counter[str] = Counter()
     source_counter: Counter[str] = Counter()
     year_counter: Counter[str] = Counter()
+    month_counter: Counter[str] = Counter()
     with_ticker = 0
     with_sector_scope = 0
     with_market_scope = 0
     with_tags = 0
     curated_seed_events = 0
+    curated_seed_v2_events = 0
     dates: list[date] = []
     examples: list[dict[str, Any]] = []
     for event in events:
@@ -551,6 +611,8 @@ def build_event_coverage_diagnostics(
         source_counter[source] += 1
         if source == "curated_seed":
             curated_seed_events += 1
+        if source == "curated_seed_v2":
+            curated_seed_v2_events += 1
         if mapped.get("affected_tickers"):
             with_ticker += 1
         if mapped.get("impact_scope") == "sector":
@@ -563,6 +625,7 @@ def build_event_coverage_diagnostics(
         if isinstance(event_date, date):
             dates.append(event_date)
             year_counter[str(event_date.year)] += 1
+            month_counter[f"{event_date.year}-{event_date.month:02d}"] += 1
         if len(examples) < 10:
             examples.append(
                 {
@@ -575,20 +638,28 @@ def build_event_coverage_diagnostics(
                 }
             )
     warnings = [] if events else ["no historical events found"]
-    recommendations: list[str] = []
-    if len(events) < 100:
-        recommendations.append("Run bootstrap_historical_events to import the curated historical event seed.")
-    if dates and min(dates).year >= date.today().year:
-        recommendations.append("Historical event coverage is insufficient for backtest; import events covering candle sample dates.")
-    if not events:
-        recommendations.append("Import historical events covering 2022-2026 before relying on event-aware research.")
+    missing_months = _missing_months(dates)
+    sparse_years = {year: count for year, count in dict(year_counter).items() if int(count or 0) < 20}
+    coverage_gaps = {
+        "sparse_years": sparse_years,
+        "missing_months": missing_months,
+        "missing_months_count": len(missing_months),
+    }
+    recommendations = event_coverage_recommendations(
+        total_events=len(events),
+        events_by_year=dict(year_counter),
+        by_event_family=dict(family_counter),
+        events_with_ticker=with_ticker,
+        dates=dates,
+    )
     return {
         "ok": True,
         "mode": "event_coverage_diagnostics",
         "summary": {
             "total_events": len(events),
             "curated_seed_events": curated_seed_events,
-            "live_events": len(events) - curated_seed_events,
+            "curated_seed_v2_events": curated_seed_v2_events,
+            "live_events": len(events) - curated_seed_events - curated_seed_v2_events,
             "events_by_source": dict(source_counter),
             "events_with_ticker": with_ticker,
             "events_with_sector_scope": with_sector_scope,
@@ -597,10 +668,17 @@ def build_event_coverage_diagnostics(
             "events_with_tags": with_tags,
             "date_range": {"from": min(dates).isoformat(), "to": max(dates).isoformat()} if dates else {},
             "events_by_year": dict(year_counter),
+            "events_by_month": dict(month_counter),
             "by_event_family": dict(family_counter),
             "by_direction": dict(direction_counter),
             "by_scope": dict(scope_counter),
+            "coverage_gaps": coverage_gaps,
+            "event_density_score": event_density_score(len(events), dict(year_counter)),
         },
+        "by_year": dict(year_counter),
+        "by_month": dict(month_counter),
+        "by_source": dict(source_counter),
+        "coverage_gaps": coverage_gaps,
         "examples": examples,
         "warnings": warnings,
         "recommendations": recommendations,

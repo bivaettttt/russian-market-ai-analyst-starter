@@ -15,6 +15,7 @@ from app.services.event_ticker_mapping import classify_event_family
 
 
 DEFAULT_SEED_PATH = Path(__file__).resolve().parents[1] / "data" / "seed" / "historical_events_seed.json"
+CURATED_SEED_SOURCES = {"curated_seed", "curated_seed_v2"}
 
 
 def _as_list(value: Any) -> list[str]:
@@ -139,9 +140,12 @@ def _raw_analysis(event: dict[str, Any]) -> str:
     return json.dumps(raw, ensure_ascii=False, sort_keys=True)
 
 
-def _index_existing_seed_events(db: Session, *, source: str) -> dict[str, MarketEvent]:
+def _index_existing_seed_events(db: Session, *, sources: set[str] | None = None) -> dict[str, MarketEvent]:
     existing: dict[str, MarketEvent] = {}
-    rows = db.query(MarketEvent).filter(MarketEvent.source == source).all()
+    query = db.query(MarketEvent)
+    if sources:
+        query = query.filter(MarketEvent.source.in_(sorted(sources)))
+    rows = query.all()
     for row in rows:
         raw = getattr(row, "raw_analysis", None)
         if not raw:
@@ -166,8 +170,7 @@ def _apply_events(
     inserted = 0
     updated = 0
     skipped = 0
-    source = "curated_seed"
-    existing = _index_existing_seed_events(db, source=source)
+    existing = _index_existing_seed_events(db, sources=CURATED_SEED_SOURCES)
     if replace_existing_seed and not dry_run:
         for row in existing.values():
             db.delete(row)
@@ -224,6 +227,8 @@ def _summary(
     warnings: list[str],
 ) -> dict[str, Any]:
     dates = [event["date"] for event in valid_events]
+    by_year = Counter(event["date"][:4] for event in valid_events if event.get("date"))
+    by_source = Counter(event.get("source") or "unknown" for event in valid_events)
     return {
         "ok": not errors or bool(valid_events),
         "mode": "historical_event_bootstrap",
@@ -238,6 +243,8 @@ def _summary(
         "warnings": warnings,
         "by_event_family": dict(Counter(event["event_family"] for event in valid_events)),
         "by_direction": dict(Counter(event["direction"] for event in valid_events)),
+        "by_year": dict(by_year),
+        "by_source": dict(by_source),
         "date_range": {"first_date": min(dates), "last_date": max(dates)} if dates else {},
     }
 

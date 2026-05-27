@@ -2,7 +2,7 @@
 
 Event-aware setup research returned `event_samples=0` because the local event table only had current events around 2026-05-14. Historical candle samples need event dates that overlap the backtest window.
 
-This bootstrap imports a small curated seed into the existing `MarketEvent` table. It is offline, deterministic and idempotent. It does not call external APIs and does not change production consumer recommendations.
+This bootstrap imports a curated seed into the existing `MarketEvent` table. It is offline, deterministic and idempotent. It does not call external APIs and does not change production consumer recommendations.
 
 ## Seed
 
@@ -12,7 +12,7 @@ Default file:
 backend/app/data/seed/historical_events_seed.json
 ```
 
-The seed covers 2022-2026 and includes research markers for:
+Seed v2 expands the file to 250+ curated events across 2022-2026, with denser monthly coverage and both macro and issuer/sector markers. It includes research markers for:
 
 - key-rate hikes/cuts/holds;
 - geopolitics and risk-off markers;
@@ -24,6 +24,12 @@ The seed covers 2022-2026 and includes research markers for:
 - broad macro/sector policy markers.
 
 The seed is not a complete verified event history. It is a research bootstrap that should later be expanded or replaced with source-based ingestion.
+
+Validate the seed file:
+
+```bash
+python3 -m pytest tests/test_historical_event_seed_validity.py -q
+```
 
 ## Commands
 
@@ -46,6 +52,13 @@ Replace existing curated seed rows only:
 python3 -m app.tasks.bootstrap_historical_events --replace-existing-seed
 ```
 
+For seed v2 reimport, use dry-run first and then replace curated seed rows:
+
+```bash
+python3 -m app.tasks.bootstrap_historical_events --dry-run
+python3 -m app.tasks.bootstrap_historical_events --replace-existing-seed
+```
+
 Custom JSON/CSV:
 
 ```bash
@@ -64,9 +77,10 @@ curl "http://127.0.0.1:8010/signals/event-aware/research?max_tickers=80&max_samp
 
 Targets after import:
 
-- `total_events` above 100 when combined with existing live events;
+- `total_events` above 250 when combined with existing live events;
 - `date_range` starts in 2022;
 - event-aware research has `event_samples > 0`.
+- event-aware walk-forward shows event/confirmed sample coverage by fold and year.
 
 ## Caveats
 

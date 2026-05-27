@@ -2,6 +2,8 @@
 
 Event-aware research found high-PF combinations after historical event bootstrap, but a combo like `regime_supported_long+sector_news_negative` with PF above 5 on 37 samples can easily be overfit to one event window, year, ticker group or sector.
 
+The first full walk-forward run after the initial seed showed positive average selected PF but only `1/4` positive folds. That means the static event-aware edge was not stable enough; seed v2 expands historical event coverage so fold-level coverage is easier to diagnose.
+
 Walk-forward validation checks whether the edge survives a leakage-safe process:
 
 1. Build historical setup + event samples.
@@ -23,6 +25,8 @@ Walk-forward validation checks whether the edge survives a leakage-safe process:
 - `avg_test_selected_profit_factor`: average PF of selected future samples across completed folds.
 - `avg_delta_vs_baseline_return_pct`: selected future avg return minus broad event-aware test baseline.
 - `selected_combo_frequency`: how often a combo was selected from train and how it performed in test.
+- `fold_event_coverage`: train/test event and confirmed sample counts by fold and year.
+- `event_samples_by_year` / `confirmed_samples_by_year`: whether the event layer is distributed across the historical period.
 - `concentration`: top ticker/event/year share in selected test rows.
 - `recommendation`: `promising_event_edge`, `research_only`, `reject`, or `needs_more_event_data`.
 

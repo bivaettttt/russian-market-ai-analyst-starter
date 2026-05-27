@@ -488,6 +488,22 @@ Acceptance criteria:
 
 Почему важно: без исторических событий event-aware layer не может отличить setup-only от setup+event candidates.
 
+## 22.1 Historical Event Data Expansion v2
+
+Статус: реализовано как расширение curated seed coverage.
+
+Цель: сделать event-aware validation менее зависимой от редких seed events и дать walk-forward fold diagnostics больше событийных samples по годам.
+
+Что сделано:
+
+- seed расширен до 250+ событий за 2022-2026;
+- добавлены `curated_seed_v2` macro/rates/inflation/FX/oil/commodities/sanctions/geopolitics/dividend/earnings/corporate/sector markers;
+- bootstrap сохраняет source и возвращает `by_year` / `by_source`;
+- coverage diagnostics показывает density, by-month, gaps и рекомендации;
+- event-aware walk-forward показывает event/confirmed sample coverage by year/fold.
+
+Следующий этап: rerun event-aware walk-forward на расширенной event history; если edge станет стабильным, проектировать Event-Aware Candidate Generator v1.
+
 ## 23. Event-Aware Walk-forward Validation
 
 Статус: реализовано как leakage-safe validation layer.

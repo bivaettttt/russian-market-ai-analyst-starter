@@ -9,9 +9,11 @@ from app.services.consumer_signals import _round
 
 EVENT_FAMILIES = {
     "rates",
+    "inflation",
     "sanctions",
     "geopolitics",
     "oil_gas",
+    "commodities",
     "fx",
     "dividend",
     "earnings",
@@ -19,6 +21,7 @@ EVENT_FAMILIES = {
     "macro",
     "sector_news",
     "ticker_news",
+    "market_structure",
     "unknown",
 }
 

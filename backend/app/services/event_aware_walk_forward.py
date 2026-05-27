@@ -203,6 +203,28 @@ def _period(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _samples_by_year(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for row in rows:
+        row_date = _as_date(row.get("date"))
+        if row_date is not None:
+            counter[str(row_date.year)] += 1
+    return dict(counter)
+
+
+def _fold_event_coverage(train_rows: list[dict[str, Any]], test_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    train_confirmed = [row for row in train_rows if row.get("event_confirmation") == "confirmed"]
+    test_confirmed = [row for row in test_rows if row.get("event_confirmation") == "confirmed"]
+    return {
+        "train_event_samples": len(train_rows),
+        "test_event_samples": len(test_rows),
+        "train_confirmed_samples": len(train_confirmed),
+        "test_confirmed_samples": len(test_confirmed),
+        "train_event_samples_by_year": _samples_by_year(train_rows),
+        "test_event_samples_by_year": _samples_by_year(test_rows),
+    }
+
+
 def _fold_quality(metrics: dict[str, Any], concentration: dict[str, Any], *, min_signals: int) -> str:
     samples = int(metrics.get("samples") or 0)
     if samples < min_signals or concentration.get("warnings"):
@@ -302,6 +324,8 @@ def build_event_aware_walk_forward(
         setup_only_metrics = _metrics([row for row in test_rows if row.get("sample_type") == "setup_only"])
         concentration = concentration_risk(test_selected)
         fold_quality = _fold_quality(selected_metrics, concentration, min_signals=min_signals)
+        if not test_selected:
+            fold_warnings.append("No selected combos in fold due to sparse event coverage or min_signals.")
         for combo in selected:
             key = combo["combo_key"]
             bucket = selected_frequency.setdefault(
@@ -327,6 +351,7 @@ def build_event_aware_walk_forward(
                 "test_confirmed_metrics": confirmed_metrics,
                 "test_setup_only_metrics": setup_only_metrics,
                 "delta_vs_baseline": _delta(selected_metrics, baseline_metrics),
+                "fold_event_coverage": _fold_event_coverage(train_rows, test_rows),
                 "concentration": concentration,
                 "quality_label": fold_quality,
                 "warnings": fold_warnings + list(concentration.get("warnings") or []),
@@ -357,6 +382,26 @@ def build_event_aware_walk_forward(
         "samples": len(rows),
         "event_samples": len(event_rows),
         "confirmed_samples": len(confirmed_rows),
+        "event_samples_by_year": _samples_by_year(event_rows),
+        "confirmed_samples_by_year": _samples_by_year(confirmed_rows),
+        "selected_samples_by_fold": [
+            {
+                "fold": fold.get("fold"),
+                "selected_samples": (fold.get("test_selected_metrics") or {}).get("samples"),
+            }
+            for fold in fold_results
+        ],
+        "selected_combos_by_fold": [
+            {
+                "fold": fold.get("fold"),
+                "selected_combos": len(fold.get("selected_combos") or []),
+            }
+            for fold in fold_results
+        ],
+        "fold_event_coverage": [
+            {"fold": fold.get("fold"), **(fold.get("fold_event_coverage") or {})}
+            for fold in fold_results
+        ],
         "folds_requested": folds,
         "folds_completed": completed,
         "top_k_combos": top_k_combos,
