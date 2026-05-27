@@ -50,6 +50,7 @@ def build_event_aware_setup_page_html() -> str:
       <a href="/signals/ml-v3/consumer-candidate/page">ML v3 consumer candidates</a>
       <a href="/signals/consumer/backtest-audit-page">Backtest audit</a>
       <a href="/signals/event-aware/walk-forward-page">Event-aware walk-forward</a>
+      <a href="/signals/event-aware/rule-search-page">Event rule search</a>
       <a href="/signals/events/bootstrap-status">Bootstrap status JSON</a>
     </nav>
   </div></header>

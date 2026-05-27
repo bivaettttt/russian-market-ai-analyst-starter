@@ -4,6 +4,8 @@ Event-aware research found high-PF combinations after historical event bootstrap
 
 The first full walk-forward run after the initial seed showed positive average selected PF but only `1/4` positive folds. That means the static event-aware edge was not stable enough; seed v2 expands historical event coverage so fold-level coverage is easier to diagnose.
 
+If detailed combo selection remains too sparse, use Event-Aware Generalized Rule Search to test broader rules such as event groups, setup groups, confirmation/conflict buckets and event-score thresholds.
+
 Walk-forward validation checks whether the edge survives a leakage-safe process:
 
 1. Build historical setup + event samples.

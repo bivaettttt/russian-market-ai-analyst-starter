@@ -506,7 +506,7 @@ Acceptance criteria:
 
 ## 23. Event-Aware Walk-forward Validation
 
-Статус: реализовано как leakage-safe validation layer.
+Статус: реализовано как leakage-safe validation layer. Research result после seed v2: `research_only`, потому что positive folds остаются `1/4`, а selected samples по fold слишком редкие.
 
 Цель: проверить, не является ли лучший event/setup combo результатом overfit на одном событии, году, секторе или тикере.
 
@@ -519,6 +519,22 @@ Acceptance criteria:
 - добавлены endpoint `/signals/event-aware/walk-forward` и page `/signals/event-aware/walk-forward-page`.
 
 Почему важно: статический PF на малой выборке не является достаточным основанием для нового candidate generator.
+
+## 23.1 Event-Aware Generalized Rule Search
+
+Статус: реализовано как research layer.
+
+Цель: заменить сверхузкие combo keys более широкими правилами, которые выбираются на train folds и проверяются на будущих test folds.
+
+Что сделано:
+
+- добавлен endpoint `/signals/event-aware/rule-search`;
+- добавлена page `/signals/event-aware/rule-search-page`;
+- добавлены rule families: confirmation, conflict/rebound, event group, setup group + event direction, score thresholds, broad coverage, filter style;
+- selected test samples deduplicated by ticker/date/setup/event;
+- добавлены concentration diagnostics и rule frequency.
+
+Почему важно: если generalized rules дают `3/4` positive folds, PF >= `1.10`, положительную доходность и достаточный sample count, это станет основой Event-Aware Candidate Generator v1.
 
 ## 24. Production News Pipeline
 

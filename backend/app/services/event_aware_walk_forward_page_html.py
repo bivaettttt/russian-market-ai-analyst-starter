@@ -47,6 +47,7 @@ def build_event_aware_walk_forward_page_html() -> str:
     <nav>
       <a href="/signals">Сигналы</a>
       <a href="/signals/event-aware/research-page">Event-aware setups</a>
+      <a href="/signals/event-aware/rule-search-page">Event rule search</a>
       <a href="/signals/setup-family/research-page">Setup families</a>
     </nav>
   </div></header>
