@@ -48,6 +48,7 @@ def build_event_aware_rule_search_page_html() -> str:
       <a href="/signals">Сигналы</a>
       <a href="/signals/event-aware/research-page">Event-aware setups</a>
       <a href="/signals/event-aware/walk-forward-page">Event-aware walk-forward</a>
+      <a href="/signals/event-aware/dual-side-page">Dual-side event risk</a>
       <a href="/signals/setup-family/research-page">Setup families</a>
     </nav>
   </div></header>

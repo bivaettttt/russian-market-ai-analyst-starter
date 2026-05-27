@@ -86,3 +86,7 @@ curl "http://127.0.0.1:8010/signals/event-aware/rule-search?max_tickers=80&max_s
 - proxy backtest uses daily candles and simplified costs;
 - daily target/stop ordering is ambiguous;
 - this is research-only and does not change production logic.
+
+## Next Step
+
+If long-only generalized rules are rejected, use Dual-Side Event-Aware Outcome Research to test whether the same event context works better as an avoid-long, downside-watch or reduce-exposure risk filter.

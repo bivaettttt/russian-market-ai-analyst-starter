@@ -522,7 +522,7 @@ Acceptance criteria:
 
 ## 23.1 Event-Aware Generalized Rule Search
 
-Статус: реализовано как research layer.
+Статус: реализовано как research layer. Research result для long-only: `reject` на full walk-forward, несмотря на более широкий sample coverage.
 
 Цель: заменить сверхузкие combo keys более широкими правилами, которые выбираются на train folds и проверяются на будущих test folds.
 
@@ -535,6 +535,22 @@ Acceptance criteria:
 - добавлены concentration diagnostics и rule frequency.
 
 Почему важно: если generalized rules дают `3/4` positive folds, PF >= `1.10`, положительную доходность и достаточный sample count, это станет основой Event-Aware Candidate Generator v1.
+
+## 23.2 Dual-Side Event-Aware Outcome Research
+
+Статус: реализовано как research layer для risk/avoid-long проверки.
+
+Цель: проверить, полезен ли event-aware слой не как long-entry engine, а как downside watch / avoid-long / reduce-exposure filter.
+
+Что сделано:
+
+- добавлены endpoints `/signals/event-aware/dual-side-research` и `/signals/event-aware/dual-side-walk-forward`;
+- добавлена page `/signals/event-aware/dual-side-page`;
+- samples enrich с downside labels: stop-hit, negative return, downside flag, avoid benefit, missed upside;
+- static research ранжирует `avoid_long`, `downside_watch`, `long_candidate` rules;
+- walk-forward выбирает risk rules на train и применяет их как фильтр на future test.
+
+Почему важно: отрицательный long-edge не означает, что event layer бесполезен; он может быть сильнее в роли risk filter.
 
 ## 24. Production News Pipeline
 
