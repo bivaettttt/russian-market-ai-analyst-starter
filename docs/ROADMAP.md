@@ -1,6 +1,6 @@
 # Roadmap
 
-Текущий статус: Research Alpha+ / Validation Engine.
+Текущий статус: Research Alpha+ with Experimental ML Gate / Validation Engine.
 
 Оценка готовности:
 
@@ -385,7 +385,30 @@ Acceptance criteria:
 
 Почему важно: leakage-safe validation дала promising research gate, но внедрение должно оставаться контролируемым и обратимым.
 
-## 18. Production News Pipeline
+## 18. Experimental ML v2 Gate Historical Backtest
+
+Статус: реализовано как research endpoint/page для proxy consumer-сигналов.
+
+Цель: исторически проверить, улучшает ли experimental ML v2 decision gate именно consumer long candidates.
+
+Что сделать:
+
+- реконструировать historical/proxy consumer actions;
+- считать leakage-safe ML v2 predictions без требования saved artifact;
+- сравнить baseline, diagnostic_only, soft_downgrade и hard_gate;
+- показать passed/rejected buckets, selected PnL, coverage, avoided losses и missed wins;
+- оставить production default без изменений.
+
+Acceptance criteria:
+
+- endpoint `/signals/consumer/ml-v2-gate-backtest` возвращает ranked results;
+- page `/signals/consumer/ml-v2-gate-backtest-page` показывает summary, таблицу и changed examples;
+- artifact mode безопасно возвращает `ok=false` при missing artifact;
+- документация фиксирует leakage, proxy action и candle-only limitations.
+
+Почему важно: walk-forward подтвердил общий gate на trade dataset, но consumer decision layer требует отдельной исторической проверки перед paper trading.
+
+## 19. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.
 

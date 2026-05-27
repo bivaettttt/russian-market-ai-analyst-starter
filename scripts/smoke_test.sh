@@ -108,6 +108,8 @@ check_get "signals consumer ticker SBER ml v2 gate" "/signals/consumer/SBER.json
 check_get "signals consumer ticker SBER ml v2 diagnostic" "/signals/consumer/SBER.json?use_ml_v2_research_gate=true&ml_v2_gate_mode=diagnostic_only"
 check_get "signals consumer ticker SBER ml v2 soft gate" "/signals/consumer/SBER.json?use_ml_v2_research_gate=true&ml_v2_gate_mode=soft_downgrade"
 check_get "signals consumer ml v2 gate compare" "/signals/consumer/ml-v2-gate-compare?limit=5&ml_v2_gate_mode=soft_downgrade"
+check_get "signals consumer ml v2 gate backtest" "/signals/consumer/ml-v2-gate-backtest?max_tickers=5&max_samples=300&min_signals=10&folds=2"
+check_get "signals consumer ml v2 gate backtest page" "/signals/consumer/ml-v2-gate-backtest-page"
 check_get "signals consumer long" "/signals/consumer.json?limit=20&scenario=long"
 check_get "signals consumer downside" "/signals/consumer.json?limit=20&scenario=downside"
 check_get "signals consumer all with events" "/signals/consumer.json?limit=20&scenario=all&news=with_events"

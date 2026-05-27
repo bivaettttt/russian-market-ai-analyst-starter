@@ -54,6 +54,7 @@ def build_ml_v2_gate_walk_forward_page_html() -> str:
         <a href="/signals/ml-v2/report-page">ML v2 report</a>
         <a href="/signals/ml-v2/high-confidence-page">ML v2 high-confidence</a>
         <a href="/signals/ml-v2/gate-impact-page">ML v2 gate impact</a>
+        <a href="/signals/consumer/ml-v2-gate-backtest-page">Consumer ML v2 gate backtest</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
         <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
       </nav>

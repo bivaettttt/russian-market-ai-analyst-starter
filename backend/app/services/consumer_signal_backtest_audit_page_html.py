@@ -161,6 +161,7 @@ def build_consumer_signal_backtest_audit_page_html() -> str:
         <a href="/signals/consumer/regime-historical-evaluation-page">Regime evaluation</a>
         <a href="/signals/consumer/regime-formula-calibration-page">Regime calibration</a>
         <a href="/signals/consumer/adaptive-trade-calibration-page">Target/Stop calibration</a>
+        <a href="/signals/consumer/ml-v2-gate-backtest-page">Consumer ML v2 gate backtest</a>
         <a href="/signals/consumer/expectancy-breakdown-page">Expectancy breakdown</a>
         <a href="/signals/consumer/candidate-filter-calibration-page">Filter calibration</a>
         <a href="/signals/consumer/composite-rule-calibration-page">Composite rules</a>

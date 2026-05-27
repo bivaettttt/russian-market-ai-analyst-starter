@@ -300,6 +300,12 @@ from app.services.data_coverage_page_html import build_data_coverage_page_html
 from app.services.expectancy_breakdown import build_expectancy_breakdown
 from app.services.expectancy_breakdown_page_html import build_expectancy_breakdown_page_html
 from app.services.market_regime import build_market_regime
+from app.services.ml_v2_consumer_gate_backtest import (
+    build_ml_v2_consumer_gate_backtest,
+    parse_ml_v2_consumer_gate_backtest_modes,
+    parse_ml_v2_consumer_gate_backtest_thresholds,
+)
+from app.services.ml_v2_consumer_gate_backtest_page_html import build_ml_v2_consumer_gate_backtest_page_html
 from app.services.moex_data_bootstrap import build_data_bootstrap_status
 from app.services.regime_formula_calibration import build_regime_formula_calibration
 from app.services.regime_formula_calibration_page_html import build_regime_formula_calibration_page_html
@@ -377,6 +383,44 @@ def consumer_ml_v2_gate_compare_api(
         ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
         ml_v2_gate_mode=ml_v2_gate_mode,
     )
+
+
+@router.get("/signals/consumer/ml-v2-gate-backtest")
+def consumer_ml_v2_gate_backtest_api(
+    max_tickers: int = Query(120, ge=1, le=300),
+    max_samples: int = Query(10000, ge=300, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    thresholds: str | None = Query(None),
+    gate_modes: str | None = Query(None),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    min_signals: int = Query(50, ge=10, le=5000),
+    use_leakage_safe_predictions: bool = Query(True),
+    folds: int = Query(4, ge=2, le=8),
+    db: Session = Depends(get_db),
+):
+    return build_ml_v2_consumer_gate_backtest(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        thresholds=parse_ml_v2_consumer_gate_backtest_thresholds(thresholds),
+        gate_modes=parse_ml_v2_consumer_gate_backtest_modes(gate_modes),
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        min_signals=min_signals,
+        use_leakage_safe_predictions=use_leakage_safe_predictions,
+        folds=folds,
+    )
+
+
+@router.get("/signals/consumer/ml-v2-gate-backtest-page", response_class=AIReportHTMLResponse)
+def consumer_ml_v2_gate_backtest_page():
+    return build_ml_v2_consumer_gate_backtest_page_html()
 
 
 @router.get("/signals/market-regime")
