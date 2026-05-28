@@ -488,6 +488,7 @@ def build_signals_page_html() -> str:
         <a href="/signals/event-aware/risk-overlay-page">Risk overlay</a>
         <a href="/signals/event-aware/risk-overlay-walk-forward-page">Risk overlay WF</a>
         <a href="/signals/event-aware/risk-overlay-conservative-page">Conservative overlay</a>
+        <a href="/signals/event-aware/conservative-overlay-paper-page">Overlay paper</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
         <a href="/tickers/SBER">Пример тикера</a>
       </nav>
@@ -579,6 +580,22 @@ def build_signals_page_html() -> str:
             <option value="diagnostic_only" selected>Diagnostic only</option>
             <option value="soft_adjust">Soft adjust</option>
             <option value="experimental_downgrade">Experimental downgrade</option>
+          </select>
+        </label>
+
+        <label>
+          Conservative Event Overlay
+          <select id="conservativeEventOverlayInput">
+            <option value="false" selected>Выключен</option>
+            <option value="true">Включен</option>
+          </select>
+        </label>
+
+        <label>
+          Conservative mode
+          <select id="conservativeEventOverlayModeInput">
+            <option value="soft_adjust" selected>Soft adjust</option>
+            <option value="diagnostic_only">Diagnostic only</option>
           </select>
         </label>
       </div>
@@ -745,6 +762,14 @@ def build_signals_page_html() -> str:
         event_risk_final_action_changed: Boolean(source.event_risk_final_action_changed),
         event_risk_action_effect: source.event_risk_action_effect || "",
         event_risk_research_basis: source.event_risk_research_basis || "",
+        conservative_event_overlay_enabled: Boolean(source.conservative_event_overlay_enabled),
+        conservative_event_overlay_config_id: source.conservative_event_overlay_config_id || "",
+        conservative_event_overlay_mode: source.conservative_event_overlay_mode || "",
+        conservative_event_overlay_research_basis: source.conservative_event_overlay_research_basis || "",
+        base_position_size_pct: toNumber(source.base_position_size_pct),
+        event_adjusted_position_size_pct: toNumber(source.event_adjusted_position_size_pct),
+        event_position_multiplier: toNumber(source.event_position_multiplier),
+        event_position_delta_pct: toNumber(source.event_position_delta_pct),
         target_price: toNumber(source.target_price),
         current_price: toNumber(source.current_price || source.price),
         potential_pct: toNumber(source.potential_pct || source.expected_return_pct || source.target_potential_pct),
@@ -1047,17 +1072,21 @@ def build_signals_page_html() -> str:
         `;
       }
       return `
-        <h4>Event Risk Overlay</h4>
+        <h4>${forecast.conservative_event_overlay_enabled || signal.conservative_event_overlay_enabled ? "Conservative Event Risk Overlay" : "Event Risk Overlay"}</h4>
         <p>${escapeHtml((reasons || [])[0] || "Research-only risk overlay calculates soft risk adjustments.")}</p>
         <p class="small muted">
+          Config: ${escapeHtml(forecast.conservative_event_overlay_config_id || signal.conservative_event_overlay_config_id || overlay.config_id || "generic")} ·
           Score: ${escapeHtml(score ?? "—")} ·
           Level: ${escapeHtml(level || "—")} ·
           Size: x${escapeHtml(forecast.event_risk_position_multiplier ?? signal.event_risk_position_multiplier ?? overlay.position_multiplier ?? "—")} ·
+          Base position: ${escapeHtml(forecast.base_position_size_pct ?? signal.base_position_size_pct ?? "—")} ·
+          Adjusted position: ${escapeHtml(forecast.event_adjusted_position_size_pct ?? signal.event_adjusted_position_size_pct ?? "—")} ·
           Probability addon: ${escapeHtml(forecast.event_risk_min_probability_addon_pct ?? signal.event_risk_min_probability_addon_pct ?? overlay.min_probability_addon_pct ?? "—")} ·
           RR multiplier: ${escapeHtml(forecast.event_risk_min_rr_multiplier ?? signal.event_risk_min_rr_multiplier ?? overlay.min_rr_multiplier ?? "—")} ·
           Effect: ${escapeHtml(forecast.event_risk_action_effect || signal.event_risk_action_effect || "—")}
         </p>
         <p class="small muted">Rules: ${escapeHtml((rules || []).slice(0, 6).join(", ") || "—")}</p>
+        <p class="small muted">Research/paper-trading only; production default is unchanged.</p>
         <p class="small muted">${escapeHtml(forecast.event_risk_research_basis || signal.event_risk_research_basis || overlay.research_basis || "Hard filter failed; overlay is diagnostic/soft unless explicitly enabled.")}</p>
       `;
     }
@@ -1265,6 +1294,12 @@ def build_signals_page_html() -> str:
           detailParams.set("use_event_risk_overlay", "true");
           detailParams.set("event_risk_overlay_mode", eventRiskOverlayMode?.value || "diagnostic_only");
         }
+        const conservativeOverlay = document.getElementById("conservativeEventOverlayInput");
+        const conservativeOverlayMode = document.getElementById("conservativeEventOverlayModeInput");
+        if (conservativeOverlay && conservativeOverlay.value === "true") {
+          detailParams.set("use_conservative_event_overlay", "true");
+          detailParams.set("conservative_event_overlay_mode", conservativeOverlayMode?.value || "soft_adjust");
+        }
         const detailQuery = detailParams.toString();
         const response = await fetch(`/signals/consumer/${encodeURIComponent(ticker)}.json${detailQuery ? `?${detailQuery}` : ""}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1394,6 +1429,7 @@ def build_signals_page_html() -> str:
               <span class="diag-pill">ML: ${fmtPercent(item.ml_probability_pct)}</span>
               <span class="diag-pill ${mlV2BadgeClass(item)}">${escapeHtml(mlV2BadgeText(item))}</span>
               <span class="diag-pill ${eventRiskBadgeClass(item)}">${escapeHtml(eventRiskBadgeText(item))}</span>
+              ${item.conservative_event_overlay_enabled ? `<span class="diag-pill ${eventRiskBadgeClass(item)}">Event overlay: ${escapeHtml(item.event_risk_level || "—")} · x${escapeHtml(item.event_risk_position_multiplier ?? "—")}</span>` : ""}
               <span class="diag-pill ${newsBadgeClass(item.news_assessment || {})}">
                 ${escapeHtml(newsBadgeText(item))}
               </span>
@@ -1408,6 +1444,7 @@ def build_signals_page_html() -> str:
               </span>
               <span class="diag-pill">RR: ${item.risk_reward_ratio === null ? "—" : escapeHtml(item.risk_reward_ratio)}</span>
               <span class="diag-pill">Позиция: ${escapeHtml((item.position_sizing || {}).max_position_pct ?? 0)}%</span>
+              ${item.conservative_event_overlay_enabled && item.base_position_size_pct !== null && item.event_adjusted_position_size_pct !== null ? `<span class="diag-pill">Size: ${escapeHtml(item.base_position_size_pct)}% → ${escapeHtml(item.event_adjusted_position_size_pct)}%</span>` : ""}
             </div>
 
             <div class="card-actions">
@@ -1450,6 +1487,12 @@ def build_signals_page_html() -> str:
       if (eventRiskOverlay && eventRiskOverlay.value === "true") {
         params.set("use_event_risk_overlay", "true");
         params.set("event_risk_overlay_mode", eventRiskOverlayMode?.value || "diagnostic_only");
+      }
+      const conservativeOverlay = document.getElementById("conservativeEventOverlayInput");
+      const conservativeOverlayMode = document.getElementById("conservativeEventOverlayModeInput");
+      if (conservativeOverlay && conservativeOverlay.value === "true") {
+        params.set("use_conservative_event_overlay", "true");
+        params.set("conservative_event_overlay_mode", conservativeOverlayMode?.value || "soft_adjust");
       }
 
       return `/signals/consumer.json?${params.toString()}`;

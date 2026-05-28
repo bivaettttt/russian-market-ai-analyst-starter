@@ -62,6 +62,8 @@ from app.services.event_aware_risk_overlay_conservative_calibration import (
 from app.services.event_aware_risk_overlay_conservative_page_html import (
     build_event_aware_risk_overlay_conservative_page_html,
 )
+from app.services.event_overlay_paper_snapshot import build_event_overlay_paper_snapshot
+from app.services.event_overlay_paper_snapshot_page_html import build_event_overlay_paper_snapshot_page_html
 from app.services.event_aware_risk_overlay_backtest import (
     build_event_risk_overlay_backtest,
     parse_overlay_modes,
@@ -1034,6 +1036,8 @@ def consumer_signals_data_api(
     ml_v2_gate_mode: str = Query("diagnostic_only"),
     use_event_risk_overlay: bool = Query(False),
     event_risk_overlay_mode: str = Query("diagnostic_only"),
+    use_conservative_event_overlay: bool = Query(False),
+    conservative_event_overlay_mode: str = Query("soft_adjust"),
     db: Session = Depends(get_db),
 ):
     return list_consumer_signals(
@@ -1050,6 +1054,8 @@ def consumer_signals_data_api(
         ml_v2_gate_mode=ml_v2_gate_mode,
         use_event_risk_overlay=use_event_risk_overlay,
         event_risk_overlay_mode=event_risk_overlay_mode,
+        use_conservative_event_overlay=use_conservative_event_overlay,
+        conservative_event_overlay_mode=conservative_event_overlay_mode,
     )
 
 
@@ -1083,6 +1089,26 @@ def consumer_event_risk_overlay_compare_api(
         candles_limit=candles_limit,
         event_risk_overlay_mode=event_risk_overlay_mode,
     )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-snapshot")
+def event_aware_conservative_overlay_paper_snapshot_api(
+    limit: int = Query(100, ge=1, le=500),
+    candles_limit: int = Query(240, ge=60, le=1000),
+    conservative_event_overlay_mode: str = Query("soft_adjust"),
+    db: Session = Depends(get_db),
+):
+    return build_event_overlay_paper_snapshot(
+        db=db,
+        limit=limit,
+        candles_limit=candles_limit,
+        conservative_event_overlay_mode=conservative_event_overlay_mode,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-page", response_class=AIReportHTMLResponse)
+def event_aware_conservative_overlay_paper_page():
+    return build_event_overlay_paper_snapshot_page_html()
 
 
 @router.get("/signals/consumer/ml-v2-gate-backtest")
@@ -1482,6 +1508,8 @@ def consumer_signal_ticker_api(
     ml_v2_gate_mode: str = Query("diagnostic_only"),
     use_event_risk_overlay: bool = Query(False),
     event_risk_overlay_mode: str = Query("diagnostic_only"),
+    use_conservative_event_overlay: bool = Query(False),
+    conservative_event_overlay_mode: str = Query("soft_adjust"),
     db: Session = Depends(get_db),
 ):
     return build_consumer_signal_for_ticker(
@@ -1493,6 +1521,8 @@ def consumer_signal_ticker_api(
         ml_v2_gate_mode=ml_v2_gate_mode,
         use_event_risk_overlay=use_event_risk_overlay,
         event_risk_overlay_mode=event_risk_overlay_mode,
+        use_conservative_event_overlay=use_conservative_event_overlay,
+        conservative_event_overlay_mode=conservative_event_overlay_mode,
     )
 
 

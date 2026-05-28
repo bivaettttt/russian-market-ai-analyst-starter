@@ -1814,6 +1814,62 @@ def normalize_event_risk_overlay_mode(mode: str | None) -> str:
     return normalized
 
 
+def normalize_conservative_event_overlay_mode(mode: str | None) -> str:
+    normalized = str(mode or "soft_adjust").strip().lower()
+    if normalized not in {"diagnostic_only", "soft_adjust"}:
+        return "soft_adjust"
+    return normalized
+
+
+def _event_overlay_position_fields(position_sizing: dict[str, Any], multiplier: Any) -> dict[str, Any]:
+    base_size = _to_float((position_sizing or {}).get("max_position_pct"))
+    multiplier_value = _to_float(multiplier)
+    if base_size is None or multiplier_value is None:
+        return {
+            "base_position_size_pct": _round(base_size, 2) if base_size is not None else None,
+            "event_adjusted_position_size_pct": None,
+            "event_position_multiplier": _round(multiplier_value, 3) if multiplier_value is not None else None,
+            "event_position_delta_pct": None,
+            "event_position_warning": "base_position_size_not_available" if base_size is None else None,
+        }
+    adjusted = base_size * multiplier_value
+    return {
+        "base_position_size_pct": _round(base_size, 2),
+        "event_adjusted_position_size_pct": _round(adjusted, 2),
+        "event_position_multiplier": _round(multiplier_value, 3),
+        "event_position_delta_pct": _round(adjusted - base_size, 2),
+        "event_position_warning": None,
+    }
+
+
+def _add_conservative_event_overlay_audit(forecast: dict[str, Any]) -> None:
+    audit = dict(forecast.get("signal_audit") or {})
+    layer_scores = dict(audit.get("layer_scores") or {})
+    risk_level = str(forecast.get("event_risk_level") or "unknown")
+    if risk_level in {"high", "extreme"}:
+        status = "negative"
+    elif risk_level in {"elevated"}:
+        status = "warning"
+    elif risk_level in {"low", "moderate"}:
+        status = "neutral"
+    else:
+        status = "not_available"
+    layer_scores["conservative_event_overlay"] = {
+        "status": status,
+        "score": forecast.get("event_risk_score"),
+        "risk_level": risk_level,
+        "position_multiplier": forecast.get("event_risk_position_multiplier"),
+        "reason": "; ".join((forecast.get("event_risk_reasons") or [])[:3]),
+    }
+    audit["layer_scores"] = layer_scores
+    warning_layers = list(audit.get("warning_layers") or [])
+    if risk_level in {"elevated", "high", "extreme"} and "conservative_event_overlay" not in warning_layers:
+        warning_layers.append("conservative_event_overlay")
+    audit["warning_layers"] = warning_layers
+    forecast["signal_audit"] = audit
+    forecast["audit_blocked_by"] = audit.get("blocked_by") or []
+
+
 def apply_ml_v2_experimental_gate_to_decision(
     decision_gate: dict[str, Any],
     *,
@@ -2708,6 +2764,8 @@ def build_consumer_forecast(
     ml_v2_gate_mode: str = "diagnostic_only",
     use_event_risk_overlay: bool = False,
     event_risk_overlay_mode: str = "diagnostic_only",
+    use_conservative_event_overlay: bool = False,
+    conservative_event_overlay_mode: str = "soft_adjust",
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
     regime_features = _build_consumer_regime_features(candles)
@@ -2719,6 +2777,10 @@ def build_consumer_forecast(
     market_regime = market_regime or {}
     ml_v2_gate_mode = normalize_ml_v2_gate_mode(ml_v2_gate_mode)
     event_risk_overlay_mode = normalize_event_risk_overlay_mode(event_risk_overlay_mode)
+    conservative_event_overlay_mode = normalize_conservative_event_overlay_mode(conservative_event_overlay_mode)
+    if use_conservative_event_overlay:
+        use_event_risk_overlay = True
+        event_risk_overlay_mode = conservative_event_overlay_mode
     if not isinstance(ml_v2_research_gate, dict):
         try:
             from app.services.ml_v2_research_gate import disabled_ml_v2_research_gate
@@ -3055,8 +3117,10 @@ def build_consumer_forecast(
     if use_event_risk_overlay:
         try:
             from app.services.event_aware_risk_overlay import (
+                CONSERVATIVE_EVENT_RISK_OVERLAY_RESEARCH_BASIS,
                 apply_event_risk_overlay_to_signal,
                 build_event_aware_risk_overlay,
+                get_conservative_event_risk_overlay_config,
                 match_event_risk_rules_for_signal,
             )
 
@@ -3075,7 +3139,11 @@ def build_consumer_forecast(
                 market_regime=market_regime,
                 base_probability_pct=probability,
                 base_risk_reward_ratio=position_sizing.get("risk_reward_ratio"),
-                threshold_config={"mode": event_risk_overlay_mode},
+                threshold_config=(
+                    {**get_conservative_event_risk_overlay_config(), "mode": event_risk_overlay_mode}
+                    if use_conservative_event_overlay
+                    else {"mode": event_risk_overlay_mode}
+                ),
             )
             overlay["match_source"] = match.get("source")
             overlay["match_warnings"] = match.get("warnings") or []
@@ -3084,6 +3152,23 @@ def build_consumer_forecast(
                 overlay=overlay,
                 mode=event_risk_overlay_mode,
             )
+            if use_conservative_event_overlay:
+                config = get_conservative_event_risk_overlay_config()
+                position_fields = _event_overlay_position_fields(
+                    forecast.get("position_sizing") or {},
+                    forecast.get("event_risk_position_multiplier"),
+                )
+                forecast.update(
+                    {
+                        "conservative_event_overlay_enabled": True,
+                        "conservative_event_overlay_config_id": config.get("config_id"),
+                        "conservative_event_overlay_mode": event_risk_overlay_mode,
+                        "conservative_event_overlay_research_basis": CONSERVATIVE_EVENT_RISK_OVERLAY_RESEARCH_BASIS,
+                        **position_fields,
+                    }
+                )
+                forecast["event_risk_research_basis"] = CONSERVATIVE_EVENT_RISK_OVERLAY_RESEARCH_BASIS
+                _add_conservative_event_overlay_audit(forecast)
         except Exception as exc:  # noqa: BLE001
             forecast.update(
                 {
@@ -3110,6 +3195,16 @@ def build_consumer_forecast(
                     "event_risk_action_effect": "none_not_available",
                 }
             )
+            if use_conservative_event_overlay:
+                forecast.update(
+                    {
+                        "conservative_event_overlay_enabled": True,
+                        "conservative_event_overlay_config_id": None,
+                        "conservative_event_overlay_mode": event_risk_overlay_mode,
+                        "conservative_event_overlay_research_basis": None,
+                        **_event_overlay_position_fields(forecast.get("position_sizing") or {}, 1.0),
+                    }
+                )
 
     return forecast
 
@@ -3185,10 +3280,16 @@ def build_consumer_signal_for_ticker(
     ml_v2_gate_mode: str = "diagnostic_only",
     use_event_risk_overlay: bool = False,
     event_risk_overlay_mode: str = "diagnostic_only",
+    use_conservative_event_overlay: bool = False,
+    conservative_event_overlay_mode: str = "soft_adjust",
 ) -> dict[str, Any]:
     ticker = ticker.upper().strip()
     ml_v2_gate_mode = normalize_ml_v2_gate_mode(ml_v2_gate_mode)
     event_risk_overlay_mode = normalize_event_risk_overlay_mode(event_risk_overlay_mode)
+    conservative_event_overlay_mode = normalize_conservative_event_overlay_mode(conservative_event_overlay_mode)
+    if use_conservative_event_overlay:
+        use_event_risk_overlay = True
+        event_risk_overlay_mode = conservative_event_overlay_mode
 
     db_instrument = _get_consumer_instrument(db=db, ticker=ticker)
     instrument_meta = _instrument_to_consumer_dict(db_instrument, ticker)
@@ -3331,6 +3432,8 @@ def build_consumer_signal_for_ticker(
         ml_v2_gate_mode=ml_v2_gate_mode,
         use_event_risk_overlay=use_event_risk_overlay,
         event_risk_overlay_mode=event_risk_overlay_mode,
+        use_conservative_event_overlay=use_conservative_event_overlay,
+        conservative_event_overlay_mode=conservative_event_overlay_mode,
     )
 
     return {
@@ -3379,6 +3482,14 @@ def build_consumer_signal_for_ticker(
             "event_risk_final_action_changed": forecast.get("event_risk_final_action_changed"),
             "event_risk_action_effect": forecast.get("event_risk_action_effect"),
             "event_risk_research_basis": forecast.get("event_risk_research_basis"),
+            "conservative_event_overlay_enabled": forecast.get("conservative_event_overlay_enabled"),
+            "conservative_event_overlay_config_id": forecast.get("conservative_event_overlay_config_id"),
+            "conservative_event_overlay_mode": forecast.get("conservative_event_overlay_mode"),
+            "conservative_event_overlay_research_basis": forecast.get("conservative_event_overlay_research_basis"),
+            "base_position_size_pct": forecast.get("base_position_size_pct"),
+            "event_adjusted_position_size_pct": forecast.get("event_adjusted_position_size_pct"),
+            "event_position_multiplier": forecast.get("event_position_multiplier"),
+            "event_position_delta_pct": forecast.get("event_position_delta_pct"),
             "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
             "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
@@ -3441,6 +3552,8 @@ def list_consumer_signals(
     ml_v2_gate_mode: str = "diagnostic_only",
     use_event_risk_overlay: bool = False,
     event_risk_overlay_mode: str = "diagnostic_only",
+    use_conservative_event_overlay: bool = False,
+    conservative_event_overlay_mode: str = "soft_adjust",
 ) -> dict[str, Any]:
     from app.services.market_universe import search_instruments
 
@@ -3449,6 +3562,10 @@ def list_consumer_signals(
     news_filter = (news or "all").strip().lower()
     ml_v2_gate_mode = normalize_ml_v2_gate_mode(ml_v2_gate_mode)
     event_risk_overlay_mode = normalize_event_risk_overlay_mode(event_risk_overlay_mode)
+    conservative_event_overlay_mode = normalize_conservative_event_overlay_mode(conservative_event_overlay_mode)
+    if use_conservative_event_overlay:
+        use_event_risk_overlay = True
+        event_risk_overlay_mode = conservative_event_overlay_mode
 
     if scenario_filter not in {"all", "long", "downside", "neutral"}:
         scenario_filter = "all"
@@ -3512,6 +3629,8 @@ def list_consumer_signals(
             ml_v2_gate_mode=ml_v2_gate_mode,
             use_event_risk_overlay=use_event_risk_overlay,
             event_risk_overlay_mode=event_risk_overlay_mode,
+            use_conservative_event_overlay=use_conservative_event_overlay,
+            conservative_event_overlay_mode=conservative_event_overlay_mode,
         )
         if not data.get("ok"):
             continue
@@ -3582,6 +3701,14 @@ def list_consumer_signals(
                 "event_risk_final_action_changed": forecast.get("event_risk_final_action_changed"),
                 "event_risk_action_effect": forecast.get("event_risk_action_effect"),
                 "event_risk_research_basis": forecast.get("event_risk_research_basis"),
+                "conservative_event_overlay_enabled": forecast.get("conservative_event_overlay_enabled"),
+                "conservative_event_overlay_config_id": forecast.get("conservative_event_overlay_config_id"),
+                "conservative_event_overlay_mode": forecast.get("conservative_event_overlay_mode"),
+                "conservative_event_overlay_research_basis": forecast.get("conservative_event_overlay_research_basis"),
+                "base_position_size_pct": forecast.get("base_position_size_pct"),
+                "event_adjusted_position_size_pct": forecast.get("event_adjusted_position_size_pct"),
+                "event_position_multiplier": forecast.get("event_position_multiplier"),
+                "event_position_delta_pct": forecast.get("event_position_delta_pct"),
                 "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
             "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
@@ -4217,6 +4344,8 @@ def build_consumer_signal_for_ticker(
     ml_v2_gate_mode: str = "diagnostic_only",
     use_event_risk_overlay: bool = False,
     event_risk_overlay_mode: str = "diagnostic_only",
+    use_conservative_event_overlay: bool = False,
+    conservative_event_overlay_mode: str = "soft_adjust",
 ) -> dict[str, Any]:
     resolution = resolve_ticker_alias(ticker)
     result = _build_consumer_signal_for_ticker_without_alias(
@@ -4229,6 +4358,8 @@ def build_consumer_signal_for_ticker(
         ml_v2_gate_mode=ml_v2_gate_mode,
         use_event_risk_overlay=use_event_risk_overlay,
         event_risk_overlay_mode=event_risk_overlay_mode,
+        use_conservative_event_overlay=use_conservative_event_overlay,
+        conservative_event_overlay_mode=conservative_event_overlay_mode,
     )
 
     if isinstance(result, dict):

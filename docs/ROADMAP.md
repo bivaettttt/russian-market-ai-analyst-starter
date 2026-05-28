@@ -604,7 +604,7 @@ Acceptance criteria:
 
 ## 23.6 Conservative Event Risk Overlay Calibration
 
-Статус: реализовано как research calibration layer. Production consumer logic по умолчанию не меняется.
+Статус: реализовано как research calibration layer. Result: `conservative_overlay_candidate`.
 
 Цель: найти более мягкий overlay, который сохраняет PF/stop-hit improvements без чрезмерного снижения exposure.
 
@@ -618,6 +618,24 @@ Acceptance criteria:
 - добавлен benchmark comparison: disabled, aggressive overlay, default soft overlay и selected conservative config.
 
 Почему важно: soft overlay полезен только если улучшает риск без превращения портфеля в почти нулевую экспозицию.
+
+## 23.7 Conservative Event Overlay Paper Integration
+
+Статус: реализовано как opt-in paper-trading/report integration. Production defaults не меняются.
+
+Цель: сделать выбранный conservative overlay удобным для текущих consumer signals и paper snapshot без action downgrade.
+
+Что сделано:
+
+- добавлен shortcut query flag `use_conservative_event_overlay=true`;
+- shortcut использует config `cons_t20_40_60_80_m95_e80_h65_x40_w100`;
+- разрешены только `soft_adjust` и `diagnostic_only`;
+- consumer forecast/list показывают base size, adjusted size, multiplier, risk level, reasons и research basis;
+- добавлен read-only endpoint `/signals/event-aware/conservative-overlay-paper-snapshot`;
+- добавлена page `/signals/event-aware/conservative-overlay-paper-page`;
+- signal audit получил отдельный layer `conservative_event_overlay`.
+
+Почему важно: это переводит validated research result в удобный paper-tracking формат без включения production default.
 
 ## 24. Production News Pipeline
 

@@ -11,11 +11,33 @@ from app.services.event_ticker_mapping import map_event_to_market_impact
 
 
 EVENT_RISK_OVERLAY_ALLOWED_MODES = {"disabled", "diagnostic_only", "soft_adjust", "experimental_downgrade"}
+CONSERVATIVE_EVENT_OVERLAY_ALLOWED_MODES = {"diagnostic_only", "soft_adjust"}
 EVENT_RISK_RESEARCH_BASIS = (
     "Rule stability diagnostics found stable event-aware risk rules, but hard filtering failed due to "
     "winner_miss_rate; overlay uses soft risk adjustment."
 )
+CONSERVATIVE_EVENT_RISK_OVERLAY_RESEARCH_BASIS = (
+    "Conservative overlay config cons_t20_40_60_80_m95_e80_h65_x40_w100 was selected by 4/4 folds "
+    "in conservative calibration: avg PF delta +0.068, avg return delta +0.187%, stop-hit exposure "
+    "delta -1.81 p.p., avg multiplier 0.556. Research/paper-trading only."
+)
 EVENT_RISK_LONG_ACTIONS = {"buy", "consider_buy", "watch_ml_confirmed", "buy_watch", "watch_buy"}
+
+CONSERVATIVE_EVENT_RISK_OVERLAY_CONFIG: dict[str, Any] = {
+    "config_id": "cons_t20_40_60_80_m95_e80_h65_x40_w100",
+    "moderate_threshold": 20,
+    "elevated_threshold": 40,
+    "high_threshold": 60,
+    "extreme_threshold": 80,
+    "moderate_multiplier": 0.95,
+    "elevated_multiplier": 0.80,
+    "high_multiplier": 0.65,
+    "extreme_multiplier": 0.40,
+    "winner_miss_penalty": 1.0,
+    "min_multiplier": 0.40,
+    "profile": "conservative",
+    "research_source": "conservative_event_risk_overlay_calibration",
+}
 
 DEFAULT_STABLE_RISK_RULE_IDS = {
     "event_score_abs_ge_15_any_setup",
@@ -121,6 +143,17 @@ def normalize_event_risk_overlay_mode(mode: str | None) -> str:
     return value
 
 
+def normalize_conservative_event_overlay_mode(mode: str | None) -> str:
+    value = str(mode or "soft_adjust").strip().lower()
+    if value not in CONSERVATIVE_EVENT_OVERLAY_ALLOWED_MODES:
+        return "soft_adjust"
+    return value
+
+
+def get_conservative_event_risk_overlay_config() -> dict[str, Any]:
+    return dict(CONSERVATIVE_EVENT_RISK_OVERLAY_CONFIG)
+
+
 def _risk_level(score: float) -> str:
     if score >= 80:
         return "extreme"
@@ -148,6 +181,35 @@ def _risk_mapping(level: str, *, mode: str) -> dict[str, float]:
         "position_multiplier": multiplier,
         "min_probability_addon_pct": addon,
         "min_rr_multiplier": rr,
+    }
+
+
+def _risk_level_for_config(score: float, config: dict[str, Any]) -> str:
+    if score >= (_to_float(config.get("extreme_threshold")) or 80):
+        return "extreme"
+    if score >= (_to_float(config.get("high_threshold")) or 60):
+        return "high"
+    if score >= (_to_float(config.get("elevated_threshold")) or 40):
+        return "elevated"
+    if score >= (_to_float(config.get("moderate_threshold")) or 20):
+        return "moderate"
+    return "low"
+
+
+def _risk_mapping_for_config(level: str, *, mode: str, config: dict[str, Any]) -> dict[str, float]:
+    if level == "low":
+        multiplier = 1.0
+    else:
+        multiplier = _to_float(config.get(f"{level}_multiplier")) or 1.0
+        min_multiplier = _to_float(config.get("min_multiplier"))
+        if min_multiplier is not None:
+            multiplier = max(min_multiplier, multiplier)
+    if mode == "experimental_downgrade" and level == "extreme":
+        multiplier = 0.0
+    return {
+        "position_multiplier": _clamp(multiplier, 0.0, 1.0),
+        "min_probability_addon_pct": {"low": 0.0, "moderate": 3.0, "elevated": 5.0, "high": 8.0, "extreme": 10.0}.get(level, 0.0),
+        "min_rr_multiplier": {"low": 1.0, "moderate": 1.1, "elevated": 1.2, "high": 1.35, "extreme": 1.5}.get(level, 1.0),
     }
 
 
@@ -299,8 +361,17 @@ def build_event_aware_risk_overlay(
         }
     rules = matched_rules if matched_rules is not None else stability_rules or []
     scored = score_event_risk_overlay(matched_rules=rules, event_context=event_context, market_regime=market_regime)
-    level = str(scored.get("risk_level") or "low")
-    mapping = _risk_mapping(level, mode=mode)
+    config = threshold_config or {}
+    custom_config = bool(config.get("config_id") and config.get("profile"))
+    score_value = _to_float(scored.get("risk_score")) or 0.0
+    if custom_config:
+        score_value = _clamp(score_value * (_to_float(config.get("winner_miss_penalty")) or 1.0), 0.0, 100.0)
+        scored["risk_score"] = _round(score_value, 1)
+        level = _risk_level_for_config(score_value, config)
+        mapping = _risk_mapping_for_config(level, mode=mode, config=config)
+    else:
+        level = str(scored.get("risk_level") or "low")
+        mapping = _risk_mapping(level, mode=mode)
     base_probability = _to_float(base_probability_pct)
     base_rr = _to_float(base_risk_reward_ratio)
     probability_addon = mapping["min_probability_addon_pct"]
@@ -309,6 +380,9 @@ def build_event_aware_risk_overlay(
         "ok": True,
         "status": "active" if rules or event_context else "not_available",
         "mode": mode,
+        "config_id": config.get("config_id"),
+        "config_profile": config.get("profile"),
+        "research_source": config.get("research_source"),
         "risk_score": scored["risk_score"],
         "risk_level": level,
         "position_multiplier": mapping["position_multiplier"],
@@ -321,7 +395,7 @@ def build_event_aware_risk_overlay(
         "top_risk_rules": scored["top_risk_rules"],
         "risk_reasons": scored["risk_reasons"] or ["No matching event-aware risk rules."],
         "warning": "Event risk overlay is research-only and disabled unless explicitly requested.",
-        "research_basis": EVENT_RISK_RESEARCH_BASIS,
+        "research_basis": CONSERVATIVE_EVENT_RISK_OVERLAY_RESEARCH_BASIS if custom_config else EVENT_RISK_RESEARCH_BASIS,
         "limitations": [
             "Deterministic event-aware overlay, not a production default.",
             "Hard filtering failed walk-forward; soft sizing still needs paper trading validation.",

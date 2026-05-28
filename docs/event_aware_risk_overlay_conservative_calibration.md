@@ -62,6 +62,17 @@ curl "http://127.0.0.1:8010/signals/event-aware/risk-overlay-conservative-calibr
 curl "http://127.0.0.1:8010/signals/event-aware/risk-overlay-conservative-calibration?max_tickers=80&max_samples=3000&max_events=10000&folds=4&min_train_samples=100&min_test_samples=50&max_configs=100&min_avg_position_multiplier=0.5&max_exposure_reduction_pct=50&min_positive_pf_folds=3"
 ```
 
+## Integration
+
+The selected conservative config is available through the opt-in consumer shortcut:
+
+```bash
+curl "http://127.0.0.1:8010/signals/consumer/SBER.json?use_conservative_event_overlay=true"
+curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-paper-snapshot?limit=50"
+```
+
+See [conservative_event_overlay_integration.md](conservative_event_overlay_integration.md).
+
 ## Limitations
 
 - Still a research validation layer.
