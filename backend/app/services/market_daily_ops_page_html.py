@@ -36,6 +36,8 @@ def build_market_daily_ops_page_html() -> str:
       <a href="/signals">Signals</a>
       <a href="/signals/event-aware/conservative-overlay-quality-report-page">Overlay quality</a>
       <a href="/signals/event-aware/conservative-overlay-paper-tracking-page">Overlay tracking</a>
+      <a href="/signals/daily-ops/market-refresh-report-page">Refresh report</a>
+      <a href="/signals/live-paper-validation/page">Live paper start</a>
       <a href="/signals/data-coverage-page">Data coverage</a>
       <a href="/signals/market-regime">Market regime</a>
       <a href="/signals/daily-ops/status">Status JSON</a>

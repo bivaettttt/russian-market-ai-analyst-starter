@@ -90,6 +90,17 @@ from app.services.event_overlay_quality_report_page_html import build_event_over
 from app.services.market_daily_ops import build_daily_ops_status, run_market_daily_ops
 from app.services.market_daily_ops_page_html import build_market_daily_ops_page_html
 from app.services.market_data_refresh import build_market_data_freshness_status, refresh_market_data_daily
+from app.services.market_refresh_report import (
+    build_market_refresh_notification,
+    build_market_refresh_report,
+    build_market_refresh_report_csv,
+)
+from app.services.market_refresh_report_page_html import build_market_refresh_report_page_html
+from app.services.live_paper_validation_start import (
+    build_live_paper_validation_status,
+    start_live_paper_validation_run,
+)
+from app.services.live_paper_validation_page_html import build_live_paper_validation_page_html
 from app.services.event_aware_risk_overlay_backtest import (
     build_event_risk_overlay_backtest,
     parse_overlay_modes,
@@ -1412,6 +1423,8 @@ def signals_daily_ops_refresh_market_data_api(
     days: int = Query(120, ge=10, le=1000),
     dry_run: bool = Query(False),
     force: bool = Query(False),
+    retry_failed: bool = Query(False),
+    max_retries: int = Query(1, ge=0, le=3),
     db: Session = Depends(get_db),
 ):
     return refresh_market_data_daily(
@@ -1420,6 +1433,8 @@ def signals_daily_ops_refresh_market_data_api(
         days=days,
         dry_run=dry_run,
         force=force,
+        retry_failed=retry_failed,
+        max_retries=max_retries,
     )
 
 
@@ -1457,6 +1472,98 @@ def signals_daily_ops_run_api(
 @router.get("/signals/daily-ops/page", response_class=AIReportHTMLResponse)
 def signals_daily_ops_page():
     return build_market_daily_ops_page_html()
+
+
+@router.get("/signals/daily-ops/market-refresh-report")
+def signals_daily_ops_market_refresh_report_api(
+    stale_days: int = Query(3, ge=1, le=30),
+    max_tickers: int = Query(300, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    return build_market_refresh_report(
+        db=db,
+        stale_days=stale_days,
+        max_tickers=max_tickers,
+    )
+
+
+@router.get("/signals/daily-ops/market-refresh-notification")
+def signals_daily_ops_market_refresh_notification_api(
+    stale_days: int = Query(3, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    return build_market_refresh_notification(
+        db=db,
+        stale_days=stale_days,
+    )
+
+
+@router.get("/signals/daily-ops/market-refresh-report.csv")
+def signals_daily_ops_market_refresh_report_csv_api(
+    stale_days: int = Query(3, ge=1, le=30),
+    max_tickers: int = Query(300, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    csv_text = build_market_refresh_report_csv(
+        db=db,
+        stale_days=stale_days,
+        max_tickers=max_tickers,
+    )
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="market_refresh_report.csv"'},
+    )
+
+
+@router.get("/signals/daily-ops/market-refresh-report-page", response_class=AIReportHTMLResponse)
+def signals_daily_ops_market_refresh_report_page():
+    return build_market_refresh_report_page_html()
+
+
+@router.post("/signals/live-paper-validation/start")
+def signals_live_paper_validation_start_api(
+    name: str = Query("official-daily"),
+    limit: int = Query(100, ge=1, le=500),
+    horizon_days: int = Query(20, ge=1, le=120),
+    refresh_market_data: bool = Query(True),
+    refresh_max_tickers: int = Query(150, ge=1, le=500),
+    refresh_days: int = Query(120, ge=10, le=1000),
+    require_fresh_market_data: bool = Query(True),
+    max_stale_days: int = Query(3, ge=1, le=30),
+    evaluate_ready: bool = Query(True),
+    dry_run: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return start_live_paper_validation_run(
+        db=db,
+        name=name,
+        limit=limit,
+        horizon_days=horizon_days,
+        refresh_market_data=refresh_market_data,
+        refresh_max_tickers=refresh_max_tickers,
+        refresh_days=refresh_days,
+        require_fresh_market_data=require_fresh_market_data,
+        max_stale_days=max_stale_days,
+        evaluate_ready=evaluate_ready,
+        dry_run=dry_run,
+    )
+
+
+@router.get("/signals/live-paper-validation/status")
+def signals_live_paper_validation_status_api(
+    max_stale_days: int = Query(3, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    return build_live_paper_validation_status(
+        db=db,
+        max_stale_days=max_stale_days,
+    )
+
+
+@router.get("/signals/live-paper-validation/page", response_class=AIReportHTMLResponse)
+def signals_live_paper_validation_page():
+    return build_live_paper_validation_page_html()
 
 
 @router.get("/signals/consumer/ml-v2-gate-backtest")

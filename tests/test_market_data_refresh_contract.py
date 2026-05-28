@@ -51,6 +51,11 @@ def test_refresh_dry_run_does_not_call_bootstrap(monkeypatch):
         "bootstrap_moex_universe",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("network helper should not run")),
     )
+    monkeypatch.setattr(
+        refresh,
+        "_latest_candle_dates_by_ticker",
+        lambda *_args, **_kwargs: {"SBER": "2026-05-21"},
+    )
 
     result = refresh.refresh_market_data_daily(object(), dry_run=True)
 

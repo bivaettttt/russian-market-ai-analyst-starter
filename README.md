@@ -187,9 +187,15 @@ GET    /signals/event-aware/conservative-overlay-quality-report.csv
 GET    /signals/event-aware/conservative-overlay-quality-report-page
 GET    /signals/daily-ops/status
 GET    /signals/daily-ops/market-data-freshness
+GET    /signals/daily-ops/market-refresh-report
+GET    /signals/daily-ops/market-refresh-notification
+GET    /signals/daily-ops/market-refresh-report.csv
 POST   /signals/daily-ops/refresh-market-data
 POST   /signals/daily-ops/run
 GET    /signals/daily-ops/page
+GET    /signals/live-paper-validation/status
+POST   /signals/live-paper-validation/start
+GET    /signals/live-paper-validation/page
 ```
 
 ## Примеры Curl
@@ -215,6 +221,8 @@ python3 -m app.tasks.event_overlay_paper_tracking daily-run --name daily --limit
 python3 -m app.tasks.market_daily_ops status
 python3 -m app.tasks.market_daily_ops run --dry-run
 python3 -m app.tasks.market_daily_ops run --name daily --limit 100 --horizon-days 20
+python3 -m app.tasks.live_paper_validation status
+python3 -m app.tasks.live_paper_validation start --dry-run
 ```
 
 ```bash
@@ -255,6 +263,7 @@ curl -X POST "http://127.0.0.1:8010/analyze/news" \
 - `docs/conservative_event_overlay_paper_tracking_lifecycle.md`
 - `docs/conservative_event_overlay_quality_report.md`
 - `docs/market_daily_ops.md`
+- `docs/live_paper_validation_start.md`
 - `docs/ROADMAP.md`
 - `docs/STABILIZATION_NOTES.md`
 

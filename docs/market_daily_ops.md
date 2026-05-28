@@ -33,10 +33,15 @@ Use `--json` to print the full machine-readable result.
 ```text
 GET  /signals/daily-ops/status
 GET  /signals/daily-ops/market-data-freshness
+GET  /signals/daily-ops/market-refresh-report
+GET  /signals/daily-ops/market-refresh-notification
+GET  /signals/daily-ops/market-refresh-report.csv
 POST /signals/daily-ops/refresh-market-data
 POST /signals/daily-ops/run
 GET  /signals/daily-ops/page
 ```
+
+The stricter official paper-validation workflow is documented in `docs/live_paper_validation_start.md`.
 
 Safe dry run:
 

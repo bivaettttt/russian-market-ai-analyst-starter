@@ -676,7 +676,7 @@ Acceptance criteria:
 
 ## 23.10 Market Data Refresh & Paper Tracking Daily Ops
 
-Статус: реализовано как local daily ops workflow. Production defaults не меняются.
+Статус: реализовано как local daily ops workflow with refresh reliability diagnostics. Production defaults не меняются.
 
 Цель: одной командой выполнять market freshness check, MOEX candle refresh, paper snapshot creation, ready snapshot evaluation и quality/notification summary.
 
@@ -688,8 +688,25 @@ Acceptance criteria:
 - добавлены endpoints `/signals/daily-ops/status`, `/signals/daily-ops/market-data-freshness`, `/signals/daily-ops/refresh-market-data`, `/signals/daily-ops/run`;
 - добавлена page `/signals/daily-ops/page`;
 - dry-run не создаёт snapshots и не оценивает ready snapshots.
+- добавлен market refresh report/notification/CSV;
+- добавлен strict live paper validation start workflow.
 
 Почему важно: устраняет operational blocker stale candles и переводит paper validation в ежедневный локальный workflow.
+
+## 23.11 Live Paper Validation Period
+
+Статус: следующий этап.
+
+Цель: накопить 4-8 недель official daily snapshots с fresh market data и оценить realized baseline vs conservative overlay delta.
+
+Что сделать:
+
+- запускать official daily snapshot только после успешного market refresh;
+- еженедельно анализировать quality report, problem tickers и by-risk-level contribution;
+- не переводить overlay в production default до достаточного live paper периода;
+- подготовить UX hardening и deployment только после стабильной paper статистики.
+
+Почему важно: historical/proxy validation уже показал candidate edge, но продуктовый вывод должен опираться на реальные daily snapshots.
 
 ## 24. Production News Pipeline
 
