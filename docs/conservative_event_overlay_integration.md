@@ -29,6 +29,10 @@ curl "http://127.0.0.1:8010/signals/consumer.json?limit=50&use_conservative_even
 curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-paper-snapshot?limit=50"
 
 curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-paper-page"
+
+curl -X POST "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-paper-snapshots?name=daily-paper&limit=100&horizon_days=20"
+
+curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-paper-dashboard?limit=20"
 ```
 
 Allowed shortcut modes:
@@ -75,6 +79,21 @@ The conservative shortcut does not allow `experimental_downgrade`. Use the gener
 - top risk rows.
 
 This endpoint is read-only and writes no snapshots.
+
+## Paper Tracking
+
+Stored paper tracking is documented in `docs/conservative_event_overlay_paper_tracking.md`.
+
+Key endpoints:
+
+- `POST /signals/event-aware/conservative-overlay-paper-snapshots`
+- `GET /signals/event-aware/conservative-overlay-paper-snapshots`
+- `GET /signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}`
+- `POST /signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}/evaluate`
+- `GET /signals/event-aware/conservative-overlay-paper-dashboard`
+- `/signals/event-aware/conservative-overlay-paper-tracking-page`
+
+This layer writes only local paper snapshots. It does not place trades and does not change consumer defaults.
 
 ## Limitations
 

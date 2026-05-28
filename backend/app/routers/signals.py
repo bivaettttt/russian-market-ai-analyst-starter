@@ -64,6 +64,14 @@ from app.services.event_aware_risk_overlay_conservative_page_html import (
 )
 from app.services.event_overlay_paper_snapshot import build_event_overlay_paper_snapshot
 from app.services.event_overlay_paper_snapshot_page_html import build_event_overlay_paper_snapshot_page_html
+from app.services.event_overlay_paper_tracking import (
+    build_event_overlay_paper_dashboard,
+    create_conservative_overlay_paper_snapshot,
+    evaluate_event_overlay_paper_snapshot,
+    get_event_overlay_paper_snapshot_detail,
+    list_event_overlay_paper_snapshots,
+)
+from app.services.event_overlay_paper_tracking_page_html import build_event_overlay_paper_tracking_page_html
 from app.services.event_aware_risk_overlay_backtest import (
     build_event_risk_overlay_backtest,
     parse_overlay_modes,
@@ -1109,6 +1117,82 @@ def event_aware_conservative_overlay_paper_snapshot_api(
 @router.get("/signals/event-aware/conservative-overlay-paper-page", response_class=AIReportHTMLResponse)
 def event_aware_conservative_overlay_paper_page():
     return build_event_overlay_paper_snapshot_page_html()
+
+
+@router.post("/signals/event-aware/conservative-overlay-paper-snapshots")
+def event_aware_conservative_overlay_paper_snapshot_create_api(
+    name: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    candles_limit: int = Query(240, ge=60, le=1000),
+    horizon_days: int = Query(20, ge=1, le=120),
+    overlay_mode: str = Query("soft_adjust"),
+    dedupe_same_day: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    return create_conservative_overlay_paper_snapshot(
+        db=db,
+        name=name,
+        limit=limit,
+        candles_limit=candles_limit,
+        horizon_days=horizon_days,
+        overlay_mode=overlay_mode,
+        dedupe_same_day=dedupe_same_day,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-snapshots")
+def event_aware_conservative_overlay_paper_snapshots_list_api(
+    limit: int = Query(50, ge=1, le=200),
+    status: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return list_event_overlay_paper_snapshots(
+        db=db,
+        limit=limit,
+        status=status,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}")
+def event_aware_conservative_overlay_paper_snapshot_detail_api(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+):
+    return get_event_overlay_paper_snapshot_detail(
+        db=db,
+        snapshot_id=snapshot_id,
+    )
+
+
+@router.post("/signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}/evaluate")
+def event_aware_conservative_overlay_paper_snapshot_evaluate_api(
+    snapshot_id: int,
+    evaluation_date: str | None = Query(None),
+    horizon_days: int | None = Query(None, ge=1, le=120),
+    db: Session = Depends(get_db),
+):
+    return evaluate_event_overlay_paper_snapshot(
+        db=db,
+        snapshot_id=snapshot_id,
+        evaluation_date=evaluation_date,
+        horizon_days=horizon_days,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-dashboard")
+def event_aware_conservative_overlay_paper_dashboard_api(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    return build_event_overlay_paper_dashboard(
+        db=db,
+        limit=limit,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-tracking-page", response_class=AIReportHTMLResponse)
+def event_aware_conservative_overlay_paper_tracking_page():
+    return build_event_overlay_paper_tracking_page_html()
 
 
 @router.get("/signals/consumer/ml-v2-gate-backtest")

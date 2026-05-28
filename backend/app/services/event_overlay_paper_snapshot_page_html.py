@@ -35,6 +35,7 @@ def build_event_overlay_paper_snapshot_page_html() -> str:
       <a href="/signals">Signals</a>
       <a href="/signals/event-aware/risk-overlay-conservative-page">Conservative overlay</a>
       <a href="/signals/event-aware/risk-overlay-page">Risk overlay</a>
+      <a href="/signals/event-aware/conservative-overlay-paper-tracking-page">Overlay tracking</a>
     </nav>
   </header>
   <main>

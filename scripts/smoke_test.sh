@@ -158,6 +158,8 @@ check_get "signals event aware conservative overlay calibration" "/signals/event
 check_get "signals event aware conservative overlay page" "/signals/event-aware/risk-overlay-conservative-page"
 check_get "signals event aware conservative overlay paper snapshot" "/signals/event-aware/conservative-overlay-paper-snapshot?limit=5"
 check_get "signals event aware conservative overlay paper page" "/signals/event-aware/conservative-overlay-paper-page"
+check_get "signals event aware conservative overlay paper dashboard" "/signals/event-aware/conservative-overlay-paper-dashboard?limit=5"
+check_get "signals event aware conservative overlay paper tracking page" "/signals/event-aware/conservative-overlay-paper-tracking-page"
 check_get "signals data coverage" "/signals/data-coverage?max_tickers=100&min_history=80&horizon=20"
 check_get "signals data coverage page" "/signals/data-coverage-page"
 check_get "signals data bootstrap status" "/signals/data-bootstrap-status"

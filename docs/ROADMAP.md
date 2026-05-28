@@ -637,6 +637,23 @@ Acceptance criteria:
 
 Почему важно: это переводит validated research result в удобный paper-tracking формат без включения production default.
 
+## 23.8 Conservative Event Overlay Paper Tracking
+
+Статус: реализовано как local paper-tracking layer. Production defaults не меняются.
+
+Цель: сохранять conservative overlay snapshots и позже оценивать realized baseline vs overlay outcome по локальным свечам.
+
+Что сделано:
+
+- добавлены таблицы `event_overlay_paper_snapshots` и `event_overlay_paper_snapshot_items`;
+- добавлен write endpoint `POST /signals/event-aware/conservative-overlay-paper-snapshots`;
+- добавлены read endpoints для list/detail/dashboard;
+- добавлен evaluate endpoint `POST /signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}/evaluate`;
+- добавлена page `/signals/event-aware/conservative-overlay-paper-tracking-page`;
+- evaluation считает realized return, baseline PnL, overlay PnL, overlay delta и breakdown by risk level.
+
+Почему важно: текущий snapshot показывает только сегодняшнюю структуру риска, а paper tracking позволяет измерить будущий realized эффект без реальных сделок и без включения overlay в production.
+
 ## 24. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.

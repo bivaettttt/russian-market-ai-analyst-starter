@@ -42,6 +42,7 @@ def build_event_aware_risk_overlay_page_html() -> str:
       <a href="/signals/event-aware/research-page">Event-aware research</a>
       <a href="/signals/event-aware/risk-overlay-walk-forward-page">Risk overlay WF</a>
       <a href="/signals/event-aware/risk-overlay-conservative-page">Conservative overlay</a>
+      <a href="/signals/event-aware/conservative-overlay-paper-tracking-page">Overlay tracking</a>
     </nav>
   </header>
   <main>

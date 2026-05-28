@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, Text
 from datetime import date, datetime
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -159,3 +159,73 @@ class PortfolioConstructSnapshot(Base):
     payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     result_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
 
+
+# --- Conservative event overlay paper tracking ---
+
+class EventOverlayPaperSnapshot(Base):
+    __tablename__ = "event_overlay_paper_snapshots"
+    __table_args__ = (
+        Index("ix_event_overlay_snapshot_date_status", "snapshot_date", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    snapshot_date = Column(String(32), nullable=False, index=True)
+    name = Column(String(255), nullable=True)
+    source = Column(String(128), nullable=False, default="conservative_event_overlay")
+    config_id = Column(String(128), nullable=False, index=True)
+    overlay_mode = Column(String(64), nullable=False, default="soft_adjust")
+    limit = Column(Integer, nullable=True)
+    candles_limit = Column(Integer, nullable=True)
+    horizon_days = Column(Integer, nullable=False, default=20)
+
+    baseline_total_exposure = Column(Float, nullable=True)
+    overlay_total_exposure = Column(Float, nullable=True)
+    exposure_reduction_pct = Column(Float, nullable=True)
+    avg_multiplier = Column(Float, nullable=True)
+    risk_level_counts_json = Column(Text, nullable=False, default="{}")
+    summary_json = Column(Text, nullable=False, default="{}")
+
+    status = Column(String(64), nullable=False, default="open", index=True)
+    evaluated_at = Column(DateTime, nullable=True, index=True)
+    notes = Column(Text, nullable=True)
+
+
+class EventOverlayPaperSnapshotItem(Base):
+    __tablename__ = "event_overlay_paper_snapshot_items"
+    __table_args__ = (
+        Index("ix_event_overlay_item_snapshot_ticker", "snapshot_id", "ticker"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    snapshot_id = Column(Integer, ForeignKey("event_overlay_paper_snapshots.id"), nullable=False, index=True)
+    ticker = Column(String(32), nullable=False, index=True)
+    action = Column(String(128), nullable=True)
+    recommendation = Column(Text, nullable=True)
+    entry_price = Column(Float, nullable=True)
+    entry_date = Column(String(32), nullable=True, index=True)
+
+    base_position_size_pct = Column(Float, nullable=True)
+    overlay_position_size_pct = Column(Float, nullable=True)
+    event_risk_score = Column(Float, nullable=True)
+    event_risk_level = Column(String(64), nullable=True, index=True)
+    event_risk_multiplier = Column(Float, nullable=True)
+    event_risk_reasons_json = Column(Text, nullable=False, default="[]")
+    matched_rules_json = Column(Text, nullable=False, default="[]")
+
+    target_price = Column(Float, nullable=True)
+    stop_price = Column(Float, nullable=True)
+    target_probability_pct = Column(Float, nullable=True)
+    risk_reward_ratio = Column(Float, nullable=True)
+    sector = Column(String(128), nullable=True)
+    market_regime = Column(String(64), nullable=True)
+    row_json = Column(Text, nullable=False, default="{}")
+
+    realized_price = Column(Float, nullable=True)
+    realized_date = Column(String(32), nullable=True)
+    realized_return_pct = Column(Float, nullable=True)
+    baseline_realized_pnl_pct = Column(Float, nullable=True)
+    overlay_realized_pnl_pct = Column(Float, nullable=True)
+    overlay_delta_pnl_pct = Column(Float, nullable=True)
+    realized_outcome = Column(String(64), nullable=False, default="pending", index=True)
+    evaluated_at = Column(DateTime, nullable=True, index=True)
