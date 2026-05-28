@@ -485,6 +485,7 @@ def build_signals_page_html() -> str:
         <a href="/signals/event-aware/rule-search-page">Event rule search</a>
         <a href="/signals/event-aware/dual-side-page">Dual-side event risk</a>
         <a href="/signals/event-aware/rule-stability-page">Rule stability</a>
+        <a href="/signals/event-aware/risk-overlay-page">Risk overlay</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
         <a href="/tickers/SBER">Пример тикера</a>
       </nav>
@@ -559,6 +560,23 @@ def build_signals_page_html() -> str:
             <option value="diagnostic_only" selected>Diagnostic only</option>
             <option value="soft_downgrade">Soft downgrade</option>
             <option value="hard_gate">Hard gate</option>
+          </select>
+        </label>
+
+        <label>
+          Event risk overlay
+          <select id="eventRiskOverlayInput">
+            <option value="false" selected>Выключен</option>
+            <option value="true">Включен</option>
+          </select>
+        </label>
+
+        <label>
+          Overlay mode
+          <select id="eventRiskOverlayModeInput">
+            <option value="diagnostic_only" selected>Diagnostic only</option>
+            <option value="soft_adjust">Soft adjust</option>
+            <option value="experimental_downgrade">Experimental downgrade</option>
           </select>
         </label>
       </div>
@@ -710,6 +728,21 @@ def build_signals_page_html() -> str:
         ml_v2_gate_blocked_reason: source.ml_v2_gate_blocked_reason || "",
         ml_v2_gate_research_basis: source.ml_v2_gate_research_basis || "",
         ml_v2_research_gate_effect: source.ml_v2_research_gate_effect || "none",
+        event_risk_overlay: source.event_risk_overlay || {},
+        event_risk_score: toNumber(source.event_risk_score),
+        event_risk_level: source.event_risk_level || "",
+        event_risk_position_multiplier: toNumber(source.event_risk_position_multiplier),
+        event_risk_min_probability_addon_pct: toNumber(source.event_risk_min_probability_addon_pct),
+        event_risk_min_rr_multiplier: toNumber(source.event_risk_min_rr_multiplier),
+        event_risk_effective_min_probability_pct: toNumber(source.event_risk_effective_min_probability_pct),
+        event_risk_effective_min_rr: toNumber(source.event_risk_effective_min_rr),
+        event_risk_matched_rule_ids: Array.isArray(source.event_risk_matched_rule_ids) ? source.event_risk_matched_rule_ids : [],
+        event_risk_reasons: Array.isArray(source.event_risk_reasons) ? source.event_risk_reasons : [],
+        event_risk_overlay_mode: source.event_risk_overlay_mode || "",
+        event_risk_original_action: source.event_risk_original_action || "",
+        event_risk_final_action_changed: Boolean(source.event_risk_final_action_changed),
+        event_risk_action_effect: source.event_risk_action_effect || "",
+        event_risk_research_basis: source.event_risk_research_basis || "",
         target_price: toNumber(source.target_price),
         current_price: toNumber(source.current_price || source.price),
         potential_pct: toNumber(source.potential_pct || source.expected_return_pct || source.target_potential_pct),
@@ -983,6 +1016,50 @@ def build_signals_page_html() -> str:
       `;
     }
 
+    function eventRiskBadgeClass(item) {
+      const level = String(item.event_risk_level || "").toLowerCase();
+      if (level === "high" || level === "extreme") return "negative";
+      if (level === "elevated" || level === "moderate") return "warning";
+      if (level === "low") return "positive";
+      return "";
+    }
+
+    function eventRiskBadgeText(item) {
+      const level = String(item.event_risk_level || "").toLowerCase();
+      if (!level) return "Event risk: off";
+      const score = item.event_risk_score === null ? "—" : item.event_risk_score.toFixed(1);
+      const mult = item.event_risk_position_multiplier === null ? "—" : `x${item.event_risk_position_multiplier}`;
+      return `Event risk: ${level} ${score} · size ${mult}`;
+    }
+
+    function eventRiskOverlayHtml(forecast, signal) {
+      const overlay = forecast.event_risk_overlay || signal.event_risk_overlay || {};
+      const level = forecast.event_risk_level || signal.event_risk_level || overlay.risk_level || "";
+      const score = forecast.event_risk_score ?? signal.event_risk_score ?? overlay.risk_score;
+      const reasons = forecast.event_risk_reasons || signal.event_risk_reasons || overlay.risk_reasons || [];
+      const rules = forecast.event_risk_matched_rule_ids || signal.event_risk_matched_rule_ids || overlay.matched_rule_ids || [];
+      if (!level && !overlay.status) {
+        return `
+          <h4>Event Risk Overlay</h4>
+          <p class="small muted">Overlay выключен по умолчанию; production action не меняется.</p>
+        `;
+      }
+      return `
+        <h4>Event Risk Overlay</h4>
+        <p>${escapeHtml((reasons || [])[0] || "Research-only risk overlay calculates soft risk adjustments.")}</p>
+        <p class="small muted">
+          Score: ${escapeHtml(score ?? "—")} ·
+          Level: ${escapeHtml(level || "—")} ·
+          Size: x${escapeHtml(forecast.event_risk_position_multiplier ?? signal.event_risk_position_multiplier ?? overlay.position_multiplier ?? "—")} ·
+          Probability addon: ${escapeHtml(forecast.event_risk_min_probability_addon_pct ?? signal.event_risk_min_probability_addon_pct ?? overlay.min_probability_addon_pct ?? "—")} ·
+          RR multiplier: ${escapeHtml(forecast.event_risk_min_rr_multiplier ?? signal.event_risk_min_rr_multiplier ?? overlay.min_rr_multiplier ?? "—")} ·
+          Effect: ${escapeHtml(forecast.event_risk_action_effect || signal.event_risk_action_effect || "—")}
+        </p>
+        <p class="small muted">Rules: ${escapeHtml((rules || []).slice(0, 6).join(", ") || "—")}</p>
+        <p class="small muted">${escapeHtml(forecast.event_risk_research_basis || signal.event_risk_research_basis || overlay.research_basis || "Hard filter failed; overlay is diagnostic/soft unless explicitly enabled.")}</p>
+      `;
+    }
+
 
     function fmtPercent(value) {
       const number = toNumber(value);
@@ -1180,6 +1257,12 @@ def build_signals_page_html() -> str:
           detailParams.set("ml_v2_gate_threshold_pct", mlV2Threshold?.value || "55");
           detailParams.set("ml_v2_gate_mode", mlV2Mode?.value || "diagnostic_only");
         }
+        const eventRiskOverlay = document.getElementById("eventRiskOverlayInput");
+        const eventRiskOverlayMode = document.getElementById("eventRiskOverlayModeInput");
+        if (eventRiskOverlay && eventRiskOverlay.value === "true") {
+          detailParams.set("use_event_risk_overlay", "true");
+          detailParams.set("event_risk_overlay_mode", eventRiskOverlayMode?.value || "diagnostic_only");
+        }
         const detailQuery = detailParams.toString();
         const response = await fetch(`/signals/consumer/${encodeURIComponent(ticker)}.json${detailQuery ? `?${detailQuery}` : ""}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1209,6 +1292,8 @@ def build_signals_page_html() -> str:
           ${marketRegimeHtml(forecast)}
 
           ${mlV2GateHtml(forecast, signal)}
+
+          ${eventRiskOverlayHtml(forecast, signal)}
 
           <h4>Риски</h4>
           ${listHtml(explanation.risks)}
@@ -1255,6 +1340,9 @@ def build_signals_page_html() -> str:
         const mlV2ActionChange = item.ml_v2_final_action_changed
           ? `<div class="small muted">ML v2: ${escapeHtml(item.ml_v2_original_action || "—")} → ${escapeHtml(item.consumer_action || item.action || "—")}</div>`
           : "";
+        const eventRiskActionChange = item.event_risk_final_action_changed
+          ? `<div class="small muted">Event risk: ${escapeHtml(item.event_risk_original_action || "—")} → ${escapeHtml(item.consumer_action || item.action || "—")}</div>`
+          : "";
 
         return `
           <article class="signal-card">
@@ -1293,6 +1381,7 @@ def build_signals_page_html() -> str:
             <div class="decision ${cls}">
               ${escapeHtml(decisionText)}
               ${mlV2ActionChange}
+              ${eventRiskActionChange}
             </div>
 
             <div class="diagnostics-row">
@@ -1302,6 +1391,7 @@ def build_signals_page_html() -> str:
               <span class="diag-pill">Источник: ${escapeHtml(item.source_signal_action || "—")}</span>
               <span class="diag-pill">ML: ${fmtPercent(item.ml_probability_pct)}</span>
               <span class="diag-pill ${mlV2BadgeClass(item)}">${escapeHtml(mlV2BadgeText(item))}</span>
+              <span class="diag-pill ${eventRiskBadgeClass(item)}">${escapeHtml(eventRiskBadgeText(item))}</span>
               <span class="diag-pill ${newsBadgeClass(item.news_assessment || {})}">
                 ${escapeHtml(newsBadgeText(item))}
               </span>
@@ -1353,6 +1443,13 @@ def build_signals_page_html() -> str:
         params.set("ml_v2_gate_mode", mlV2Mode?.value || "diagnostic_only");
       }
 
+      const eventRiskOverlay = document.getElementById("eventRiskOverlayInput");
+      const eventRiskOverlayMode = document.getElementById("eventRiskOverlayModeInput");
+      if (eventRiskOverlay && eventRiskOverlay.value === "true") {
+        params.set("use_event_risk_overlay", "true");
+        params.set("event_risk_overlay_mode", eventRiskOverlayMode?.value || "diagnostic_only");
+      }
+
       return `/signals/consumer.json?${params.toString()}`;
     }
 
@@ -1401,6 +1498,8 @@ def build_signals_page_html() -> str:
     document.getElementById("mlV2GateInput").addEventListener("change", loadSignals);
     document.getElementById("mlV2ThresholdInput").addEventListener("change", loadSignals);
     document.getElementById("mlV2ModeInput").addEventListener("change", loadSignals);
+    document.getElementById("eventRiskOverlayInput").addEventListener("change", loadSignals);
+    document.getElementById("eventRiskOverlayModeInput").addEventListener("change", loadSignals);
 
     window.loadSignals = loadSignals;
     window.clearFilters = clearFilters;

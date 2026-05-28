@@ -31,9 +31,11 @@ This diagnostic layer does not change production logic. It explains whether even
 
 ## Next Steps
 
-- If stable: build a simple risk overlay candidate and validate it leakage-safe.
+- If stable: use `/signals/event-aware/risk-overlay-page` to test a soft risk overlay candidate.
 - If diagnostic-only: keep event layer for explanations/risk annotations.
 - If rejected: do not use event-aware rules as filters.
+
+The first overlay version is implemented as opt-in research mode: it reduces exposure and raises probability/RR requirements, while default consumer recommendations stay unchanged.
 
 ## Curl Examples
 

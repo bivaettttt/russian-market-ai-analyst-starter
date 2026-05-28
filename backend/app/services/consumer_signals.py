@@ -20,6 +20,7 @@ ACTION_RANK = {
     "buy": 1,
     "consider_buy": 2,
     "watch_ml_confirmed": 3,
+    "watch_event_risk": 4,
     "watch_ml_v2_rejected": 4,
     "watch_ml_rejected": 4,
     "watch": 5,
@@ -50,6 +51,7 @@ ML_V2_RESEARCH_BASIS = (
     "Leakage-safe walk-forward: threshold 55%, PF 1.151, avg return +0.22%, positive folds 3/4."
 )
 ML_V2_LONG_CANDIDATE_ACTIONS = {"buy", "consider_buy", "watch_ml_confirmed", "buy_watch", "watch_buy"}
+EVENT_RISK_OVERLAY_ALLOWED_MODES = {"diagnostic_only", "soft_adjust", "experimental_downgrade"}
 
 
 def _to_float(value: Any) -> float | None:
@@ -207,6 +209,9 @@ def _recommendation_from_action(action: str | None, probability: float | None) -
 
     if action == "watch_ml_v2_rejected":
         return "Наблюдать", "cautious"
+
+    if action == "watch_event_risk":
+        return "Наблюдать из-за event risk", "cautious"
 
     if action in {"buy_watch", "watch_buy"}:
         if probability >= 70:
@@ -1802,6 +1807,13 @@ def normalize_ml_v2_gate_mode(mode: str | None) -> str:
     return normalized
 
 
+def normalize_event_risk_overlay_mode(mode: str | None) -> str:
+    normalized = str(mode or "diagnostic_only").strip().lower()
+    if normalized not in EVENT_RISK_OVERLAY_ALLOWED_MODES:
+        return "diagnostic_only"
+    return normalized
+
+
 def apply_ml_v2_experimental_gate_to_decision(
     decision_gate: dict[str, Any],
     *,
@@ -1980,6 +1992,7 @@ def _build_position_sizing(
         "watch",
         "watch_market_risk",
         "watch_ml_confirmed",
+        "watch_event_risk",
         "watch_ml_rejected",
     }
 
@@ -2693,6 +2706,8 @@ def build_consumer_forecast(
     ml_v2_research_gate: dict[str, Any] | None = None,
     ml_v2_gate_threshold_pct: float = 55.0,
     ml_v2_gate_mode: str = "diagnostic_only",
+    use_event_risk_overlay: bool = False,
+    event_risk_overlay_mode: str = "diagnostic_only",
 ) -> dict[str, Any]:
     price = _to_float(latest.get("close"))
     regime_features = _build_consumer_regime_features(candles)
@@ -2703,6 +2718,7 @@ def build_consumer_forecast(
     global_events = global_events or []
     market_regime = market_regime or {}
     ml_v2_gate_mode = normalize_ml_v2_gate_mode(ml_v2_gate_mode)
+    event_risk_overlay_mode = normalize_event_risk_overlay_mode(event_risk_overlay_mode)
     if not isinstance(ml_v2_research_gate, dict):
         try:
             from app.services.ml_v2_research_gate import disabled_ml_v2_research_gate
@@ -2923,7 +2939,7 @@ def build_consumer_forecast(
     ml_v2_status = str(ml_v2_research_gate.get("status") or "disabled")
     ml_v2_effect = str(ml_v2_gate_context.get("effect") or "none_disabled")
 
-    return {
+    forecast = {
         "ticker": ticker,
         "name": instrument.get("name") or ticker,
         "sector": instrument.get("sector"),
@@ -3036,6 +3052,67 @@ def build_consumer_forecast(
         },
     }
 
+    if use_event_risk_overlay:
+        try:
+            from app.services.event_aware_risk_overlay import (
+                apply_event_risk_overlay_to_signal,
+                build_event_aware_risk_overlay,
+                match_event_risk_rules_for_signal,
+            )
+
+            match = match_event_risk_rules_for_signal(
+                forecast=forecast,
+                related_events=events,
+                global_events=global_events,
+                setup_context={
+                    "sector": instrument.get("sector"),
+                    "asset_type": instrument.get("asset_type"),
+                },
+            )
+            overlay = build_event_aware_risk_overlay(
+                event_context=match.get("event_context"),
+                matched_rules=match.get("matched_rules") or [],
+                market_regime=market_regime,
+                base_probability_pct=probability,
+                base_risk_reward_ratio=position_sizing.get("risk_reward_ratio"),
+                threshold_config={"mode": event_risk_overlay_mode},
+            )
+            overlay["match_source"] = match.get("source")
+            overlay["match_warnings"] = match.get("warnings") or []
+            forecast = apply_event_risk_overlay_to_signal(
+                forecast=forecast,
+                overlay=overlay,
+                mode=event_risk_overlay_mode,
+            )
+        except Exception as exc:  # noqa: BLE001
+            forecast.update(
+                {
+                    "event_risk_overlay": {
+                        "ok": False,
+                        "status": "error",
+                        "mode": event_risk_overlay_mode,
+                        "risk_score": None,
+                        "risk_level": "unknown",
+                        "risk_reasons": [str(exc)],
+                    },
+                    "event_risk_score": None,
+                    "event_risk_level": "unknown",
+                    "event_risk_position_multiplier": 1.0,
+                    "event_risk_min_probability_addon_pct": 0.0,
+                    "event_risk_min_rr_multiplier": 1.0,
+                    "event_risk_effective_min_probability_pct": None,
+                    "event_risk_effective_min_rr": None,
+                    "event_risk_matched_rule_ids": [],
+                    "event_risk_reasons": [str(exc)],
+                    "event_risk_overlay_mode": event_risk_overlay_mode,
+                    "event_risk_original_action": forecast.get("action"),
+                    "event_risk_final_action_changed": False,
+                    "event_risk_action_effect": "none_not_available",
+                }
+            )
+
+    return forecast
+
 
 
 def _instrument_to_consumer_dict(instrument: Instrument | None, ticker: str) -> dict[str, Any]:
@@ -3106,9 +3183,12 @@ def build_consumer_signal_for_ticker(
     use_ml_v2_research_gate: bool = False,
     ml_v2_gate_threshold_pct: float = 55.0,
     ml_v2_gate_mode: str = "diagnostic_only",
+    use_event_risk_overlay: bool = False,
+    event_risk_overlay_mode: str = "diagnostic_only",
 ) -> dict[str, Any]:
     ticker = ticker.upper().strip()
     ml_v2_gate_mode = normalize_ml_v2_gate_mode(ml_v2_gate_mode)
+    event_risk_overlay_mode = normalize_event_risk_overlay_mode(event_risk_overlay_mode)
 
     db_instrument = _get_consumer_instrument(db=db, ticker=ticker)
     instrument_meta = _instrument_to_consumer_dict(db_instrument, ticker)
@@ -3249,6 +3329,8 @@ def build_consumer_signal_for_ticker(
         ml_v2_research_gate=ml_v2_research_gate,
         ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
         ml_v2_gate_mode=ml_v2_gate_mode,
+        use_event_risk_overlay=use_event_risk_overlay,
+        event_risk_overlay_mode=event_risk_overlay_mode,
     )
 
     return {
@@ -3282,6 +3364,21 @@ def build_consumer_signal_for_ticker(
             "ml_v2_gate_blocked_reason": forecast.get("ml_v2_gate_blocked_reason"),
             "ml_v2_gate_research_basis": forecast.get("ml_v2_gate_research_basis"),
             "ml_v2_research_gate_effect": forecast.get("ml_v2_research_gate_effect"),
+            "event_risk_overlay": forecast.get("event_risk_overlay"),
+            "event_risk_score": forecast.get("event_risk_score"),
+            "event_risk_level": forecast.get("event_risk_level"),
+            "event_risk_position_multiplier": forecast.get("event_risk_position_multiplier"),
+            "event_risk_min_probability_addon_pct": forecast.get("event_risk_min_probability_addon_pct"),
+            "event_risk_min_rr_multiplier": forecast.get("event_risk_min_rr_multiplier"),
+            "event_risk_effective_min_probability_pct": forecast.get("event_risk_effective_min_probability_pct"),
+            "event_risk_effective_min_rr": forecast.get("event_risk_effective_min_rr"),
+            "event_risk_matched_rule_ids": forecast.get("event_risk_matched_rule_ids"),
+            "event_risk_reasons": forecast.get("event_risk_reasons"),
+            "event_risk_overlay_mode": forecast.get("event_risk_overlay_mode"),
+            "event_risk_original_action": forecast.get("event_risk_original_action"),
+            "event_risk_final_action_changed": forecast.get("event_risk_final_action_changed"),
+            "event_risk_action_effect": forecast.get("event_risk_action_effect"),
+            "event_risk_research_basis": forecast.get("event_risk_research_basis"),
             "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
             "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
@@ -3342,6 +3439,8 @@ def list_consumer_signals(
     use_ml_v2_research_gate: bool = False,
     ml_v2_gate_threshold_pct: float = 55.0,
     ml_v2_gate_mode: str = "diagnostic_only",
+    use_event_risk_overlay: bool = False,
+    event_risk_overlay_mode: str = "diagnostic_only",
 ) -> dict[str, Any]:
     from app.services.market_universe import search_instruments
 
@@ -3349,6 +3448,7 @@ def list_consumer_signals(
     scenario_filter = (scenario or "all").strip().lower()
     news_filter = (news or "all").strip().lower()
     ml_v2_gate_mode = normalize_ml_v2_gate_mode(ml_v2_gate_mode)
+    event_risk_overlay_mode = normalize_event_risk_overlay_mode(event_risk_overlay_mode)
 
     if scenario_filter not in {"all", "long", "downside", "neutral"}:
         scenario_filter = "all"
@@ -3410,6 +3510,8 @@ def list_consumer_signals(
             use_ml_v2_research_gate=use_ml_v2_research_gate,
             ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
             ml_v2_gate_mode=ml_v2_gate_mode,
+            use_event_risk_overlay=use_event_risk_overlay,
+            event_risk_overlay_mode=event_risk_overlay_mode,
         )
         if not data.get("ok"):
             continue
@@ -3465,6 +3567,21 @@ def list_consumer_signals(
                 "ml_v2_gate_blocked_reason": forecast.get("ml_v2_gate_blocked_reason"),
                 "ml_v2_gate_research_basis": forecast.get("ml_v2_gate_research_basis"),
                 "ml_v2_research_gate_effect": forecast.get("ml_v2_research_gate_effect"),
+                "event_risk_overlay": forecast.get("event_risk_overlay"),
+                "event_risk_score": forecast.get("event_risk_score"),
+                "event_risk_level": forecast.get("event_risk_level"),
+                "event_risk_position_multiplier": forecast.get("event_risk_position_multiplier"),
+                "event_risk_min_probability_addon_pct": forecast.get("event_risk_min_probability_addon_pct"),
+                "event_risk_min_rr_multiplier": forecast.get("event_risk_min_rr_multiplier"),
+                "event_risk_effective_min_probability_pct": forecast.get("event_risk_effective_min_probability_pct"),
+                "event_risk_effective_min_rr": forecast.get("event_risk_effective_min_rr"),
+                "event_risk_matched_rule_ids": forecast.get("event_risk_matched_rule_ids"),
+                "event_risk_reasons": forecast.get("event_risk_reasons"),
+                "event_risk_overlay_mode": forecast.get("event_risk_overlay_mode"),
+                "event_risk_original_action": forecast.get("event_risk_original_action"),
+                "event_risk_final_action_changed": forecast.get("event_risk_final_action_changed"),
+                "event_risk_action_effect": forecast.get("event_risk_action_effect"),
+                "event_risk_research_basis": forecast.get("event_risk_research_basis"),
                 "probability_source": forecast.get("probability_source"),
             "news_adjustment_pct": forecast.get("news_adjustment_pct"),
             "ticker_news_adjustment_pct": forecast.get("ticker_news_adjustment_pct"),
@@ -3614,6 +3731,35 @@ def list_consumer_signals(
         "action_changed": sum(1 for row in rows if row.get("ml_v2_final_action_changed")),
     }
 
+    event_risk_counts = {
+        "enabled": bool(use_event_risk_overlay),
+        "mode": event_risk_overlay_mode,
+        "low": sum(1 for row in rows if row.get("event_risk_level") == "low"),
+        "moderate": sum(1 for row in rows if row.get("event_risk_level") == "moderate"),
+        "elevated": sum(1 for row in rows if row.get("event_risk_level") == "elevated"),
+        "high": sum(1 for row in rows if row.get("event_risk_level") == "high"),
+        "extreme": sum(1 for row in rows if row.get("event_risk_level") == "extreme"),
+        "action_changed": sum(1 for row in rows if row.get("event_risk_final_action_changed")),
+        "avg_position_multiplier": _round(
+            sum(_to_float(row.get("event_risk_position_multiplier")) or 1.0 for row in rows) / len(rows),
+            3,
+        )
+        if rows
+        else None,
+        "avg_probability_addon_pct": _round(
+            sum(_to_float(row.get("event_risk_min_probability_addon_pct")) or 0.0 for row in rows) / len(rows),
+            2,
+        )
+        if rows
+        else None,
+        "avg_rr_multiplier": _round(
+            sum(_to_float(row.get("event_risk_min_rr_multiplier")) or 1.0 for row in rows) / len(rows),
+            3,
+        )
+        if rows
+        else None,
+    }
+
     summary = {
         "total": len(rows),
         "scenario_filter": scenario_filter,
@@ -3628,6 +3774,8 @@ def list_consumer_signals(
         "ml_v2_not_available": ml_v2_counts["not_available"],
         "ml_v2_soft_downgraded": ml_v2_counts["soft_downgraded"],
         "ml_v2_hard_rejected": ml_v2_counts["hard_rejected"],
+        "event_risk_overlay": event_risk_counts,
+        "event_risk_action_changed": event_risk_counts["action_changed"],
         "market_regime": market_regime,
         "positive": sum(1 for row in rows if row.get("action") in positive_actions),
         "watch": sum(1 for row in rows if row.get("action") in watch_actions),
@@ -3646,6 +3794,7 @@ def list_consumer_signals(
         "watch_ml_rejected": sum(1 for row in rows if row.get("action") == "watch_ml_rejected"),
         "watch_ml_v2_rejected": sum(1 for row in rows if row.get("action") == "watch_ml_v2_rejected"),
         "avoid_ml_v2_rejected": sum(1 for row in rows if row.get("action") == "avoid_ml_v2_rejected"),
+        "watch_event_risk": sum(1 for row in rows if row.get("action") == "watch_event_risk"),
         "avg_probability_pct": _round(
             sum(float(row.get("target_probability_pct") or 0) for row in rows) / len(rows),
             1,
@@ -3682,6 +3831,8 @@ def list_consumer_signals(
             return "Experimental ML v2 gate ниже порога: покупка понижена до наблюдения."
         if action_value == "avoid_ml_v2_rejected":
             return "Experimental ML v2 hard gate ниже порога: long-вход отклонён."
+        if action_value == "watch_event_risk":
+            return "Experimental event risk overlay: высокий событийный риск, вход понижен до наблюдения."
         if action_value == "watch":
             return "Нейтральный сигнал: наблюдение без входа."
 
@@ -3707,6 +3858,8 @@ def list_consumer_signals(
             return "Ждать улучшения режима рынка: ширина, downside pressure и волатильность должны нормализоваться."
         if action_value == "watch_ml_v2_rejected":
             return "Проверить ML v2 вероятность и дождаться подтверждения выше research-порога."
+        if action_value == "watch_event_risk":
+            return "Снизить риск: дождаться ослабления event-risk факторов или повысить требования к вероятности/RR."
         if action_value == "avoid_ml_v2_rejected":
             return "Не открывать long в experimental hard_gate mode без ML v2 подтверждения."
         if sizing.get("allowed") is False:
@@ -3958,6 +4111,96 @@ def compare_consumer_ml_v2_gate_snapshot(
         "warnings": warnings,
     }
 
+
+def compare_consumer_event_risk_overlay_snapshot(
+    db: Session,
+    *,
+    limit: int = 100,
+    candles_limit: int = 240,
+    event_risk_overlay_mode: str = "soft_adjust",
+) -> dict[str, Any]:
+    overlay_mode = normalize_event_risk_overlay_mode(event_risk_overlay_mode)
+    if overlay_mode == "diagnostic_only":
+        overlay_mode = "soft_adjust"
+
+    baseline = list_consumer_signals(
+        db=db,
+        limit=limit,
+        candles_limit=candles_limit,
+        scenario="all",
+        use_event_risk_overlay=False,
+    )
+    overlay = list_consumer_signals(
+        db=db,
+        limit=limit,
+        candles_limit=candles_limit,
+        scenario="all",
+        use_event_risk_overlay=True,
+        event_risk_overlay_mode=overlay_mode,
+    )
+
+    baseline_by_ticker = {str(row.get("ticker") or ""): row for row in baseline.get("rows") or []}
+    overlay_rows = overlay.get("rows") or []
+    changed_rows: list[dict[str, Any]] = []
+    risk_rows: list[dict[str, Any]] = []
+    for row in overlay_rows:
+        ticker = str(row.get("ticker") or "")
+        baseline_row = baseline_by_ticker.get(ticker) or {}
+        if baseline_row.get("action") != row.get("action"):
+            changed_rows.append(
+                {
+                    "ticker": ticker,
+                    "baseline_action": baseline_row.get("action"),
+                    "overlay_action": row.get("action"),
+                    "risk_level": row.get("event_risk_level"),
+                    "risk_score": row.get("event_risk_score"),
+                    "position_multiplier": row.get("event_risk_position_multiplier"),
+                    "action_effect": row.get("event_risk_action_effect"),
+                }
+            )
+        if row.get("event_risk_level") in {"moderate", "elevated", "high", "extreme"}:
+            risk_rows.append(
+                {
+                    "ticker": ticker,
+                    "action": row.get("action"),
+                    "risk_level": row.get("event_risk_level"),
+                    "risk_score": row.get("event_risk_score"),
+                    "position_multiplier": row.get("event_risk_position_multiplier"),
+                    "probability_addon_pct": row.get("event_risk_min_probability_addon_pct"),
+                    "rr_multiplier": row.get("event_risk_min_rr_multiplier"),
+                    "matched_rule_ids": row.get("event_risk_matched_rule_ids") or [],
+                    "reasons": row.get("event_risk_reasons") or [],
+                }
+            )
+
+    def _avg(rows: list[dict[str, Any]], key: str, default: float) -> float | None:
+        if not rows:
+            return None
+        return _round(sum(_to_float(row.get(key)) if _to_float(row.get(key)) is not None else default for row in rows) / len(rows), 3)
+
+    summary = {
+        "baseline_total": len(baseline.get("rows") or []),
+        "overlay_total": len(overlay_rows),
+        "changed_actions": len(changed_rows),
+        "risk_low": sum(1 for row in overlay_rows if row.get("event_risk_level") == "low"),
+        "risk_moderate": sum(1 for row in overlay_rows if row.get("event_risk_level") == "moderate"),
+        "risk_elevated": sum(1 for row in overlay_rows if row.get("event_risk_level") == "elevated"),
+        "risk_high": sum(1 for row in overlay_rows if row.get("event_risk_level") == "high"),
+        "risk_extreme": sum(1 for row in overlay_rows if row.get("event_risk_level") == "extreme"),
+        "avg_position_multiplier": _avg(overlay_rows, "event_risk_position_multiplier", 1.0),
+        "avg_probability_addon_pct": _avg(overlay_rows, "event_risk_min_probability_addon_pct", 0.0),
+        "avg_rr_multiplier": _avg(overlay_rows, "event_risk_min_rr_multiplier", 1.0),
+        "event_risk_overlay_mode": overlay_mode,
+    }
+    return {
+        "ok": True,
+        "mode": "consumer_event_risk_overlay_compare",
+        "summary": summary,
+        "changed_rows": changed_rows[:50],
+        "risk_rows": sorted(risk_rows, key=lambda row: _to_float(row.get("risk_score")) or 0.0, reverse=True)[:100],
+        "warnings": [],
+    }
+
 # --- Ticker alias resolver wrapper ---
 from app.services.ticker_aliases import apply_alias_metadata, resolve_ticker_alias
 
@@ -3972,6 +4215,8 @@ def build_consumer_signal_for_ticker(
     use_ml_v2_research_gate: bool = False,
     ml_v2_gate_threshold_pct: float = 55.0,
     ml_v2_gate_mode: str = "diagnostic_only",
+    use_event_risk_overlay: bool = False,
+    event_risk_overlay_mode: str = "diagnostic_only",
 ) -> dict[str, Any]:
     resolution = resolve_ticker_alias(ticker)
     result = _build_consumer_signal_for_ticker_without_alias(
@@ -3982,6 +4227,8 @@ def build_consumer_signal_for_ticker(
         use_ml_v2_research_gate=use_ml_v2_research_gate,
         ml_v2_gate_threshold_pct=ml_v2_gate_threshold_pct,
         ml_v2_gate_mode=ml_v2_gate_mode,
+        use_event_risk_overlay=use_event_risk_overlay,
+        event_risk_overlay_mode=event_risk_overlay_mode,
     )
 
     if isinstance(result, dict):

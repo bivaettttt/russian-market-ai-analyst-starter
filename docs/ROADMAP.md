@@ -554,7 +554,7 @@ Acceptance criteria:
 
 ## 23.3 Event-Aware Rule Stability Diagnostics
 
-Статус: реализовано как diagnostics/research layer.
+Статус: реализовано как diagnostics/research layer. Full diagnostics found stable-looking rules, but primary failure reason remains `winner_miss_rate`.
 
 Цель: объяснить, почему static event risk rules не переносятся в walk-forward.
 
@@ -567,6 +567,23 @@ Acceptance criteria:
 - failure analysis объясняет: rule instability, missed winners, concentration, regime shift, sparse transfer.
 
 Почему важно: следующий шаг должен быть основан не на static best rules, а на правилах, которые стабильны во времени и не зависят от одного события или режима.
+
+## 23.4 Event-Aware Risk Overlay v1
+
+Статус: реализовано как opt-in research/diagnostic overlay. Production consumer logic по умолчанию не меняется.
+
+Цель: заменить hard event risk filter на мягкий overlay: risk score, position multiplier, probability addon, RR multiplier и warnings.
+
+Что сделано:
+
+- добавлен opt-in overlay для `/signals/consumer.json` и `/signals/consumer/{ticker}.json`;
+- добавлен endpoint `/signals/consumer/event-risk-overlay-compare`;
+- добавлен endpoint `/signals/event-aware/risk-overlay-backtest`;
+- добавлена page `/signals/event-aware/risk-overlay-page`;
+- режимы: `diagnostic_only`, `soft_adjust`, `experimental_downgrade`;
+- action меняется только в explicit `experimental_downgrade` при high/extreme risk.
+
+Почему важно: hard filter ухудшал walk-forward из-за missed winners; overlay снижает exposure и повышает требования, не превращая event layer в production short/avoid engine.
 
 ## 24. Production News Pipeline
 
