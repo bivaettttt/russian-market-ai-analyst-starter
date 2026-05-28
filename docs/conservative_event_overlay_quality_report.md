@@ -71,6 +71,8 @@ It is intended for local/manual notification workflows, not external API deliver
 - GET endpoints are read-only.
 - Write actions are explicit POST endpoints or CLI commands.
 - Health checks warn about stale market data, missing snapshots, missing event coverage, and ready snapshots without enough future candles.
+- Quality report warns with `zero_exposure_snapshots_detected` when legacy snapshots have rows but zero baseline exposure.
+- New snapshots use a 1.0% fallback paper position only when signal sizing is missing; this is accounting-only and does not change recommendations.
 
 ## Limitations
 

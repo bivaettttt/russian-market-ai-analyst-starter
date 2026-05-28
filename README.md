@@ -221,6 +221,7 @@ python3 -m app.tasks.event_overlay_paper_tracking daily-run --name daily --limit
 python3 -m app.tasks.market_daily_ops status
 python3 -m app.tasks.market_daily_ops run --dry-run
 python3 -m app.tasks.market_daily_ops run --name daily --limit 100 --horizon-days 20
+python3 -m app.tasks.market_daily_ops refresh --max-tickers 1 --days 10 --skip-universe-refresh --request-timeout 10 --max-retries 1 --max-runtime-seconds 60 --json
 python3 -m app.tasks.live_paper_validation status
 python3 -m app.tasks.live_paper_validation start --dry-run
 ```
@@ -249,6 +250,8 @@ curl -X POST "http://127.0.0.1:8010/analyze/news" \
 - Historical news/global context приближённый и не всегда replayed.
 - Возможен survivorship bias из-за текущего instrument universe.
 - Пороговые параметры не применяются в production автоматически после sweep/walk-forward.
+- Conservative overlay paper snapshots use a 1.0% fallback notional per row only when signal position sizing is unavailable; this is paper accounting, not a trade instruction.
+- MOEX refresh commands support bounded request timeouts, short retries, progress to stderr, and existing-universe fallback when the universe endpoint is unavailable.
 - Проект не должен использоваться как автоматический trading bot без независимой валидации, мониторинга и юридической проверки.
 
 ## Документация

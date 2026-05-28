@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import time
 from datetime import date
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -117,6 +118,10 @@ def _latest_candle_dates_by_ticker(db: Session, *, max_tickers: int = 300) -> di
     return {ticker: latest.get(ticker) for ticker in tickers}
 
 
+def _eligible_instrument_count(db: Session) -> int:
+    return int(db.scalar(select(func.count(Instrument.id)).where(Instrument.is_signal_eligible.is_(True))) or 0)
+
+
 def build_ticker_freshness_report(
     db: Session,
     *,
@@ -223,6 +228,7 @@ def _infer_ticker_results(
                 "after_latest_date": after_date,
                 "inserted": inserted,
                 "updated": updated,
+                "error_type": (failed_row or {}).get("error_type"),
                 "error": (failed_row or {}).get("error"),
             }
         )
@@ -239,7 +245,15 @@ def refresh_market_data_daily(
     force: bool = False,
     retry_failed: bool = False,
     max_retries: int = 1,
+    refresh_universe: bool = True,
+    fallback_to_existing_universe: bool = True,
+    request_timeout: float = 10.0,
+    retry_backoff: float = 0.5,
+    continue_on_error: bool = True,
+    max_runtime_seconds: int | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
+    started_at = time.monotonic()
     before = build_market_data_freshness_status(db)
     before_summary = before.get("summary") or {}
     before_latest = _latest_candle_dates_by_ticker(db, max_tickers=max_tickers)
@@ -250,6 +264,12 @@ def refresh_market_data_daily(
             "mode": "market_data_daily_refresh",
             "dry_run": True,
             "force": force,
+            "universe_refresh_status": "planned" if refresh_universe else "skipped",
+            "universe_error": None,
+            "used_existing_universe": not refresh_universe,
+            "request_timeout": request_timeout,
+            "max_retries": max_retries,
+            "retry_backoff": retry_backoff,
             "before": before,
             "after": before,
             "refresh_result": {
@@ -274,6 +294,10 @@ def refresh_market_data_daily(
             "failed_tickers": [],
             "stale_tickers_after_refresh": [],
             "partial_success": False,
+            "timed_out": False,
+            "runtime_seconds": _round(time.monotonic() - started_at, 3),
+            "updated_tickers": [],
+            "skipped_tickers": [],
             "retry_attempted": False,
             "retry_count": 0,
             "recovered_tickers": [],
@@ -281,6 +305,7 @@ def refresh_market_data_daily(
             "warnings": warnings,
             "recommendation": "dry_run_only",
         }
+    existing_universe_count = _eligible_instrument_count(db)
 
     if not force and not bool(before_summary.get("is_stale")) and int(before_summary.get("tickers_with_candles") or 0) > 0:
         return {
@@ -288,6 +313,12 @@ def refresh_market_data_daily(
             "mode": "market_data_daily_refresh",
             "dry_run": False,
             "force": False,
+            "universe_refresh_status": "skipped",
+            "universe_error": None,
+            "used_existing_universe": True,
+            "request_timeout": request_timeout,
+            "max_retries": max_retries,
+            "retry_backoff": retry_backoff,
             "before": before,
             "after": before,
             "refresh_result": {"skipped_reason": "market_data_already_fresh"},
@@ -295,6 +326,10 @@ def refresh_market_data_daily(
             "failed_tickers": [],
             "stale_tickers_after_refresh": [],
             "partial_success": False,
+            "timed_out": False,
+            "runtime_seconds": _round(time.monotonic() - started_at, 3),
+            "updated_tickers": [],
+            "skipped_tickers": [],
             "retry_attempted": False,
             "retry_count": 0,
             "recovered_tickers": [],
@@ -306,24 +341,134 @@ def refresh_market_data_daily(
     universe: dict[str, Any] | None = None
     candles: dict[str, Any] | None = None
     errors: list[str] = []
+    universe_refresh_status = "missing"
+    universe_error: str | None = None
+    used_existing_universe = False
     try:
-        universe = bootstrap_moex_universe(
-            db,
-            max_instruments=max_instruments,
-            include_etf=True,
-            include_bonds=False,
-            timeout_sec=20.0,
-            dry_run=False,
-        )
+        if refresh_universe:
+            try:
+                universe = bootstrap_moex_universe(
+                    db,
+                    max_instruments=max_instruments,
+                    include_etf=True,
+                    include_bonds=False,
+                    timeout_sec=request_timeout,
+                    request_timeout=request_timeout,
+                    max_retries=max_retries,
+                    retry_backoff=retry_backoff,
+                    progress_callback=progress_callback,
+                    dry_run=False,
+                )
+                universe_refresh_status = "updated" if universe.get("ok") else "failed"
+                errors.extend(str(item) for item in universe.get("errors", []) if item)
+                if not universe.get("ok"):
+                    universe_error = "; ".join(str(item) for item in universe.get("errors", [])[:3] if item) or "universe_refresh_failed"
+                    warnings.append("universe_refresh_failed")
+            except Exception as exc:  # noqa: BLE001
+                universe = None
+                universe_refresh_status = "failed"
+                universe_error = str(exc)
+                errors.append(f"universe_refresh_failed: {exc}")
+                warnings.append("universe_refresh_failed")
+            if universe_refresh_status == "failed":
+                existing_universe_count = _eligible_instrument_count(db)
+                if fallback_to_existing_universe and existing_universe_count > 0:
+                    universe_refresh_status = "fallback_existing"
+                    used_existing_universe = True
+                    warnings.append("using_existing_universe_after_refresh_failure")
+                else:
+                    after_failed = build_market_data_freshness_status(db)
+                    return {
+                        "ok": False,
+                        "degraded": False,
+                        "mode": "market_data_daily_refresh",
+                        "dry_run": False,
+                        "force": force,
+                        "universe_refresh_status": universe_refresh_status if existing_universe_count > 0 else "missing",
+                        "universe_error": universe_error,
+                        "used_existing_universe": False,
+                        "request_timeout": request_timeout,
+                        "max_retries": max_retries,
+                        "retry_backoff": retry_backoff,
+                        "before": before,
+                        "after": after_failed,
+                        "refresh_result": _summarize_refresh(universe, None),
+                        "ticker_results": _infer_ticker_results(before_latest=before_latest, after_latest=before_latest, candles=None),
+                        "failed_tickers": [],
+                        "skipped_tickers": [],
+                        "updated_tickers": [],
+                        "stale_tickers_after_refresh": [],
+                        "partial_success": False,
+                        "timed_out": False,
+                        "runtime_seconds": _round(time.monotonic() - started_at, 3),
+                        "retry_attempted": False,
+                        "retry_count": 0,
+                        "recovered_tickers": [],
+                        "still_failed_tickers": [],
+                        "warnings": sorted(set(warnings)),
+                        "errors": errors[:20],
+                        "recommendation": "bootstrap_required" if existing_universe_count <= 0 else "refresh_failed",
+                    }
+        else:
+            universe_refresh_status = "skipped" if existing_universe_count > 0 else "missing"
+            used_existing_universe = existing_universe_count > 0
+            universe = {
+                "ok": used_existing_universe,
+                "mode": "bootstrap_moex_universe",
+                "skipped": True,
+                "unique_tickers": existing_universe_count,
+                "inserted": 0,
+                "updated": 0,
+                "warnings": ["universe_refresh_skipped"],
+                "errors": [] if used_existing_universe else ["existing_universe_missing"],
+            }
+            if not used_existing_universe:
+                warnings.append("existing_universe_missing")
+                return {
+                    "ok": False,
+                    "degraded": False,
+                    "mode": "market_data_daily_refresh",
+                    "dry_run": False,
+                    "force": force,
+                    "universe_refresh_status": "missing",
+                    "universe_error": "existing_universe_missing",
+                    "used_existing_universe": False,
+                    "request_timeout": request_timeout,
+                    "max_retries": max_retries,
+                    "retry_backoff": retry_backoff,
+                    "before": before,
+                    "after": before,
+                    "refresh_result": _summarize_refresh(universe, None),
+                    "ticker_results": [],
+                    "failed_tickers": [],
+                    "skipped_tickers": [],
+                    "updated_tickers": [],
+                    "stale_tickers_after_refresh": [],
+                    "partial_success": False,
+                    "timed_out": False,
+                    "runtime_seconds": _round(time.monotonic() - started_at, 3),
+                    "retry_attempted": False,
+                    "retry_count": 0,
+                    "recovered_tickers": [],
+                    "still_failed_tickers": [],
+                    "warnings": sorted(set(warnings)),
+                    "errors": ["existing_universe_missing"],
+                    "recommendation": "bootstrap_required",
+                }
         candles = bootstrap_moex_candles(
             db,
             max_tickers=max_tickers,
             days=days,
-            timeout_sec=20.0,
+            timeout_sec=request_timeout,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+            retry_backoff=retry_backoff,
+            continue_on_error=continue_on_error,
+            progress_callback=progress_callback,
+            max_runtime_seconds=max_runtime_seconds,
             sleep_sec=0.15,
             dry_run=False,
         )
-        errors.extend(str(item) for item in universe.get("errors", []) if item)
         errors.extend(str(item.get("error")) for item in candles.get("failed", []) if item.get("error"))
     except Exception as exc:  # noqa: BLE001
         errors.append(str(exc))
@@ -342,7 +487,13 @@ def refresh_market_data_daily(
                 tickers=failed_before_retry,
                 max_tickers=min(max_tickers, len(failed_before_retry)),
                 days=days,
-                timeout_sec=20.0,
+                timeout_sec=request_timeout,
+                request_timeout=request_timeout,
+                max_retries=max_retries,
+                retry_backoff=retry_backoff,
+                continue_on_error=continue_on_error,
+                progress_callback=progress_callback,
+                max_runtime_seconds=max_runtime_seconds,
                 sleep_sec=0.15,
                 dry_run=False,
             )
@@ -362,10 +513,21 @@ def refresh_market_data_daily(
     ticker_freshness_after = build_ticker_freshness_report(db, max_tickers=max_tickers)
     stale_after = ticker_freshness_after.get("stale_tickers") or []
     failed_tickers = [row for row in ticker_results if row.get("status") == "failed"]
+    skipped_tickers = [row for row in ticker_results if row.get("status") == "skipped"]
+    updated_tickers = [row for row in ticker_results if row.get("status") in {"updated", "inserted"}]
+    timed_out = bool((candles or {}).get("timed_out")) or any(
+        row.get("error_type") in {"TimeoutException", "ConnectTimeout", "ReadTimeout"}
+        or "Timeout" in str(row.get("error") or "")
+        or "timed out" in str(row.get("error") or "").lower()
+        for row in ticker_results
+    )
     ok = bool(universe and universe.get("ok")) and bool(candles and candles.get("ok")) and not errors
     degraded = not ok and int((after.get("summary") or {}).get("tickers_with_candles") or 0) > 0
     partial_success = bool((candles or {}).get("loaded_tickers")) and (bool(failed_tickers) or bool(stale_after))
-    recommendation = "refresh_completed" if ok and not partial_success else ("partial_refresh" if partial_success or degraded else "refresh_failed")
+    if timed_out and not ok and not partial_success:
+        recommendation = "refresh_timeout"
+    else:
+        recommendation = "refresh_completed" if ok and not partial_success else ("partial_refresh" if partial_success or degraded else "refresh_failed")
     if not ok:
         warnings.append("market_data_refresh_failed")
     return {
@@ -374,13 +536,23 @@ def refresh_market_data_daily(
         "mode": "market_data_daily_refresh",
         "dry_run": False,
         "force": force,
+        "universe_refresh_status": universe_refresh_status,
+        "universe_error": universe_error,
+        "used_existing_universe": used_existing_universe,
+        "request_timeout": request_timeout,
+        "max_retries": max_retries,
+        "retry_backoff": retry_backoff,
         "before": before,
         "after": after,
         "refresh_result": _summarize_refresh(universe, candles),
         "ticker_results": ticker_results,
         "failed_tickers": failed_tickers,
+        "skipped_tickers": skipped_tickers,
+        "updated_tickers": updated_tickers,
         "stale_tickers_after_refresh": stale_after,
         "partial_success": partial_success,
+        "timed_out": timed_out,
+        "runtime_seconds": _round(time.monotonic() - started_at, 3),
         "retry_attempted": retry_attempted,
         "retry_count": retry_count,
         "recovered_tickers": recovered_tickers,

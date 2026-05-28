@@ -289,6 +289,8 @@ def build_conservative_overlay_quality_report(
         warnings.append("no_evaluated_items")
     if quality_label == "underperforming":
         warnings.append("overlay_underperforming")
+    if any((_to_float(snapshot.baseline_total_exposure) or 0.0) <= 0 and int(((_safe_snapshot_summary(snapshot) or {}).get("rows") or 0)) > 0 for snapshot in snapshots):
+        warnings.append("zero_exposure_snapshots_detected")
 
     return {
         "ok": True,

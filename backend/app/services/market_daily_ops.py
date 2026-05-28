@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
@@ -113,6 +113,14 @@ def run_market_daily_ops(
     dedupe_same_day: bool = True,
     dry_run: bool = False,
     force_refresh: bool = False,
+    request_timeout: float = 10.0,
+    max_retries: int = 1,
+    retry_backoff: float = 0.5,
+    refresh_universe: bool = True,
+    fallback_to_existing_universe: bool = True,
+    continue_on_error: bool = True,
+    max_runtime_seconds: int | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     preflight = build_daily_ops_status(db)
     market_refresh = (
@@ -122,6 +130,14 @@ def run_market_daily_ops(
             days=refresh_days,
             dry_run=dry_run,
             force=force_refresh,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+            retry_backoff=retry_backoff,
+            refresh_universe=refresh_universe,
+            fallback_to_existing_universe=fallback_to_existing_universe,
+            continue_on_error=continue_on_error,
+            max_runtime_seconds=max_runtime_seconds,
+            progress_callback=progress_callback,
         )
         if refresh_market_data
         else _disabled_market_refresh(db)

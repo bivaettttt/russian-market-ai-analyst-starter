@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from datetime import date, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from sqlalchemy import func, select
@@ -19,6 +19,16 @@ DEFAULT_SHARE_BOARDS = ["TQBR"]
 DEFAULT_FUND_BOARDS = ["TQTF", "TQIF"]
 DEFAULT_BOND_BOARDS = ["TQOB"]
 SUPPORTED_MARKETS = {"shares", "bonds"}
+
+
+def _request_timeout(value: float) -> httpx.Timeout:
+    timeout = max(0.1, float(value or 10.0))
+    return httpx.Timeout(timeout=timeout, connect=timeout, read=timeout, write=timeout, pool=timeout)
+
+
+def _emit_progress(callback: Callable[[dict[str, Any]], None] | None, event: dict[str, Any]) -> None:
+    if callback is not None:
+        callback(event)
 
 
 def normalize_tickers(value: str | list[str] | None) -> list[str] | None:
@@ -95,18 +105,29 @@ def parse_moex_history_rows(payload: dict[str, Any], *, ticker: str, board: str)
     return rows
 
 
-def _fetch_json(client: httpx.Client, url: str, params: dict[str, Any], retries: int = 2) -> dict[str, Any]:
+def _fetch_json(
+    client: httpx.Client,
+    url: str,
+    params: dict[str, Any],
+    retries: int | None = None,
+    *,
+    request_timeout: float = 10.0,
+    max_retries: int = 1,
+    retry_backoff: float = 0.5,
+) -> dict[str, Any]:
+    attempts = int(max_retries if retries is None else retries) + 1
     last_error: Exception | None = None
-    for attempt in range(retries + 1):
+    for attempt in range(attempts):
         try:
-            response = client.get(url, params=params)
+            response = client.get(url, params=params, timeout=_request_timeout(request_timeout))
             response.raise_for_status()
             return response.json()
-        except Exception as exc:  # noqa: BLE001
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.TimeoutException, httpx.ConnectError, httpx.HTTPError, ValueError) as exc:
             last_error = exc
-            if attempt < retries:
-                time.sleep(0.4 * (attempt + 1))
-    raise RuntimeError(str(last_error) if last_error else "MOEX request failed")
+            if attempt < attempts - 1:
+                time.sleep(max(0.0, retry_backoff) * (attempt + 1))
+    error_name = type(last_error).__name__ if last_error else "UnknownError"
+    raise RuntimeError(f"MOEX request failed after {attempts} attempts: {error_name}: {last_error}")
 
 
 def _fetch_paged_table(
@@ -116,12 +137,22 @@ def _fetch_paged_table(
     block_name: str,
     params: dict[str, Any] | None = None,
     max_rows: int = 20000,
+    request_timeout: float = 10.0,
+    max_retries: int = 1,
+    retry_backoff: float = 0.5,
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     start = 0
     base_params = {"iss.meta": "off", **(params or {})}
     while len(result) < max_rows:
-        payload = _fetch_json(client, url, {**base_params, "start": start})
+        payload = _fetch_json(
+            client,
+            url,
+            {**base_params, "start": start},
+            request_timeout=request_timeout,
+            max_retries=max_retries,
+            retry_backoff=retry_backoff,
+        )
         rows = parse_moex_table(payload, block_name)
         if not rows:
             break
@@ -239,6 +270,10 @@ def bootstrap_moex_universe(
     include_etf: bool = True,
     include_bonds: bool = False,
     timeout_sec: float = 20.0,
+    request_timeout: float | None = None,
+    max_retries: int = 1,
+    retry_backoff: float = 0.5,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     ensure_instrument_classification_schema(db)
@@ -247,9 +282,18 @@ def bootstrap_moex_universe(
     warnings: list[str] = []
     errors: list[str] = []
     fetched_items: list[dict[str, Any]] = []
+    effective_timeout = request_timeout if request_timeout is not None else timeout_sec
 
+    _emit_progress(
+        progress_callback,
+        {
+            "event": "universe_start",
+            "request_timeout": effective_timeout,
+            "max_retries": max_retries,
+        },
+    )
     try:
-        with httpx.Client(timeout=timeout_sec, follow_redirects=True) as client:
+        with httpx.Client(timeout=_request_timeout(effective_timeout), follow_redirects=True) as client:
             for market, board in _security_fetch_targets(
                 markets=markets,
                 boards=boards,
@@ -258,7 +302,14 @@ def bootstrap_moex_universe(
             ):
                 url = f"{base_url}/engines/stock/markets/{market}/boards/{board}/securities.json"
                 try:
-                    payload = _fetch_json(client, url, {"iss.meta": "off"})
+                    payload = _fetch_json(
+                        client,
+                        url,
+                        {"iss.meta": "off"},
+                        request_timeout=effective_timeout,
+                        max_retries=max_retries,
+                        retry_backoff=retry_backoff,
+                    )
                     fetched_items.extend(parse_moex_security_rows(payload, default_board=board, market=market))
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{market}/{board}: {exc}")
@@ -292,6 +343,15 @@ def bootstrap_moex_universe(
         db.commit()
     if not unique and not errors:
         warnings.append("MOEX returned no securities for requested markets/boards.")
+    _emit_progress(
+        progress_callback,
+        {
+            "event": "universe_done" if not errors else "universe_failed",
+            "fetched": len(fetched_items),
+            "unique_tickers": len(unique),
+            "errors": errors[:3],
+        },
+    )
 
     return {
         "ok": len(errors) == 0 or len(unique) > 0,
@@ -342,6 +402,12 @@ def bootstrap_moex_candles(
     till_date: str | None = None,
     board: str | None = None,
     timeout_sec: float = 20.0,
+    request_timeout: float | None = None,
+    max_retries: int = 1,
+    retry_backoff: float = 0.5,
+    continue_on_error: bool = True,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    max_runtime_seconds: int | None = None,
     sleep_sec: float = 0.15,
     dry_run: bool = False,
 ) -> dict[str, Any]:
@@ -355,12 +421,50 @@ def bootstrap_moex_candles(
     loaded_tickers: list[dict[str, Any]] = []
     skipped_tickers: list[dict[str, Any]] = []
     failed_tickers: list[dict[str, Any]] = []
+    warnings: list[str] = [] if instruments else ["No eligible instruments found for candle bootstrap."]
+    effective_timeout = request_timeout if request_timeout is not None else timeout_sec
+    started_at = time.monotonic()
+    runtime_exceeded = False
 
-    with httpx.Client(timeout=timeout_sec, follow_redirects=True) as client:
-        for instrument in instruments:
+    _emit_progress(
+        progress_callback,
+        {
+            "event": "candles_start",
+            "total": len(instruments),
+            "days": days,
+            "from_date": start_date,
+            "till_date": end_date,
+            "request_timeout": effective_timeout,
+            "max_retries": max_retries,
+        },
+    )
+    with httpx.Client(timeout=_request_timeout(effective_timeout), follow_redirects=True) as client:
+        for index, instrument in enumerate(instruments, start=1):
+            if max_runtime_seconds is not None and time.monotonic() - started_at > max_runtime_seconds:
+                runtime_exceeded = True
+                warnings.append("max_runtime_exceeded")
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "max_runtime_exceeded",
+                        "index": index,
+                        "total": len(instruments),
+                        "max_runtime_seconds": max_runtime_seconds,
+                    },
+                )
+                for skipped in instruments[index - 1 :]:
+                    skipped_tickers.append(
+                        {
+                            "ticker": skipped.ticker.upper(),
+                            "board": (board or skipped.board or "TQBR").upper(),
+                            "reason": "skipped_runtime_limit",
+                        }
+                    )
+                break
             ticker = instrument.ticker.upper()
             ticker_board = (board or instrument.board or "TQBR").upper()
             url = f"{base_url}/engines/stock/markets/shares/boards/{ticker_board}/securities/{ticker}/candles.json"
+            _emit_progress(progress_callback, {"event": "ticker_start", "index": index, "total": len(instruments), "ticker": ticker})
             try:
                 raw_rows = _fetch_paged_table(
                     client,
@@ -368,6 +472,9 @@ def bootstrap_moex_candles(
                     block_name="candles",
                     params={"from": start_date, "till": end_date, "interval": 24},
                     max_rows=5000,
+                    request_timeout=effective_timeout,
+                    max_retries=max_retries,
+                    retry_backoff=retry_backoff,
                 )
                 rows = parse_moex_history_rows({"candles": {"columns": list(raw_rows[0].keys()) if raw_rows else [], "data": [list(row.values()) for row in raw_rows]}}, ticker=ticker, board=ticker_board) if raw_rows else []
                 row_inserted = row_updated = row_skipped = 0
@@ -399,13 +506,56 @@ def bootstrap_moex_candles(
                     db.rollback()
                 else:
                     db.commit()
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "ticker_done",
+                        "index": index,
+                        "total": len(instruments),
+                        "ticker": ticker,
+                        "inserted": row_inserted,
+                        "updated": row_updated,
+                        "rows": len(rows),
+                    },
+                )
             except Exception as exc:  # noqa: BLE001
                 db.rollback()
-                failed_tickers.append({"ticker": ticker, "board": ticker_board, "error": str(exc)})
+                failed_tickers.append(
+                    {
+                        "ticker": ticker,
+                        "board": ticker_board,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "event": "ticker_failed",
+                        "index": index,
+                        "total": len(instruments),
+                        "ticker": ticker,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+                if not continue_on_error:
+                    raise
             if sleep_sec > 0:
                 time.sleep(sleep_sec)
 
     requested = len(instruments)
+    runtime_seconds = time.monotonic() - started_at
+    _emit_progress(
+        progress_callback,
+        {
+            "event": "refresh_done",
+            "loaded_tickers": len(loaded_tickers),
+            "failed_tickers": len(failed_tickers),
+            "skipped_tickers": len(skipped_tickers),
+            "runtime_seconds": round(runtime_seconds, 3),
+        },
+    )
     return {
         "ok": requested > 0 and len(failed_tickers) < requested,
         "mode": "bootstrap_moex_candles",
@@ -416,13 +566,15 @@ def bootstrap_moex_candles(
         "loaded_tickers": len(loaded_tickers),
         "skipped_tickers": len(skipped_tickers),
         "failed_tickers": len(failed_tickers),
+        "runtime_seconds": round(runtime_seconds, 3),
+        "timed_out": runtime_exceeded,
         "inserted_candles": inserted,
         "updated_candles": updated,
         "skipped_rows": skipped_rows,
         "loaded": loaded_tickers[:25],
         "skipped": skipped_tickers[:25],
         "failed": failed_tickers[:25],
-        "warnings": ([] if instruments else ["No eligible instruments found for candle bootstrap."]),
+        "warnings": warnings,
     }
 
 
@@ -435,17 +587,42 @@ def bootstrap_market_data(
     include_etf: bool = True,
     include_bonds: bool = False,
     timeout_sec: float = 20.0,
+    request_timeout: float | None = None,
+    max_retries: int = 1,
+    retry_backoff: float = 0.5,
+    continue_on_error: bool = True,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    max_runtime_seconds: int | None = None,
     sleep_sec: float = 0.15,
+    skip_universe_refresh: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    universe = bootstrap_moex_universe(
-        db,
-        max_instruments=max_instruments,
-        include_etf=include_etf,
-        include_bonds=include_bonds,
-        timeout_sec=timeout_sec,
-        dry_run=dry_run,
-    )
+    effective_timeout = request_timeout if request_timeout is not None else timeout_sec
+    if skip_universe_refresh:
+        universe = {
+            "ok": True,
+            "mode": "bootstrap_moex_universe",
+            "dry_run": dry_run,
+            "skipped": True,
+            "unique_tickers": 0,
+            "inserted": 0,
+            "updated": 0,
+            "warnings": ["universe_refresh_skipped"],
+            "errors": [],
+        }
+    else:
+        universe = bootstrap_moex_universe(
+            db,
+            max_instruments=max_instruments,
+            include_etf=include_etf,
+            include_bonds=include_bonds,
+            timeout_sec=timeout_sec,
+            request_timeout=effective_timeout,
+            max_retries=max_retries,
+            retry_backoff=retry_backoff,
+            progress_callback=progress_callback,
+            dry_run=dry_run,
+        )
     dry_run_tickers = None
     if dry_run:
         dry_run_tickers = [str(item.get("ticker")) for item in universe.get("examples", []) if item.get("ticker")][:max_tickers]
@@ -455,6 +632,12 @@ def bootstrap_market_data(
         max_tickers=max_tickers,
         days=days,
         timeout_sec=timeout_sec,
+        request_timeout=effective_timeout,
+        max_retries=max_retries,
+        retry_backoff=retry_backoff,
+        continue_on_error=continue_on_error,
+        progress_callback=progress_callback,
+        max_runtime_seconds=max_runtime_seconds,
         sleep_sec=sleep_sec,
         dry_run=dry_run,
     )

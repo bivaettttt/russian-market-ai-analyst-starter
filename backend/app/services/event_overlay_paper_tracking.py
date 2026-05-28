@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 from app.models import Candle, EventOverlayPaperSnapshot, EventOverlayPaperSnapshotItem
 from app.services.consumer_signals import _round, _to_float, normalize_conservative_event_overlay_mode
 from app.services.event_aware_risk_overlay import get_conservative_event_risk_overlay_config
-from app.services.event_overlay_paper_snapshot import PAPER_TRADING_NOTE, build_event_overlay_paper_snapshot
+from app.services.event_overlay_paper_snapshot import (
+    DEFAULT_PAPER_POSITION_SIZE_PCT,
+    PAPER_TRADING_NOTE,
+    build_event_overlay_paper_snapshot,
+)
 
 
 def _json_dump(value: Any) -> str:
@@ -71,6 +75,13 @@ def calculate_overlay_delta_pnl_pct(
     if baseline_realized_pnl_pct is None or overlay_realized_pnl_pct is None:
         return None
     return overlay_realized_pnl_pct - baseline_realized_pnl_pct
+
+
+def paper_position_size_or_fallback(value: float | None) -> tuple[float, bool]:
+    number = _to_float(value)
+    if number is None or number <= 0:
+        return DEFAULT_PAPER_POSITION_SIZE_PCT, True
+    return number, False
 
 
 def classify_realized_outcome(realized_return_pct: float | None) -> str:
@@ -448,6 +459,7 @@ def evaluate_event_overlay_paper_snapshot(
             "overlay_delta_pnl_pct": 0.0,
         }
     )
+    warnings: list[str] = []
 
     for item in items:
         entry_date = _date_or_none(item.entry_date) or _date_or_none(snapshot.snapshot_date) or date.today()
@@ -462,13 +474,22 @@ def evaluate_event_overlay_paper_snapshot(
 
         realized_price = float(candle.close)
         realized_return_pct = (realized_price - float(item.entry_price)) / float(item.entry_price) * 100.0
-        baseline_pnl = calculate_position_pnl_pct(realized_return_pct, item.base_position_size_pct)
-        overlay_pnl = calculate_position_pnl_pct(realized_return_pct, item.overlay_position_size_pct)
+        base_size, used_base_fallback = paper_position_size_or_fallback(item.base_position_size_pct)
+        multiplier = _to_float(item.event_risk_multiplier) or 1.0
+        overlay_size, used_overlay_fallback = paper_position_size_or_fallback(item.overlay_position_size_pct)
+        if used_overlay_fallback:
+            overlay_size = base_size * multiplier
+        if used_base_fallback or used_overlay_fallback:
+            warnings.append("missing_position_size_legacy_snapshot")
+        baseline_pnl = calculate_position_pnl_pct(realized_return_pct, base_size)
+        overlay_pnl = calculate_position_pnl_pct(realized_return_pct, overlay_size)
         delta_pnl = calculate_overlay_delta_pnl_pct(baseline_pnl, overlay_pnl)
 
         item.realized_price = _round(realized_price, 4)
         item.realized_date = candle.trade_date.isoformat() if candle.trade_date else None
         item.realized_return_pct = _round(realized_return_pct, 4)
+        item.base_position_size_pct = _round(base_size, 4)
+        item.overlay_position_size_pct = _round(overlay_size, 4)
         item.baseline_realized_pnl_pct = _round(baseline_pnl, 6)
         item.overlay_realized_pnl_pct = _round(overlay_pnl, 6)
         item.overlay_delta_pnl_pct = _round(delta_pnl, 6)
@@ -485,6 +506,8 @@ def evaluate_event_overlay_paper_snapshot(
 
     item_dicts = [_item_to_dict(item) for item in items]
     summary = _build_items_summary(item_dicts)
+    if warnings:
+        summary["warnings"] = sorted(set(warnings))
     summary["by_risk_level"] = {
         level: {
             **values,
@@ -527,6 +550,7 @@ def evaluate_event_overlay_paper_snapshot(
         "mode": "evaluate_conservative_overlay_paper_snapshot",
         "snapshot_id": snapshot_id,
         "summary": summary,
+        "warnings": sorted(set(warnings)),
         "items": item_dicts,
     }
 

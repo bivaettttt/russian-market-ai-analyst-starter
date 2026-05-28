@@ -1424,7 +1424,13 @@ def signals_daily_ops_refresh_market_data_api(
     dry_run: bool = Query(False),
     force: bool = Query(False),
     retry_failed: bool = Query(False),
-    max_retries: int = Query(1, ge=0, le=3),
+    request_timeout: float = Query(10.0, ge=3, le=120),
+    max_retries: int = Query(1, ge=0, le=5),
+    retry_backoff: float = Query(0.5, ge=0, le=5),
+    refresh_universe: bool = Query(True),
+    fallback_to_existing_universe: bool = Query(True),
+    continue_on_error: bool = Query(True),
+    max_runtime_seconds: int | None = Query(None, ge=10, le=3600),
     db: Session = Depends(get_db),
 ):
     return refresh_market_data_daily(
@@ -1434,7 +1440,13 @@ def signals_daily_ops_refresh_market_data_api(
         dry_run=dry_run,
         force=force,
         retry_failed=retry_failed,
+        request_timeout=request_timeout,
         max_retries=max_retries,
+        retry_backoff=retry_backoff,
+        refresh_universe=refresh_universe,
+        fallback_to_existing_universe=fallback_to_existing_universe,
+        continue_on_error=continue_on_error,
+        max_runtime_seconds=max_runtime_seconds,
     )
 
 
@@ -1451,6 +1463,13 @@ def signals_daily_ops_run_api(
     dedupe_same_day: bool = Query(True),
     dry_run: bool = Query(False),
     force_refresh: bool = Query(False),
+    request_timeout: float = Query(10.0, ge=3, le=120),
+    max_retries: int = Query(1, ge=0, le=5),
+    retry_backoff: float = Query(0.5, ge=0, le=5),
+    refresh_universe: bool = Query(True),
+    fallback_to_existing_universe: bool = Query(True),
+    continue_on_error: bool = Query(True),
+    max_runtime_seconds: int | None = Query(None, ge=10, le=3600),
     db: Session = Depends(get_db),
 ):
     return run_market_daily_ops(
@@ -1466,6 +1485,13 @@ def signals_daily_ops_run_api(
         dedupe_same_day=dedupe_same_day,
         dry_run=dry_run,
         force_refresh=force_refresh,
+        request_timeout=request_timeout,
+        max_retries=max_retries,
+        retry_backoff=retry_backoff,
+        refresh_universe=refresh_universe,
+        fallback_to_existing_universe=fallback_to_existing_universe,
+        continue_on_error=continue_on_error,
+        max_runtime_seconds=max_runtime_seconds,
     )
 
 

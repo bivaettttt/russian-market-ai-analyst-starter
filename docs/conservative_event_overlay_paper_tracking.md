@@ -18,6 +18,8 @@ curl -X POST \
 
 Stored fields include baseline position size, overlay-adjusted size, entry price/date, event risk score/level/reasons, matched rules, and config id.
 
+If a consumer signal does not expose a usable position size, paper tracking uses `DEFAULT_PAPER_POSITION_SIZE_PCT = 1.0` as a fallback notional per row. The row and snapshot summary mark this as `position_size_source=fallback_default`. This fallback is for paper accounting only: it does not place trades and does not change consumer recommendations.
+
 ## List, Detail, Evaluate
 
 ```bash
@@ -55,6 +57,8 @@ Key lifecycle endpoints:
 
 - `baseline_total_exposure`: sum of baseline paper position sizes.
 - `overlay_total_exposure`: sum after conservative overlay multipliers.
+- `default_paper_position_size_pct`: fallback notional used only when signal sizing is unavailable.
+- `position_size_source`: `signal` or `fallback_default`.
 - `realized_return_pct`: close-to-close ticker return from entry to evaluation candle.
 - `baseline_realized_pnl_pct`: `realized_return_pct * base_position_size_pct / 100`.
 - `overlay_realized_pnl_pct`: `realized_return_pct * overlay_position_size_pct / 100`.
@@ -74,4 +78,5 @@ Key lifecycle endpoints:
 - No real execution, order book, latency, or liquidity model.
 - Evaluation uses available local candles and close-to-close proxy logic.
 - Historical event data is curated research data.
+- Legacy snapshots created before exposure accounting may have zero exposure; recreate official snapshots after the fix for meaningful baseline vs overlay PnL.
 - No investment advice.

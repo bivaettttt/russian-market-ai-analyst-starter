@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
 from app.db import Base, SessionLocal, engine
 from app.services.market_universe import ensure_instrument_classification_schema
@@ -30,6 +31,34 @@ def _print_summary(result: dict) -> None:
         )
 
 
+def _build_progress_callback(enabled: bool):
+    if not enabled:
+        return None
+
+    def _progress(event: dict[str, Any]) -> None:
+        name = event.get("event")
+        if name == "ticker_start":
+            print(f"[{event.get('index')}/{event.get('total')}] {event.get('ticker')} start", file=sys.stderr, flush=True)
+        elif name == "ticker_done":
+            print(
+                f"[{event.get('index')}/{event.get('total')}] {event.get('ticker')} "
+                f"inserted={event.get('inserted')} updated={event.get('updated')}",
+                file=sys.stderr,
+                flush=True,
+            )
+        elif name == "ticker_failed":
+            print(
+                f"[{event.get('index')}/{event.get('total')}] {event.get('ticker')} failed "
+                f"{event.get('error_type')}: {event.get('error')}",
+                file=sys.stderr,
+                flush=True,
+            )
+        elif name in {"universe_start", "universe_done", "universe_failed", "candles_start", "refresh_done", "max_runtime_exceeded"}:
+            print(f"[bootstrap] {name} {event}", file=sys.stderr, flush=True)
+
+    return _progress
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bootstrap local MOEX universe and daily candles.")
     parser.add_argument("--max-instruments", type=int, default=500)
@@ -41,6 +70,11 @@ def main() -> None:
     parser.add_argument("--no-include-etf", dest="include_etf", action="store_false")
     parser.add_argument("--include-bonds", action="store_true")
     parser.add_argument("--timeout-sec", type=float, default=20.0)
+    parser.add_argument("--request-timeout", type=float, default=None)
+    parser.add_argument("--max-retries", type=int, default=1)
+    parser.add_argument("--retry-backoff", type=float, default=0.5)
+    parser.add_argument("--max-runtime-seconds", type=int, default=None)
+    parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--sleep-sec", type=float, default=0.15)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--tickers", default=None, help="Comma-separated tickers, for example SBER,GAZP,LKOH.")
@@ -53,6 +87,7 @@ def main() -> None:
     db = SessionLocal()
     try:
         tickers = normalize_tickers(args.tickers)
+        progress_callback = _build_progress_callback(not args.no_progress)
         if args.skip_universe and args.skip_candles:
             result = {"ok": False, "mode": "bootstrap_market_data", "errors": ["Both --skip-universe and --skip-candles were set."]}
         elif args.skip_universe:
@@ -64,6 +99,12 @@ def main() -> None:
                 from_date=args.from_date,
                 till_date=args.till_date,
                 timeout_sec=args.timeout_sec,
+                request_timeout=args.request_timeout,
+                max_retries=args.max_retries,
+                retry_backoff=args.retry_backoff,
+                continue_on_error=True,
+                progress_callback=progress_callback,
+                max_runtime_seconds=args.max_runtime_seconds,
                 sleep_sec=args.sleep_sec,
                 dry_run=args.dry_run,
             )
@@ -74,6 +115,10 @@ def main() -> None:
                 include_etf=args.include_etf,
                 include_bonds=args.include_bonds,
                 timeout_sec=args.timeout_sec,
+                request_timeout=args.request_timeout,
+                max_retries=args.max_retries,
+                retry_backoff=args.retry_backoff,
+                progress_callback=progress_callback,
                 dry_run=args.dry_run,
             )
         elif tickers or args.from_date or args.till_date:
@@ -83,6 +128,10 @@ def main() -> None:
                 include_etf=args.include_etf,
                 include_bonds=args.include_bonds,
                 timeout_sec=args.timeout_sec,
+                request_timeout=args.request_timeout,
+                max_retries=args.max_retries,
+                retry_backoff=args.retry_backoff,
+                progress_callback=progress_callback,
                 dry_run=args.dry_run,
             )
             candles = bootstrap_moex_candles(
@@ -93,6 +142,12 @@ def main() -> None:
                 from_date=args.from_date,
                 till_date=args.till_date,
                 timeout_sec=args.timeout_sec,
+                request_timeout=args.request_timeout,
+                max_retries=args.max_retries,
+                retry_backoff=args.retry_backoff,
+                continue_on_error=True,
+                progress_callback=progress_callback,
+                max_runtime_seconds=args.max_runtime_seconds,
                 sleep_sec=args.sleep_sec,
                 dry_run=args.dry_run,
             )
@@ -114,7 +169,14 @@ def main() -> None:
                 include_etf=args.include_etf,
                 include_bonds=args.include_bonds,
                 timeout_sec=args.timeout_sec,
+                request_timeout=args.request_timeout,
+                max_retries=args.max_retries,
+                retry_backoff=args.retry_backoff,
+                continue_on_error=True,
+                progress_callback=progress_callback,
+                max_runtime_seconds=args.max_runtime_seconds,
                 sleep_sec=args.sleep_sec,
+                skip_universe_refresh=args.skip_universe,
                 dry_run=args.dry_run,
             )
         _print_summary(result)

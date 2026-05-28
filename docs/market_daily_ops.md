@@ -20,6 +20,7 @@ Run from `backend`:
 ```bash
 python3 -m app.tasks.market_daily_ops status
 python3 -m app.tasks.market_daily_ops refresh --max-tickers 150 --days 120
+python3 -m app.tasks.market_daily_ops refresh --max-tickers 1 --days 10 --skip-universe-refresh --request-timeout 10 --max-retries 1 --max-runtime-seconds 60 --json
 python3 -m app.tasks.market_daily_ops run --name daily --limit 100 --horizon-days 20
 python3 -m app.tasks.market_daily_ops run --dry-run
 python3 -m app.tasks.market_daily_ops run --no-refresh
@@ -27,6 +28,16 @@ python3 -m app.tasks.market_daily_ops run --force-refresh
 ```
 
 Use `--json` to print the full machine-readable result.
+
+Refresh reliability flags:
+
+- `--request-timeout`: bounded per-request MOEX timeout, including SSL connect and read.
+- `--max-retries` and `--retry-backoff`: short retry policy for MOEX ISS calls.
+- `--skip-universe-refresh`: use the existing local universe and refresh candles only.
+- `--no-fallback-universe`: fail instead of using the existing universe after universe refresh failure.
+- `--max-runtime-seconds`: stop the ticker loop gracefully after the runtime budget.
+- `--fail-fast`: stop on the first ticker error; by default ticker errors are reported and the run continues.
+- Progress is printed to stderr; `--json` keeps stdout valid JSON.
 
 ## API
 
@@ -70,7 +81,9 @@ python3 -m app.tasks.market_daily_ops run --name daily --limit 100 --horizon-day
 - GET endpoints are read-only.
 - POST endpoints may write, except `dry_run=true`.
 - If MOEX refresh fails, the workflow returns a degraded result with warnings instead of raising an unhandled stack trace.
+- If the MOEX universe endpoint times out, daily refresh can fall back to the existing local universe.
 - Stale market data and missing future candles are surfaced as warnings.
+- Paper snapshots use a fallback 1.0% notional per row only when the signal does not expose a position size. This is paper accounting only and does not change recommendations or place trades.
 
 ## Limitations
 

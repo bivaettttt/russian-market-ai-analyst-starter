@@ -172,7 +172,7 @@ check_get "signals event aware conservative overlay quality report page" "/signa
 check_get "signals daily ops status" "/signals/daily-ops/status"
 check_get "signals daily ops market data freshness" "/signals/daily-ops/market-data-freshness"
 check_get "signals daily ops page" "/signals/daily-ops/page"
-check_post_json "signals daily ops dry run" "/signals/daily-ops/run?dry_run=true&refresh_market_data=false&limit=5" "{}"
+check_post_json "signals daily ops dry run" "/signals/daily-ops/run?dry_run=true&refresh_market_data=false&limit=5&request_timeout=5&max_retries=0" "{}"
 check_get "signals daily ops market refresh report" "/signals/daily-ops/market-refresh-report"
 check_get "signals daily ops market refresh notification" "/signals/daily-ops/market-refresh-notification"
 check_get "signals daily ops market refresh report csv" "/signals/daily-ops/market-refresh-report.csv"
