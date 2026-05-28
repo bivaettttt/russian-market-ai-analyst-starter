@@ -150,6 +150,8 @@ check_get "signals event aware rule stability" "/signals/event-aware/rule-stabil
 check_get "signals event aware rule stability page" "/signals/event-aware/rule-stability-page"
 check_get "signals event aware risk overlay backtest" "/signals/event-aware/risk-overlay-backtest?max_tickers=5&max_samples=200&max_events=200"
 check_get "signals event aware risk overlay page" "/signals/event-aware/risk-overlay-page"
+check_get "signals event aware risk overlay walk forward" "/signals/event-aware/risk-overlay-walk-forward?max_tickers=5&max_samples=200&max_events=200&folds=2&min_train_samples=20&min_test_samples=10&max_configs=10"
+check_get "signals event aware risk overlay walk forward page" "/signals/event-aware/risk-overlay-walk-forward-page"
 check_get "signals data coverage" "/signals/data-coverage?max_tickers=100&min_history=80&horizon=20"
 check_get "signals data coverage page" "/signals/data-coverage-page"
 check_get "signals data bootstrap status" "/signals/data-bootstrap-status"

@@ -585,6 +585,23 @@ Acceptance criteria:
 
 Почему важно: hard filter ухудшал walk-forward из-за missed winners; overlay снижает exposure и повышает требования, не превращая event layer в production short/avoid engine.
 
+## 23.5 Event-Aware Risk Overlay Walk-forward Validation
+
+Статус: реализовано как leakage-safe validation layer для soft overlay. Production consumer logic по умолчанию не меняется.
+
+Цель: проверить, переносится ли улучшение static overlay backtest на future folds, когда параметры overlay выбираются только на прошлом train window.
+
+Что сделано:
+
+- добавлен endpoint `/signals/event-aware/risk-overlay-walk-forward`;
+- добавлена page `/signals/event-aware/risk-overlay-walk-forward-page`;
+- train folds выбирают bounded config grid по risk-adjusted score;
+- если train не находит полезный overlay, fold выбирает `disabled`;
+- test folds сравнивают baseline full exposure vs weighted overlay exposure;
+- summary показывает return/PF/stop-hit exposure deltas, exposure reduction, positive folds и config frequency.
+
+Почему важно: overlay может стать production default только после leakage-safe проверки, а не по static historical fit.
+
 ## 24. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.

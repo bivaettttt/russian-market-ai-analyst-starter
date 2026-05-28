@@ -61,6 +61,10 @@ from app.services.event_aware_risk_overlay_backtest import (
     parse_overlay_modes,
 )
 from app.services.event_aware_risk_overlay_page_html import build_event_aware_risk_overlay_page_html
+from app.services.event_aware_risk_overlay_walk_forward import build_event_risk_overlay_walk_forward
+from app.services.event_aware_risk_overlay_walk_forward_page_html import (
+    build_event_aware_risk_overlay_walk_forward_page_html,
+)
 from app.services.event_aware_walk_forward import build_event_aware_walk_forward
 from app.services.event_aware_walk_forward_page_html import build_event_aware_walk_forward_page_html
 from app.services.historical_event_bootstrap import DEFAULT_SEED_PATH
@@ -779,6 +783,49 @@ def market_signals_event_aware_risk_overlay_backtest(
     )
 
 
+@router.get("/signals/event-aware/risk-overlay-walk-forward")
+def market_signals_event_aware_risk_overlay_walk_forward(
+    max_tickers: int = Query(120, ge=1, le=300),
+    max_samples: int = Query(10000, ge=100, le=50000),
+    max_events: int = Query(10000, ge=0, le=50000),
+    min_history: int = Query(80, ge=30, le=250),
+    horizon: int = Query(30, ge=5, le=90),
+    policy_id: str = Query("atr_t1_5_s1_6_h30_rr0_8"),
+    event_lookback_days: int = Query(7, ge=0, le=90),
+    event_decay_days: int = Query(14, ge=1, le=180),
+    folds: int = Query(4, ge=2, le=8),
+    train_ratio: float = Query(0.6, ge=0.4, le=0.85),
+    min_train_samples: int = Query(100, ge=20, le=5000),
+    min_test_samples: int = Query(50, ge=10, le=5000),
+    max_configs: int = Query(60, ge=5, le=200),
+    commission_bps: float = Query(10.0, ge=0, le=100),
+    slippage_bps: float = Query(5.0, ge=0, le=100),
+    include_global_events: bool = Query(True),
+    include_ticker_events: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    return build_event_risk_overlay_walk_forward(
+        db=db,
+        max_tickers=max_tickers,
+        max_samples=max_samples,
+        max_events=max_events,
+        min_history=min_history,
+        horizon=horizon,
+        policy_id=policy_id,
+        event_lookback_days=event_lookback_days,
+        event_decay_days=event_decay_days,
+        folds=folds,
+        train_ratio=train_ratio,
+        min_train_samples=min_train_samples,
+        min_test_samples=min_test_samples,
+        max_configs=max_configs,
+        commission_bps=commission_bps,
+        slippage_bps=slippage_bps,
+        include_global_events=include_global_events,
+        include_ticker_events=include_ticker_events,
+    )
+
+
 @router.get("/signals/events/coverage")
 def market_signals_event_coverage(
     max_events: int = Query(5000, ge=0, le=50000),
@@ -838,6 +885,11 @@ def market_signals_event_aware_rule_stability_page():
 @router.get("/signals/event-aware/risk-overlay-page", response_class=AIReportHTMLResponse)
 def market_signals_event_aware_risk_overlay_page():
     return build_event_aware_risk_overlay_page_html()
+
+
+@router.get("/signals/event-aware/risk-overlay-walk-forward-page", response_class=AIReportHTMLResponse)
+def market_signals_event_aware_risk_overlay_walk_forward_page():
+    return build_event_aware_risk_overlay_walk_forward_page_html()
 
 
 # --- Market signals dashboard ---

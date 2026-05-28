@@ -36,12 +36,19 @@ curl "http://127.0.0.1:8010/signals/consumer/SBER.json?use_event_risk_overlay=tr
 curl "http://127.0.0.1:8010/signals/consumer.json?limit=50&use_event_risk_overlay=true&event_risk_overlay_mode=soft_adjust"
 curl "http://127.0.0.1:8010/signals/consumer/event-risk-overlay-compare?limit=50&event_risk_overlay_mode=soft_adjust"
 curl "http://127.0.0.1:8010/signals/event-aware/risk-overlay-backtest?max_tickers=80&max_samples=3000&max_events=10000"
+curl "http://127.0.0.1:8010/signals/event-aware/risk-overlay-walk-forward?max_tickers=80&max_samples=3000&max_events=10000&folds=4&max_configs=60"
 ```
+
+## Walk-forward validation
+
+Use `/signals/event-aware/risk-overlay-walk-forward` to validate the overlay leakage-safe. Each fold selects thresholds and multipliers on the train period, then applies only that selected config to future test samples.
+
+Read [event_aware_risk_overlay_walk_forward.md](event_aware_risk_overlay_walk_forward.md) for the metric definitions and recommendation criteria.
 
 ## Limitations
 
 - Research-only overlay; not production default.
 - Deterministic rule scoring from event-aware stability diagnostics.
 - Hard filtering failed because of `winner_miss_rate`.
-- Backtest is exposure-weighted diagnostics, not final walk-forward proof.
+- Static backtest is exposure-weighted diagnostics; walk-forward validation is still research-only.
 - Needs paper trading and no investment advice.

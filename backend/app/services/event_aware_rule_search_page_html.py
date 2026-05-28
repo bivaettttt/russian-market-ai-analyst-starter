@@ -51,6 +51,7 @@ def build_event_aware_rule_search_page_html() -> str:
       <a href="/signals/event-aware/dual-side-page">Dual-side event risk</a>
       <a href="/signals/event-aware/rule-stability-page">Rule stability</a>
       <a href="/signals/event-aware/risk-overlay-page">Risk overlay</a>
+      <a href="/signals/event-aware/risk-overlay-walk-forward-page">Risk overlay WF</a>
       <a href="/signals/setup-family/research-page">Setup families</a>
     </nav>
   </div></header>
