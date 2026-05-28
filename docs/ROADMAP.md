@@ -639,7 +639,7 @@ Acceptance criteria:
 
 ## 23.8 Conservative Event Overlay Paper Tracking
 
-Статус: реализовано как local paper-tracking layer. Production defaults не меняются.
+Статус: реализовано как local paper-tracking layer with lifecycle dashboard. Production defaults не меняются.
 
 Цель: сохранять conservative overlay snapshots и позже оценивать realized baseline vs overlay outcome по локальным свечам.
 
@@ -651,6 +651,9 @@ Acceptance criteria:
 - добавлен evaluate endpoint `POST /signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}/evaluate`;
 - добавлена page `/signals/event-aware/conservative-overlay-paper-tracking-page`;
 - evaluation считает realized return, baseline PnL, overlay PnL, overlay delta и breakdown by risk level.
+- добавлены lifecycle status/ready/bulk-evaluate endpoints;
+- добавлены CSV exports для snapshots, snapshot items и dashboard;
+- добавлен CLI task `python3 -m app.tasks.event_overlay_paper_tracking`.
 
 Почему важно: текущий snapshot показывает только сегодняшнюю структуру риска, а paper tracking позволяет измерить будущий realized эффект без реальных сделок и без включения overlay в production.
 

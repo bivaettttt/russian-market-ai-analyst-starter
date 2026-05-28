@@ -66,9 +66,16 @@ from app.services.event_overlay_paper_snapshot import build_event_overlay_paper_
 from app.services.event_overlay_paper_snapshot_page_html import build_event_overlay_paper_snapshot_page_html
 from app.services.event_overlay_paper_tracking import (
     build_event_overlay_paper_dashboard,
+    build_event_overlay_paper_dashboard_csv,
+    build_event_overlay_paper_lifecycle_status,
+    build_event_overlay_paper_snapshot_items_csv,
+    build_event_overlay_paper_snapshots_csv,
+    bulk_evaluate_ready_snapshots,
     create_conservative_overlay_paper_snapshot,
+    delete_event_overlay_paper_snapshot,
     evaluate_event_overlay_paper_snapshot,
     get_event_overlay_paper_snapshot_detail,
+    get_ready_to_evaluate_snapshots,
     list_event_overlay_paper_snapshots,
 )
 from app.services.event_overlay_paper_tracking_page_html import build_event_overlay_paper_tracking_page_html
@@ -1153,6 +1160,40 @@ def event_aware_conservative_overlay_paper_snapshots_list_api(
     )
 
 
+@router.get("/signals/event-aware/conservative-overlay-paper-snapshots.csv")
+def event_aware_conservative_overlay_paper_snapshots_csv_api(
+    limit: int = Query(100, ge=1, le=1000),
+    status: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    csv_text = build_event_overlay_paper_snapshots_csv(
+        db=db,
+        limit=limit,
+        status=status,
+    )
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="conservative_overlay_paper_snapshots.csv"'},
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}.csv")
+def event_aware_conservative_overlay_paper_snapshot_detail_csv_api(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+):
+    csv_text = build_event_overlay_paper_snapshot_items_csv(
+        db=db,
+        snapshot_id=snapshot_id,
+    )
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="conservative_overlay_paper_snapshot_{snapshot_id}.csv"'},
+    )
+
+
 @router.get("/signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}")
 def event_aware_conservative_overlay_paper_snapshot_detail_api(
     snapshot_id: int,
@@ -1179,6 +1220,17 @@ def event_aware_conservative_overlay_paper_snapshot_evaluate_api(
     )
 
 
+@router.delete("/signals/event-aware/conservative-overlay-paper-snapshots/{snapshot_id}")
+def event_aware_conservative_overlay_paper_snapshot_delete_api(
+    snapshot_id: int,
+    db: Session = Depends(get_db),
+):
+    return delete_event_overlay_paper_snapshot(
+        db=db,
+        snapshot_id=snapshot_id,
+    )
+
+
 @router.get("/signals/event-aware/conservative-overlay-paper-dashboard")
 def event_aware_conservative_overlay_paper_dashboard_api(
     limit: int = Query(20, ge=1, le=100),
@@ -1186,6 +1238,55 @@ def event_aware_conservative_overlay_paper_dashboard_api(
 ):
     return build_event_overlay_paper_dashboard(
         db=db,
+        limit=limit,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-dashboard.csv")
+def event_aware_conservative_overlay_paper_dashboard_csv_api(
+    db: Session = Depends(get_db),
+):
+    csv_text = build_event_overlay_paper_dashboard_csv(db=db)
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="conservative_overlay_paper_dashboard.csv"'},
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-lifecycle-status")
+def event_aware_conservative_overlay_paper_lifecycle_status_api(
+    as_of_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return build_event_overlay_paper_lifecycle_status(
+        db=db,
+        as_of_date=as_of_date,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-paper-ready")
+def event_aware_conservative_overlay_paper_ready_api(
+    as_of_date: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    return get_ready_to_evaluate_snapshots(
+        db=db,
+        as_of_date=as_of_date,
+        limit=limit,
+    )
+
+
+@router.post("/signals/event-aware/conservative-overlay-paper-evaluate-ready")
+def event_aware_conservative_overlay_paper_evaluate_ready_api(
+    as_of_date: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    return bulk_evaluate_ready_snapshots(
+        db=db,
+        as_of_date=as_of_date,
         limit=limit,
     )
 

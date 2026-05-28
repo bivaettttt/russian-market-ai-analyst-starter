@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import csv
+import io
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -81,6 +83,33 @@ def classify_realized_outcome(realized_return_pct: float | None) -> str:
     return "timeout"
 
 
+def is_snapshot_ready_to_evaluate(snapshot: dict[str, Any], *, as_of_date: str | None = None) -> bool:
+    status = str(snapshot.get("status") or "").lower()
+    if status not in {"open", "partially_evaluated"}:
+        return False
+    snapshot_date = _date_or_none(snapshot.get("snapshot_date"))
+    as_of = _date_or_none(as_of_date) or date.today()
+    if snapshot_date is None:
+        return False
+    horizon_days = int(snapshot.get("horizon_days") or 0)
+    return snapshot_date + timedelta(days=horizon_days) <= as_of
+
+
+def recommend_lifecycle_action(
+    *,
+    total_snapshots: int,
+    ready_count: int,
+    days_since_last_snapshot: int | None,
+) -> str:
+    if total_snapshots <= 0:
+        return "create_snapshot"
+    if ready_count > 0:
+        return "evaluate_ready"
+    if days_since_last_snapshot is None or days_since_last_snapshot >= 7:
+        return "create_snapshot"
+    return "wait"
+
+
 def _snapshot_to_dict(row: EventOverlayPaperSnapshot, *, include_items: bool = False, items: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     result = {
         "id": row.id,
@@ -107,6 +136,21 @@ def _snapshot_to_dict(row: EventOverlayPaperSnapshot, *, include_items: bool = F
     if include_items:
         result["items"] = items or []
     return result
+
+
+def _snapshot_summary_with_eval(row: EventOverlayPaperSnapshot) -> dict[str, Any]:
+    data = _snapshot_to_dict(row)
+    evaluation = (_json_load(row.summary_json, {}) or {}).get("evaluation") or {}
+    data.update(
+        {
+            "items": evaluation.get("items"),
+            "evaluated_items": evaluation.get("evaluated_items"),
+            "baseline_realized_pnl_pct": evaluation.get("baseline_realized_pnl_pct"),
+            "overlay_realized_pnl_pct": evaluation.get("overlay_realized_pnl_pct"),
+            "overlay_delta_pnl_pct": evaluation.get("overlay_delta_pnl_pct"),
+        }
+    )
+    return data
 
 
 def _item_to_dict(row: EventOverlayPaperSnapshotItem) -> dict[str, Any]:
@@ -312,6 +356,35 @@ def get_event_overlay_paper_snapshot_detail(
     }
 
 
+def delete_event_overlay_paper_snapshot(
+    db: Session,
+    *,
+    snapshot_id: int,
+) -> dict[str, Any]:
+    _ensure_tables(db)
+    row = db.get(EventOverlayPaperSnapshot, snapshot_id)
+    if row is None:
+        return {
+            "ok": False,
+            "deleted": False,
+            "error": "snapshot_not_found",
+            "snapshot_id": snapshot_id,
+        }
+    items = db.scalars(
+        select(EventOverlayPaperSnapshotItem).where(EventOverlayPaperSnapshotItem.snapshot_id == snapshot_id)
+    ).all()
+    for item in items:
+        db.delete(item)
+    db.delete(row)
+    db.commit()
+    return {
+        "ok": True,
+        "deleted": True,
+        "snapshot_id": snapshot_id,
+        "deleted_items": len(items),
+    }
+
+
 def _future_candle(
     db: Session,
     *,
@@ -455,6 +528,128 @@ def evaluate_event_overlay_paper_snapshot(
     }
 
 
+def get_ready_to_evaluate_snapshots(
+    db: Session,
+    *,
+    as_of_date: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    _ensure_tables(db)
+    as_of = (_date_or_none(as_of_date) or date.today()).isoformat()
+    rows = db.scalars(
+        select(EventOverlayPaperSnapshot)
+        .where(EventOverlayPaperSnapshot.status.in_(["open", "partially_evaluated"]))
+        .order_by(asc(EventOverlayPaperSnapshot.snapshot_date), asc(EventOverlayPaperSnapshot.id))
+        .limit(limit * 3)
+    ).all()
+    ready = [
+        row
+        for row in rows
+        if is_snapshot_ready_to_evaluate(_snapshot_to_dict(row), as_of_date=as_of)
+    ][:limit]
+    return {
+        "ok": True,
+        "mode": "ready_to_evaluate_snapshots",
+        "as_of_date": as_of,
+        "ready_count": len(ready),
+        "snapshots": [_snapshot_to_dict(row) for row in ready],
+    }
+
+
+def bulk_evaluate_ready_snapshots(
+    db: Session,
+    *,
+    as_of_date: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    ready = get_ready_to_evaluate_snapshots(db, as_of_date=as_of_date, limit=limit)
+    results: list[dict[str, Any]] = []
+    total_items = 0
+    total_evaluated = 0
+    total_insufficient = 0
+    for snapshot in ready.get("snapshots") or []:
+        result = evaluate_event_overlay_paper_snapshot(
+            db,
+            snapshot_id=int(snapshot.get("id")),
+            evaluation_date=ready.get("as_of_date"),
+        )
+        summary = result.get("summary") or {}
+        total_items += int(summary.get("items") or 0)
+        total_evaluated += int(summary.get("evaluated_items") or 0)
+        total_insufficient += int(summary.get("insufficient_data") or 0)
+        results.append(
+            {
+                "snapshot_id": snapshot.get("id"),
+                "ok": result.get("ok"),
+                "summary": summary,
+            }
+        )
+    return {
+        "ok": True,
+        "mode": "bulk_evaluate_ready_snapshots",
+        "as_of_date": ready.get("as_of_date"),
+        "requested_limit": limit,
+        "evaluated_snapshots": len(results),
+        "skipped_snapshots": max(0, int(ready.get("ready_count") or 0) - len(results)),
+        "total_items": total_items,
+        "total_evaluated_items": total_evaluated,
+        "total_insufficient_data": total_insufficient,
+        "results": results,
+    }
+
+
+def build_event_overlay_paper_lifecycle_status(
+    db: Session,
+    *,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    _ensure_tables(db)
+    as_of = _date_or_none(as_of_date) or date.today()
+    rows = db.scalars(
+        select(EventOverlayPaperSnapshot)
+        .order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id))
+    ).all()
+    ready = [
+        row
+        for row in rows
+        if is_snapshot_ready_to_evaluate(_snapshot_to_dict(row), as_of_date=as_of.isoformat())
+    ]
+    statuses = Counter(row.status for row in rows)
+    latest_snapshot_date = max((_date_or_none(row.snapshot_date) for row in rows), default=None)
+    days_since_last = (as_of - latest_snapshot_date).days if latest_snapshot_date else None
+    recommended_action = recommend_lifecycle_action(
+        total_snapshots=len(rows),
+        ready_count=len(ready),
+        days_since_last_snapshot=days_since_last,
+    )
+    recommendations = []
+    if recommended_action == "create_snapshot":
+        recommendations.append("Create a new conservative overlay paper snapshot.")
+    elif recommended_action == "evaluate_ready":
+        recommendations.append("Evaluate ready paper snapshots with the explicit POST bulk endpoint.")
+    elif recommended_action == "wait":
+        recommendations.append("Wait until snapshot horizon is reached or create the next scheduled snapshot.")
+    else:
+        recommendations.append("No lifecycle action available.")
+    return {
+        "ok": True,
+        "mode": "event_overlay_paper_lifecycle_status",
+        "summary": {
+            "total_snapshots": len(rows),
+            "open_snapshots": statuses.get("open", 0),
+            "ready_to_evaluate_snapshots": len(ready),
+            "partially_evaluated_snapshots": statuses.get("partially_evaluated", 0),
+            "evaluated_snapshots": statuses.get("evaluated", 0),
+            "last_snapshot_date": latest_snapshot_date.isoformat() if latest_snapshot_date else None,
+            "days_since_last_snapshot": days_since_last,
+            "recommended_action": recommended_action,
+            "recommendations": recommendations,
+        },
+        "ready_snapshots": [_snapshot_to_dict(row) for row in ready[:25]],
+        "latest_snapshots": [_snapshot_to_dict(row) for row in rows[:10]],
+    }
+
+
 def build_event_overlay_paper_dashboard(
     db: Session,
     *,
@@ -466,20 +661,31 @@ def build_event_overlay_paper_dashboard(
         .order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id))
         .limit(limit)
     ).all()
+    lifecycle = build_event_overlay_paper_lifecycle_status(db)
     if not snapshots:
         return {
             "ok": True,
             "mode": "conservative_overlay_paper_dashboard",
             "summary": {
                 "snapshots": 0,
+                "total_snapshots": 0,
                 "open_snapshots": 0,
+                "ready_to_evaluate_snapshots": 0,
                 "evaluated_snapshots": 0,
+                "total_items": 0,
+                "evaluated_items": 0,
                 "aggregate_baseline_pnl_pct": 0.0,
                 "aggregate_overlay_pnl_pct": 0.0,
                 "aggregate_overlay_delta_pnl_pct": 0.0,
+                "baseline_total_pnl_pct": 0.0,
+                "overlay_total_pnl_pct": 0.0,
+                "overlay_delta_pnl_pct": 0.0,
+                "recommendation": "create_snapshot",
             },
             "recent_snapshots": [],
             "by_risk_level": {},
+            "by_snapshot": [],
+            "cumulative_curve": [],
             "limitations": ["No paper snapshots stored yet."],
         }
 
@@ -488,52 +694,149 @@ def build_event_overlay_paper_dashboard(
         select(EventOverlayPaperSnapshotItem).where(EventOverlayPaperSnapshotItem.snapshot_id.in_(ids))
     ).all()
     by_risk: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"items": 0, "baseline_realized_pnl_pct": 0.0, "overlay_realized_pnl_pct": 0.0, "overlay_delta_pnl_pct": 0.0}
+        lambda: {
+            "items": 0,
+            "evaluated_items": 0,
+            "baseline_realized_pnl_pct": 0.0,
+            "overlay_realized_pnl_pct": 0.0,
+            "overlay_delta_pnl_pct": 0.0,
+            "multiplier_sum": 0.0,
+            "multiplier_count": 0,
+        }
     )
+    by_snapshot_acc: dict[int, dict[str, Any]] = {
+        snapshot.id: {
+            "snapshot_id": snapshot.id,
+            "date": snapshot.snapshot_date,
+            "status": snapshot.status,
+            "baseline_pnl": 0.0,
+            "overlay_pnl": 0.0,
+            "delta": 0.0,
+            "evaluated_items": 0,
+        }
+        for snapshot in snapshots
+    }
     baseline_total = 0.0
     overlay_total = 0.0
     delta_total = 0.0
+    total_items = len(items)
+    evaluated_items = 0
+    realized_returns: list[float] = []
+    overlay_pnls: list[float] = []
+    exposure_reductions = [_to_float(snapshot.exposure_reduction_pct) for snapshot in snapshots]
+    exposure_reductions = [value for value in exposure_reductions if value is not None]
+    multipliers = [_to_float(snapshot.avg_multiplier) for snapshot in snapshots]
+    multipliers = [value for value in multipliers if value is not None]
     for item in items:
         baseline = _to_float(item.baseline_realized_pnl_pct)
         overlay = _to_float(item.overlay_realized_pnl_pct)
         delta = _to_float(item.overlay_delta_pnl_pct)
+        multiplier = _to_float(item.event_risk_multiplier)
+        risk_bucket = by_risk[item.event_risk_level or "unknown"]
+        risk_bucket["items"] += 1
+        if multiplier is not None:
+            risk_bucket["multiplier_sum"] += multiplier
+            risk_bucket["multiplier_count"] += 1
         if baseline is None or overlay is None or delta is None:
             continue
+        evaluated_items += 1
         baseline_total += baseline
         overlay_total += overlay
         delta_total += delta
-        bucket = by_risk[item.event_risk_level or "unknown"]
-        bucket["items"] += 1
-        bucket["baseline_realized_pnl_pct"] += baseline
-        bucket["overlay_realized_pnl_pct"] += overlay
-        bucket["overlay_delta_pnl_pct"] += delta
+        realized_return = _to_float(item.realized_return_pct)
+        if realized_return is not None:
+            realized_returns.append(realized_return)
+        overlay_pnls.append(overlay)
+        risk_bucket["evaluated_items"] += 1
+        risk_bucket["baseline_realized_pnl_pct"] += baseline
+        risk_bucket["overlay_realized_pnl_pct"] += overlay
+        risk_bucket["overlay_delta_pnl_pct"] += delta
+        snapshot_bucket = by_snapshot_acc.get(item.snapshot_id)
+        if snapshot_bucket is not None:
+            snapshot_bucket["baseline_pnl"] += baseline
+            snapshot_bucket["overlay_pnl"] += overlay
+            snapshot_bucket["delta"] += delta
+            snapshot_bucket["evaluated_items"] += 1
 
     statuses = Counter(snapshot.status for snapshot in snapshots)
+    by_snapshot = [
+        {
+            **row,
+            "baseline_pnl": _round(row.get("baseline_pnl"), 4),
+            "overlay_pnl": _round(row.get("overlay_pnl"), 4),
+            "delta": _round(row.get("delta"), 4),
+        }
+        for row in sorted(by_snapshot_acc.values(), key=lambda row: (str(row.get("date") or ""), int(row.get("snapshot_id") or 0)))
+    ]
+    cumulative_curve = []
+    cumulative_baseline = 0.0
+    cumulative_overlay = 0.0
+    for row in by_snapshot:
+        cumulative_baseline += _to_float(row.get("baseline_pnl")) or 0.0
+        cumulative_overlay += _to_float(row.get("overlay_pnl")) or 0.0
+        cumulative_curve.append(
+            {
+                "date": row.get("date"),
+                "snapshot_id": row.get("snapshot_id"),
+                "cumulative_baseline_pnl": _round(cumulative_baseline, 4),
+                "cumulative_overlay_pnl": _round(cumulative_overlay, 4),
+                "cumulative_delta": _round(cumulative_overlay - cumulative_baseline, 4),
+            }
+        )
+    best_snapshot = max(by_snapshot, key=lambda row: _to_float(row.get("delta")) or 0.0) if by_snapshot else None
+    worst_snapshot = min(by_snapshot, key=lambda row: _to_float(row.get("delta")) or 0.0) if by_snapshot else None
+    recommendation = (lifecycle.get("summary") or {}).get("recommended_action") or "wait"
     return {
         "ok": True,
         "mode": "conservative_overlay_paper_dashboard",
         "summary": {
             "snapshots": len(snapshots),
+            "total_snapshots": len(snapshots),
             "open_snapshots": statuses.get("open", 0),
+            "ready_to_evaluate_snapshots": (lifecycle.get("summary") or {}).get("ready_to_evaluate_snapshots", 0),
             "partially_evaluated_snapshots": statuses.get("partially_evaluated", 0),
             "evaluated_snapshots": statuses.get("evaluated", 0),
+            "total_items": total_items,
+            "evaluated_items": evaluated_items,
             "latest_snapshot_id": snapshots[0].id if snapshots else None,
             "aggregate_baseline_pnl_pct": _round(baseline_total, 4),
             "aggregate_overlay_pnl_pct": _round(overlay_total, 4),
             "aggregate_overlay_delta_pnl_pct": _round(delta_total, 4),
+            "baseline_total_pnl_pct": _round(baseline_total, 4),
+            "overlay_total_pnl_pct": _round(overlay_total, 4),
+            "overlay_delta_pnl_pct": _round(delta_total, 4),
+            "baseline_avg_return_pct": _round(sum(realized_returns) / len(realized_returns), 4) if realized_returns else None,
+            "overlay_avg_return_pct": _round(sum(overlay_pnls) / len(overlay_pnls), 4) if overlay_pnls else None,
+            "baseline_win_rate_pct": _round(sum(1 for value in realized_returns if value > 0) / len(realized_returns) * 100, 2) if realized_returns else None,
+            "overlay_win_rate_pct": _round(sum(1 for value in overlay_pnls if value > 0) / len(overlay_pnls) * 100, 2) if overlay_pnls else None,
+            "avg_exposure_reduction_pct": _round(sum(exposure_reductions) / len(exposure_reductions), 3) if exposure_reductions else None,
+            "avg_multiplier": _round(sum(multipliers) / len(multipliers), 3) if multipliers else None,
+            "best_snapshot": best_snapshot,
+            "worst_snapshot": worst_snapshot,
+            "latest_snapshot": _snapshot_to_dict(snapshots[0]) if snapshots else None,
+            "recommendation": recommendation,
             "paper_trading_note": PAPER_TRADING_NOTE,
         },
         "latest_snapshot": _snapshot_to_dict(snapshots[0]) if snapshots else None,
         "recent_snapshots": [_snapshot_to_dict(snapshot) for snapshot in snapshots],
         "by_risk_level": {
             level: {
-                **values,
+                "items": values.get("items", 0),
+                "evaluated_items": values.get("evaluated_items", 0),
                 "baseline_realized_pnl_pct": _round(values.get("baseline_realized_pnl_pct"), 4),
                 "overlay_realized_pnl_pct": _round(values.get("overlay_realized_pnl_pct"), 4),
                 "overlay_delta_pnl_pct": _round(values.get("overlay_delta_pnl_pct"), 4),
+                "avg_multiplier": _round(
+                    values.get("multiplier_sum", 0.0) / values.get("multiplier_count", 1),
+                    3,
+                )
+                if values.get("multiplier_count")
+                else None,
             }
             for level, values in by_risk.items()
         },
+        "by_snapshot": by_snapshot,
+        "cumulative_curve": cumulative_curve,
         "limitations": [
             "Paper tracking uses saved snapshots and local candles only.",
             "No real orders are created.",
@@ -541,3 +844,117 @@ def build_event_overlay_paper_dashboard(
             "No investment advice.",
         ],
     }
+
+
+def _csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=headers, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: row.get(key) for key in headers})
+    return output.getvalue()
+
+
+def build_event_overlay_paper_snapshots_csv(
+    db: Session,
+    *,
+    limit: int = 100,
+    status: str | None = None,
+) -> str:
+    data = list_event_overlay_paper_snapshots(db, limit=limit, status=status)
+    rows = []
+    for row in data.get("rows") or []:
+        summary = row.get("summary") or {}
+        evaluation = summary.get("evaluation") or {}
+        rows.append(
+            {
+                "snapshot_id": row.get("id"),
+                "snapshot_date": row.get("snapshot_date"),
+                "created_at": row.get("created_at"),
+                "status": row.get("status"),
+                "items": evaluation.get("items"),
+                "baseline_total_exposure": row.get("baseline_total_exposure"),
+                "overlay_total_exposure": row.get("overlay_total_exposure"),
+                "exposure_reduction_pct": row.get("exposure_reduction_pct"),
+                "avg_multiplier": row.get("avg_multiplier"),
+                "baseline_realized_pnl_pct": evaluation.get("baseline_realized_pnl_pct"),
+                "overlay_realized_pnl_pct": evaluation.get("overlay_realized_pnl_pct"),
+                "overlay_delta_pnl_pct": evaluation.get("overlay_delta_pnl_pct"),
+                "evaluated_at": row.get("evaluated_at"),
+            }
+        )
+    return _csv_text(
+        [
+            "snapshot_id",
+            "snapshot_date",
+            "created_at",
+            "status",
+            "items",
+            "baseline_total_exposure",
+            "overlay_total_exposure",
+            "exposure_reduction_pct",
+            "avg_multiplier",
+            "baseline_realized_pnl_pct",
+            "overlay_realized_pnl_pct",
+            "overlay_delta_pnl_pct",
+            "evaluated_at",
+        ],
+        rows,
+    )
+
+
+def build_event_overlay_paper_snapshot_items_csv(
+    db: Session,
+    *,
+    snapshot_id: int,
+) -> str:
+    data = get_event_overlay_paper_snapshot_detail(db, snapshot_id=snapshot_id)
+    rows = [
+        {
+            "ticker": item.get("ticker"),
+            "action": item.get("action"),
+            "entry_date": item.get("entry_date"),
+            "entry_price": item.get("entry_price"),
+            "base_position_size_pct": item.get("base_position_size_pct"),
+            "overlay_position_size_pct": item.get("overlay_position_size_pct"),
+            "event_risk_score": item.get("event_risk_score"),
+            "event_risk_level": item.get("event_risk_level"),
+            "event_risk_multiplier": item.get("event_risk_multiplier"),
+            "realized_date": item.get("realized_date"),
+            "realized_price": item.get("realized_price"),
+            "realized_return_pct": item.get("realized_return_pct"),
+            "baseline_realized_pnl_pct": item.get("baseline_realized_pnl_pct"),
+            "overlay_realized_pnl_pct": item.get("overlay_realized_pnl_pct"),
+            "overlay_delta_pnl_pct": item.get("overlay_delta_pnl_pct"),
+            "realized_outcome": item.get("realized_outcome"),
+        }
+        for item in data.get("items") or []
+    ]
+    return _csv_text(
+        [
+            "ticker",
+            "action",
+            "entry_date",
+            "entry_price",
+            "base_position_size_pct",
+            "overlay_position_size_pct",
+            "event_risk_score",
+            "event_risk_level",
+            "event_risk_multiplier",
+            "realized_date",
+            "realized_price",
+            "realized_return_pct",
+            "baseline_realized_pnl_pct",
+            "overlay_realized_pnl_pct",
+            "overlay_delta_pnl_pct",
+            "realized_outcome",
+        ],
+        rows,
+    )
+
+
+def build_event_overlay_paper_dashboard_csv(db: Session) -> str:
+    data = build_event_overlay_paper_dashboard(db, limit=100)
+    summary = data.get("summary") or {}
+    rows = [{"metric": key, "value": value} for key, value in summary.items() if not isinstance(value, (dict, list))]
+    return _csv_text(["metric", "value"], rows)

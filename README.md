@@ -167,6 +167,20 @@ GET    /portfolio/construct/compare.json
 GET    /portfolio/construct/compare.csv
 ```
 
+Conservative event overlay paper tracking:
+
+```text
+GET    /signals/event-aware/conservative-overlay-paper-lifecycle-status
+GET    /signals/event-aware/conservative-overlay-paper-ready
+POST   /signals/event-aware/conservative-overlay-paper-evaluate-ready
+POST   /signals/event-aware/conservative-overlay-paper-snapshots
+GET    /signals/event-aware/conservative-overlay-paper-snapshots
+GET    /signals/event-aware/conservative-overlay-paper-snapshots.csv
+GET    /signals/event-aware/conservative-overlay-paper-dashboard
+GET    /signals/event-aware/conservative-overlay-paper-dashboard.csv
+GET    /signals/event-aware/conservative-overlay-paper-tracking-page
+```
+
 ## Примеры Curl
 
 ```bash
@@ -179,6 +193,13 @@ curl "http://127.0.0.1:8010/signals/market-regime"
 curl "http://127.0.0.1:8010/signals/consumer/backtest-audit?max_tickers=10&max_samples=200"
 curl "http://127.0.0.1:8010/signals/consumer/threshold-sweep?max_tickers=10&max_samples=200&max_configs=40"
 curl "http://127.0.0.1:8010/signals/consumer/walk-forward?max_tickers=10&max_samples=300&max_configs=40&folds=2"
+```
+
+```bash
+cd backend
+python3 -m app.tasks.event_overlay_paper_tracking status
+python3 -m app.tasks.event_overlay_paper_tracking create --name daily --limit 100 --horizon-days 20
+python3 -m app.tasks.event_overlay_paper_tracking evaluate-ready --limit 50
 ```
 
 ```bash
@@ -216,6 +237,7 @@ curl -X POST "http://127.0.0.1:8010/analyze/news" \
 - `docs/market_regime_filter.md`
 - `docs/data_coverage_diagnostics.md`
 - `docs/local_moex_data_bootstrap.md`
+- `docs/conservative_event_overlay_paper_tracking_lifecycle.md`
 - `docs/ROADMAP.md`
 - `docs/STABILIZATION_NOTES.md`
 

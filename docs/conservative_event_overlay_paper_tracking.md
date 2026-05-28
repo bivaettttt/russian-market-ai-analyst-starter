@@ -37,6 +37,20 @@ The tracking page is available at:
 /signals/event-aware/conservative-overlay-paper-tracking-page
 ```
 
+Lifecycle automation and CSV exports are documented in:
+
+```text
+docs/conservative_event_overlay_paper_tracking_lifecycle.md
+```
+
+Key lifecycle endpoints:
+
+- `GET /signals/event-aware/conservative-overlay-paper-lifecycle-status`
+- `GET /signals/event-aware/conservative-overlay-paper-ready`
+- `POST /signals/event-aware/conservative-overlay-paper-evaluate-ready`
+- `GET /signals/event-aware/conservative-overlay-paper-snapshots.csv`
+- `GET /signals/event-aware/conservative-overlay-paper-dashboard.csv`
+
 ## Metrics
 
 - `baseline_total_exposure`: sum of baseline paper position sizes.

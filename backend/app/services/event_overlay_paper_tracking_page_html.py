@@ -61,8 +61,35 @@ def build_event_overlay_paper_tracking_page_html() -> str:
     </section>
 
     <section class="panel">
+      <h2>Lifecycle Status</h2>
+      <div id="lifecycleCards" class="grid"></div>
+      <div class="controls" style="margin-top:12px;">
+        <button onclick="evaluateReady()">Evaluate Ready Snapshots</button>
+        <button class="secondary" onclick="loadAll()">Refresh Dashboard</button>
+        <a href="/signals/event-aware/conservative-overlay-paper-snapshots.csv?limit=100">Snapshots CSV</a>
+        <a href="/signals/event-aware/conservative-overlay-paper-dashboard.csv">Dashboard CSV</a>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>Dashboard</h2>
       <div id="cards" class="grid"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Cumulative Curve</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Snapshot</th><th>Baseline</th><th>Overlay</th><th>Delta</th></tr></thead>
+        <tbody id="curveRows"></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>By Risk Level</h2>
+      <table>
+        <thead><tr><th>Risk</th><th>Items</th><th>Evaluated</th><th>Baseline</th><th>Overlay</th><th>Delta</th><th>Avg multiplier</th></tr></thead>
+        <tbody id="riskRows"></tbody>
+      </table>
     </section>
 
     <section class="panel">
@@ -108,29 +135,63 @@ async function fetchJson(url, options) {
 function renderDashboard(data) {
   const s = data.summary || {};
   const cards = [
-    ["Snapshots", s.snapshots],
+    ["Snapshots", s.total_snapshots ?? s.snapshots],
     ["Open", s.open_snapshots],
+    ["Ready", s.ready_to_evaluate_snapshots],
     ["Evaluated", s.evaluated_snapshots],
-    ["Baseline PnL", fmt(s.aggregate_baseline_pnl_pct, "%")],
-    ["Overlay PnL", fmt(s.aggregate_overlay_pnl_pct, "%")],
-    ["Delta", fmt(s.aggregate_overlay_delta_pnl_pct, "%")],
+    ["Baseline PnL", fmt(s.baseline_total_pnl_pct ?? s.aggregate_baseline_pnl_pct, "%")],
+    ["Overlay PnL", fmt(s.overlay_total_pnl_pct ?? s.aggregate_overlay_pnl_pct, "%")],
+    ["Delta", fmt(s.overlay_delta_pnl_pct ?? s.aggregate_overlay_delta_pnl_pct, "%")],
+    ["Avg multiplier", fmt(s.avg_multiplier)],
+    ["Recommendation", s.recommendation || "—"],
   ];
   document.getElementById("cards").innerHTML = cards.map(([label, value]) => `<div class="card"><div class="label">${label}</div><div class="value">${value ?? "—"}</div></div>`).join("");
+  document.getElementById("curveRows").innerHTML = (data.cumulative_curve || []).map(row => `<tr>
+    <td>${row.date || "—"}</td><td>#${row.snapshot_id}</td>
+    <td>${fmt(row.cumulative_baseline_pnl, "%")}</td>
+    <td>${fmt(row.cumulative_overlay_pnl, "%")}</td>
+    <td>${fmt(row.cumulative_delta, "%")}</td>
+  </tr>`).join("") || `<tr><td colspan="5" class="muted">No evaluated curve yet.</td></tr>`;
+  const risk = data.by_risk_level || {};
+  document.getElementById("riskRows").innerHTML = Object.keys(risk).sort().map(level => {
+    const row = risk[level] || {};
+    return `<tr><td>${level}</td><td>${row.items || 0}</td><td>${row.evaluated_items || 0}</td>
+      <td>${fmt(row.baseline_realized_pnl_pct, "%")}</td>
+      <td>${fmt(row.overlay_realized_pnl_pct, "%")}</td>
+      <td>${fmt(row.overlay_delta_pnl_pct, "%")}</td>
+      <td>${fmt(row.avg_multiplier)}</td></tr>`;
+  }).join("") || `<tr><td colspan="7" class="muted">No risk breakdown yet.</td></tr>`;
+}
+function renderLifecycle(data) {
+  const s = data.summary || {};
+  const cards = [
+    ["Total", s.total_snapshots],
+    ["Open", s.open_snapshots],
+    ["Ready", s.ready_to_evaluate_snapshots],
+    ["Evaluated", s.evaluated_snapshots],
+    ["Last date", s.last_snapshot_date || "—"],
+    ["Next action", s.recommended_action || "—"],
+  ];
+  document.getElementById("lifecycleCards").innerHTML = cards.map(([label, value]) => `<div class="card"><div class="label">${label}</div><div class="value">${value ?? "—"}</div></div>`).join("");
 }
 function renderSnapshots(data) {
   const rows = data.rows || [];
+  const today = new Date().toISOString().slice(0, 10);
   document.getElementById("snapshotRows").innerHTML = rows.map(row => {
     const ev = (row.summary || {}).evaluation || {};
+    const ready = ["open", "partially_evaluated"].includes(row.status) && row.snapshot_date && row.horizon_days && row.snapshot_date <= today;
     return `<tr>
       <td>#${row.id}</td>
       <td>${row.snapshot_date || "—"}</td>
-      <td>${row.status || "—"}</td>
+      <td>${ready ? "ready" : (row.status || "—")}</td>
       <td>${fmt(row.baseline_total_exposure, "%")} → ${fmt(row.overlay_total_exposure, "%")}</td>
       <td>${fmt(row.avg_multiplier)}</td>
       <td>Δ ${fmt(ev.overlay_delta_pnl_pct, "%")}</td>
       <td>
         <button class="secondary" onclick="loadDetail(${row.id})">Detail</button>
         <button onclick="evaluateSnapshot(${row.id})">Evaluate</button>
+        <button class="secondary" onclick="deleteSnapshot(${row.id})">Delete</button>
+        <a href="/signals/event-aware/conservative-overlay-paper-snapshots/${row.id}.csv">CSV</a>
       </td>
     </tr>`;
   }).join("") || `<tr><td colspan="7" class="muted">No snapshots yet.</td></tr>`;
@@ -152,11 +213,22 @@ function renderDetail(data) {
 }
 async function loadAll() {
   try {
+    const lifecycle = await fetchJson("/signals/event-aware/conservative-overlay-paper-lifecycle-status");
+    renderLifecycle(lifecycle);
     const dash = await fetchJson("/signals/event-aware/conservative-overlay-paper-dashboard?limit=20");
     renderDashboard(dash);
     const list = await fetchJson("/signals/event-aware/conservative-overlay-paper-snapshots?limit=50");
     renderSnapshots(list);
     setStatus("Loaded.");
+  } catch (err) {
+    setStatus(String(err));
+  }
+}
+async function evaluateReady() {
+  try {
+    const data = await fetchJson("/signals/event-aware/conservative-overlay-paper-evaluate-ready?limit=50", { method: "POST" });
+    setStatus(JSON.stringify(data, null, 2));
+    await loadAll();
   } catch (err) {
     setStatus(String(err));
   }
@@ -173,6 +245,16 @@ async function createSnapshot() {
     setStatus(JSON.stringify(data, null, 2));
     await loadAll();
     if (data.snapshot_id) await loadDetail(data.snapshot_id);
+  } catch (err) {
+    setStatus(String(err));
+  }
+}
+async function deleteSnapshot(id) {
+  if (!confirm(`Delete paper snapshot #${id}?`)) return;
+  try {
+    const data = await fetchJson(`/signals/event-aware/conservative-overlay-paper-snapshots/${id}`, { method: "DELETE" });
+    setStatus(JSON.stringify(data, null, 2));
+    await loadAll();
   } catch (err) {
     setStatus(String(err));
   }
