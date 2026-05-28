@@ -587,7 +587,7 @@ Acceptance criteria:
 
 ## 23.5 Event-Aware Risk Overlay Walk-forward Validation
 
-Статус: реализовано как leakage-safe validation layer для soft overlay. Production consumer logic по умолчанию не меняется.
+Статус: реализовано как leakage-safe validation layer для soft overlay. Research result: PF/return/stop-hit exposure improved, но overlay был слишком агрессивным (`avg_position_multiplier` около `0.293`).
 
 Цель: проверить, переносится ли улучшение static overlay backtest на future folds, когда параметры overlay выбираются только на прошлом train window.
 
@@ -601,6 +601,23 @@ Acceptance criteria:
 - summary показывает return/PF/stop-hit exposure deltas, exposure reduction, positive folds и config frequency.
 
 Почему важно: overlay может стать production default только после leakage-safe проверки, а не по static historical fit.
+
+## 23.6 Conservative Event Risk Overlay Calibration
+
+Статус: реализовано как research calibration layer. Production consumer logic по умолчанию не меняется.
+
+Цель: найти более мягкий overlay, который сохраняет PF/stop-hit improvements без чрезмерного снижения exposure.
+
+Что сделано:
+
+- добавлен endpoint `/signals/event-aware/risk-overlay-conservative-calibration`;
+- добавлена page `/signals/event-aware/risk-overlay-conservative-page`;
+- config grid использует более высокие thresholds и более мягкие multipliers;
+- train folds выбирают только configs, проходящие constraints по `avg_position_multiplier` и `exposure_reduction`;
+- test folds проверяют return/PF/stop-hit deltas на future samples;
+- добавлен benchmark comparison: disabled, aggressive overlay, default soft overlay и selected conservative config.
+
+Почему важно: soft overlay полезен только если улучшает риск без превращения портфеля в почти нулевую экспозицию.
 
 ## 24. Production News Pipeline
 

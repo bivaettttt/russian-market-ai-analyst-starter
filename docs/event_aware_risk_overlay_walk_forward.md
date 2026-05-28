@@ -36,6 +36,12 @@ If every train config is harmful, the fold selects `disabled`, which is equivale
 - `reject`: no stable improvement.
 - `needs_more_data`: too few event samples or folds.
 
+## Conservative Calibration
+
+If walk-forward improves PF/return but cuts exposure too aggressively, use `/signals/event-aware/risk-overlay-conservative-calibration`. It searches softer thresholds and multipliers with explicit constraints such as avg multiplier `>= 0.50` and exposure reduction `<= 50%`.
+
+See [event_aware_risk_overlay_conservative_calibration.md](event_aware_risk_overlay_conservative_calibration.md).
+
 ## Examples
 
 ```bash

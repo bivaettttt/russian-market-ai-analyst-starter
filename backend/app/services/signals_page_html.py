@@ -487,6 +487,7 @@ def build_signals_page_html() -> str:
         <a href="/signals/event-aware/rule-stability-page">Rule stability</a>
         <a href="/signals/event-aware/risk-overlay-page">Risk overlay</a>
         <a href="/signals/event-aware/risk-overlay-walk-forward-page">Risk overlay WF</a>
+        <a href="/signals/event-aware/risk-overlay-conservative-page">Conservative overlay</a>
         <a href="/signals/data-coverage-page">Data coverage</a>
         <a href="/tickers/SBER">Пример тикера</a>
       </nav>
