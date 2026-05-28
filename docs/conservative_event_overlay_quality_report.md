@@ -18,11 +18,14 @@ CLI:
 
 ```bash
 cd backend
+python3 -m app.tasks.market_daily_ops run --name daily --limit 100 --horizon-days 20
 python3 -m app.tasks.event_overlay_paper_tracking daily-run --name daily --limit 100 --horizon-days 20 --evaluate-ready
 python3 -m app.tasks.event_overlay_paper_tracking status
 python3 -m app.tasks.event_overlay_paper_tracking create --name daily --limit 100 --horizon-days 20
 python3 -m app.tasks.event_overlay_paper_tracking evaluate-ready --limit 50
 ```
+
+For the full market-refresh + paper-tracking workflow, use `docs/market_daily_ops.md`.
 
 ## Endpoints
 
@@ -33,6 +36,8 @@ GET  /signals/event-aware/conservative-overlay-notification-summary
 GET  /signals/event-aware/conservative-overlay-data-health
 POST /signals/event-aware/conservative-overlay-daily-run
 GET  /signals/event-aware/conservative-overlay-quality-report.csv
+GET  /signals/daily-ops/status
+POST /signals/daily-ops/run
 ```
 
 Existing tracking endpoints remain available for lifecycle status, snapshots, dashboard, evaluation, and cleanup.

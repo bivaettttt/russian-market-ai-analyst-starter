@@ -659,7 +659,7 @@ Acceptance criteria:
 
 ## 23.9 Conservative Event Overlay Quality Report
 
-Статус: реализовано как daily paper-validation operations layer. Production defaults не меняются.
+Статус: реализовано как daily paper-validation reporting layer. Production defaults не меняются.
 
 Цель: сделать накопление live paper-статистики регулярным workflow: daily-run, health/status, quality report, notification-friendly summary и CSV export.
 
@@ -673,6 +673,23 @@ Acceptance criteria:
 - quality report показывает cumulative baseline vs overlay PnL, by-risk-level contribution, top contributors и problem tickers.
 
 Почему важно: paper tracking становится повторяемым процессом наблюдения, а не ручной разовой проверкой.
+
+## 23.10 Market Data Refresh & Paper Tracking Daily Ops
+
+Статус: реализовано как local daily ops workflow. Production defaults не меняются.
+
+Цель: одной командой выполнять market freshness check, MOEX candle refresh, paper snapshot creation, ready snapshot evaluation и quality/notification summary.
+
+Что сделано:
+
+- добавлен service `market_data_refresh.py` с freshness status и safe daily refresh wrapper;
+- добавлен service `market_daily_ops.py` для orchestration;
+- добавлен CLI `python3 -m app.tasks.market_daily_ops`;
+- добавлены endpoints `/signals/daily-ops/status`, `/signals/daily-ops/market-data-freshness`, `/signals/daily-ops/refresh-market-data`, `/signals/daily-ops/run`;
+- добавлена page `/signals/daily-ops/page`;
+- dry-run не создаёт snapshots и не оценивает ready snapshots.
+
+Почему важно: устраняет operational blocker stale candles и переводит paper validation в ежедневный локальный workflow.
 
 ## 24. Production News Pipeline
 

@@ -66,9 +66,11 @@ python3 -m app.tasks.event_overlay_paper_tracking status
 python3 -m app.tasks.event_overlay_paper_tracking create --name daily --limit 100 --horizon-days 20
 python3 -m app.tasks.event_overlay_paper_tracking evaluate-ready --limit 50
 python3 -m app.tasks.event_overlay_paper_tracking daily-run --name daily --limit 100 --horizon-days 20 --evaluate-ready
+python3 -m app.tasks.market_daily_ops run --name daily --limit 100 --horizon-days 20
 ```
 
 The daily run command checks lifecycle status, creates today's snapshot only if it is not already present, evaluates ready snapshots, and prints a compact JSON summary.
+`market_daily_ops` is the broader daily workflow that can refresh local MOEX candles before snapshot/evaluation.
 
 ## Quality Report
 

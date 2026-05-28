@@ -38,6 +38,7 @@ def build_event_overlay_quality_report_page_html() -> str:
     <h1>Paper Validation Alpha · Conservative Event Overlay Quality Report</h1>
     <div class="nav">
       <a href="/signals">Signals</a>
+      <a href="/signals/daily-ops/page">Daily Ops</a>
       <a href="/signals/event-aware/conservative-overlay-paper-tracking-page">Overlay tracking</a>
       <a href="/signals/event-aware/conservative-overlay-paper-page">Paper snapshot</a>
       <a href="/signals/event-aware/risk-overlay-conservative-page">Conservative calibration</a>

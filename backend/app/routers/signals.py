@@ -87,6 +87,9 @@ from app.services.event_overlay_quality_report import (
     build_conservative_overlay_quality_report_csv,
 )
 from app.services.event_overlay_quality_report_page_html import build_event_overlay_quality_report_page_html
+from app.services.market_daily_ops import build_daily_ops_status, run_market_daily_ops
+from app.services.market_daily_ops_page_html import build_market_daily_ops_page_html
+from app.services.market_data_refresh import build_market_data_freshness_status, refresh_market_data_daily
 from app.services.event_aware_risk_overlay_backtest import (
     build_event_risk_overlay_backtest,
     parse_overlay_modes,
@@ -1379,6 +1382,81 @@ def event_aware_conservative_overlay_quality_report_csv_api(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="conservative_overlay_quality_report.csv"'},
     )
+
+
+@router.get("/signals/daily-ops/status")
+def signals_daily_ops_status_api(
+    stale_days: int = Query(3, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    return build_daily_ops_status(
+        db=db,
+        stale_days=stale_days,
+    )
+
+
+@router.get("/signals/daily-ops/market-data-freshness")
+def signals_daily_ops_market_data_freshness_api(
+    stale_days: int = Query(3, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    return build_market_data_freshness_status(
+        db=db,
+        stale_days=stale_days,
+    )
+
+
+@router.post("/signals/daily-ops/refresh-market-data")
+def signals_daily_ops_refresh_market_data_api(
+    max_tickers: int = Query(150, ge=1, le=500),
+    days: int = Query(120, ge=10, le=1000),
+    dry_run: bool = Query(False),
+    force: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return refresh_market_data_daily(
+        db=db,
+        max_tickers=max_tickers,
+        days=days,
+        dry_run=dry_run,
+        force=force,
+    )
+
+
+@router.post("/signals/daily-ops/run")
+def signals_daily_ops_run_api(
+    name: str = Query("daily"),
+    limit: int = Query(100, ge=1, le=500),
+    candles_limit: int = Query(240, ge=60, le=1000),
+    horizon_days: int = Query(20, ge=1, le=120),
+    refresh_market_data: bool = Query(True),
+    refresh_max_tickers: int = Query(150, ge=1, le=500),
+    refresh_days: int = Query(120, ge=10, le=1000),
+    evaluate_ready: bool = Query(True),
+    dedupe_same_day: bool = Query(True),
+    dry_run: bool = Query(False),
+    force_refresh: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return run_market_daily_ops(
+        db=db,
+        name=name,
+        limit=limit,
+        candles_limit=candles_limit,
+        horizon_days=horizon_days,
+        refresh_market_data=refresh_market_data,
+        refresh_max_tickers=refresh_max_tickers,
+        refresh_days=refresh_days,
+        evaluate_ready=evaluate_ready,
+        dedupe_same_day=dedupe_same_day,
+        dry_run=dry_run,
+        force_refresh=force_refresh,
+    )
+
+
+@router.get("/signals/daily-ops/page", response_class=AIReportHTMLResponse)
+def signals_daily_ops_page():
+    return build_market_daily_ops_page_html()
 
 
 @router.get("/signals/consumer/ml-v2-gate-backtest")

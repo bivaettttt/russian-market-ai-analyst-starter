@@ -331,12 +331,18 @@ def build_conservative_overlay_notification_summary(
     limit: int = 30,
 ) -> dict[str, Any]:
     report = build_conservative_overlay_quality_report(db, limit=limit, include_open_snapshots=True)
+    health = build_conservative_overlay_data_health(db)
     summary = report.get("summary") or {}
+    health_summary = health.get("summary") or {}
     snapshots_total = int(summary.get("snapshots_total") or 0)
     ready = int(summary.get("snapshots_ready") or 0)
     quality_label = summary.get("quality_label") or "insufficient_data"
     delta = _to_float(summary.get("overlay_delta_pnl_pct"))
-    if snapshots_total <= 0:
+    if health_summary.get("market_data_stale"):
+        status = "warning"
+        days = health_summary.get("days_since_last_market_candle")
+        message = f"Market data is stale by {days} days. Refresh market data before relying on paper results."
+    elif snapshots_total <= 0:
         status = "needs_action"
         message = "No snapshots yet. Create the first paper snapshot."
     elif ready > 0:
@@ -364,9 +370,11 @@ def build_conservative_overlay_notification_summary(
             "overlay_pnl": summary.get("overlay_total_pnl_pct"),
             "delta": summary.get("overlay_delta_pnl_pct"),
             "quality_label": quality_label,
+            "market_data_stale": health_summary.get("market_data_stale"),
+            "last_market_candle_date": health_summary.get("last_market_candle_date"),
         },
-        "recommended_action": summary.get("recommended_action"),
-        "warnings": report.get("warnings") or [],
+        "recommended_action": health.get("recommended_action") if health_summary.get("market_data_stale") else summary.get("recommended_action"),
+        "warnings": sorted(set((report.get("warnings") or []) + (health.get("warnings") or []))),
     }
 
 
@@ -423,7 +431,7 @@ def build_conservative_overlay_data_health(
     }
     warnings = build_data_health_warnings(summary)
     if "stale_market_data" in warnings:
-        recommended_action = "bootstrap_data"
+        recommended_action = "bootstrap_data" if not summary.get("last_market_candle_date") else "refresh_market_data"
     elif "no_snapshots" in warnings:
         recommended_action = "create_snapshot"
     elif int(summary.get("ready_snapshots") or 0) > 0:

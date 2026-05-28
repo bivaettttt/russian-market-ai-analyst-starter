@@ -40,6 +40,7 @@ def build_event_overlay_paper_tracking_page_html() -> str:
     <h1>Conservative Overlay Paper Tracking</h1>
     <div class="nav">
       <a href="/signals">Signals</a>
+      <a href="/signals/daily-ops/page">Daily Ops</a>
       <a href="/signals/event-aware/conservative-overlay-paper-page">Paper snapshot</a>
       <a href="/signals/event-aware/conservative-overlay-quality-report-page">Quality report</a>
       <a href="/signals/event-aware/risk-overlay-conservative-page">Conservative calibration</a>
