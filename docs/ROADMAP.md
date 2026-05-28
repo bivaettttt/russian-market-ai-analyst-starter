@@ -657,6 +657,23 @@ Acceptance criteria:
 
 Почему важно: текущий snapshot показывает только сегодняшнюю структуру риска, а paper tracking позволяет измерить будущий realized эффект без реальных сделок и без включения overlay в production.
 
+## 23.9 Conservative Event Overlay Quality Report
+
+Статус: реализовано как daily paper-validation operations layer. Production defaults не меняются.
+
+Цель: сделать накопление live paper-статистики регулярным workflow: daily-run, health/status, quality report, notification-friendly summary и CSV export.
+
+Что сделано:
+
+- добавлен CLI command `python3 -m app.tasks.event_overlay_paper_tracking daily-run`;
+- добавлен write endpoint `POST /signals/event-aware/conservative-overlay-daily-run`;
+- добавлены read-only endpoints quality report, notification summary и data health;
+- добавлен CSV export `/signals/event-aware/conservative-overlay-quality-report.csv`;
+- добавлена page `/signals/event-aware/conservative-overlay-quality-report-page`;
+- quality report показывает cumulative baseline vs overlay PnL, by-risk-level contribution, top contributors и problem tickers.
+
+Почему важно: paper tracking становится повторяемым процессом наблюдения, а не ручной разовой проверкой.
+
 ## 24. Production News Pipeline
 
 Цель: заменить ручной/локальный news ingestion более надёжным pipeline.

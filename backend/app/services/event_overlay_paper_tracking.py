@@ -191,6 +191,7 @@ def _find_duplicate_snapshot(
     db: Session,
     *,
     snapshot_date: str,
+    name: str | None,
     config_id: str,
     limit: int,
     horizon_days: int,
@@ -199,6 +200,7 @@ def _find_duplicate_snapshot(
     return db.scalars(
         select(EventOverlayPaperSnapshot)
         .where(EventOverlayPaperSnapshot.snapshot_date == snapshot_date)
+        .where(EventOverlayPaperSnapshot.name == name)
         .where(EventOverlayPaperSnapshot.config_id == config_id)
         .where(EventOverlayPaperSnapshot.limit == limit)
         .where(EventOverlayPaperSnapshot.horizon_days == horizon_days)
@@ -227,6 +229,7 @@ def create_conservative_overlay_paper_snapshot(
         duplicate = _find_duplicate_snapshot(
             db,
             snapshot_date=snapshot_date,
+            name=name,
             config_id=str(config.get("config_id")),
             limit=limit,
             horizon_days=horizon_days,
@@ -595,6 +598,68 @@ def bulk_evaluate_ready_snapshots(
         "total_evaluated_items": total_evaluated,
         "total_insufficient_data": total_insufficient,
         "results": results,
+    }
+
+
+def run_conservative_overlay_daily_workflow(
+    db: Session,
+    *,
+    name: str = "daily",
+    limit: int = 100,
+    candles_limit: int = 240,
+    horizon_days: int = 20,
+    overlay_mode: str = "soft_adjust",
+    evaluate_ready: bool = True,
+    dedupe_same_day: bool = True,
+) -> dict[str, Any]:
+    """Create the daily paper snapshot if needed, then optionally evaluate ready snapshots."""
+    warnings: list[str] = []
+    status_before = build_event_overlay_paper_lifecycle_status(db)
+    create_result = create_conservative_overlay_paper_snapshot(
+        db,
+        name=name,
+        limit=limit,
+        candles_limit=candles_limit,
+        horizon_days=horizon_days,
+        overlay_mode=overlay_mode,
+        dedupe_same_day=dedupe_same_day,
+    )
+    if create_result.get("duplicate"):
+        warnings.append("daily_snapshot_already_exists")
+    if not create_result.get("ok"):
+        warnings.append(str(create_result.get("error") or "snapshot_create_failed"))
+
+    evaluate_result: dict[str, Any] = {
+        "ok": True,
+        "mode": "bulk_evaluate_ready_snapshots",
+        "evaluated_snapshots": 0,
+        "total_insufficient_data": 0,
+    }
+    if evaluate_ready:
+        evaluate_result = bulk_evaluate_ready_snapshots(db, limit=50)
+        if int(evaluate_result.get("total_insufficient_data") or 0) > 0:
+            warnings.append("some_ready_snapshots_have_insufficient_future_candles")
+
+    dashboard = build_event_overlay_paper_dashboard(db, limit=20)
+    dashboard_summary = dashboard.get("summary") or {}
+    lifecycle_after = build_event_overlay_paper_lifecycle_status(db)
+    recommended_next_action = (lifecycle_after.get("summary") or {}).get("recommended_action") or "wait"
+    if int((dashboard_summary or {}).get("evaluated_items") or 0) <= 0:
+        warnings.append("no_evaluated_items_yet")
+
+    return {
+        "ok": bool(create_result.get("ok")) and bool(evaluate_result.get("ok")),
+        "mode": "daily_run",
+        "created_snapshot": bool(create_result.get("created")),
+        "snapshot_id": create_result.get("snapshot_id"),
+        "duplicate": bool(create_result.get("duplicate")),
+        "evaluated_ready": bool(evaluate_ready),
+        "evaluated_snapshots": int(evaluate_result.get("evaluated_snapshots") or 0),
+        "insufficient_data": int(evaluate_result.get("total_insufficient_data") or 0),
+        "dashboard_summary": dashboard_summary,
+        "warnings": sorted(set(warnings)),
+        "recommended_next_action": recommended_next_action,
+        "status_before": status_before.get("summary") or {},
     }
 
 

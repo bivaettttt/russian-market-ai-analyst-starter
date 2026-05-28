@@ -179,6 +179,12 @@ GET    /signals/event-aware/conservative-overlay-paper-snapshots.csv
 GET    /signals/event-aware/conservative-overlay-paper-dashboard
 GET    /signals/event-aware/conservative-overlay-paper-dashboard.csv
 GET    /signals/event-aware/conservative-overlay-paper-tracking-page
+GET    /signals/event-aware/conservative-overlay-quality-report
+GET    /signals/event-aware/conservative-overlay-notification-summary
+GET    /signals/event-aware/conservative-overlay-data-health
+POST   /signals/event-aware/conservative-overlay-daily-run
+GET    /signals/event-aware/conservative-overlay-quality-report.csv
+GET    /signals/event-aware/conservative-overlay-quality-report-page
 ```
 
 ## Примеры Curl
@@ -200,6 +206,7 @@ cd backend
 python3 -m app.tasks.event_overlay_paper_tracking status
 python3 -m app.tasks.event_overlay_paper_tracking create --name daily --limit 100 --horizon-days 20
 python3 -m app.tasks.event_overlay_paper_tracking evaluate-ready --limit 50
+python3 -m app.tasks.event_overlay_paper_tracking daily-run --name daily --limit 100 --horizon-days 20 --evaluate-ready
 ```
 
 ```bash
@@ -238,6 +245,7 @@ curl -X POST "http://127.0.0.1:8010/analyze/news" \
 - `docs/data_coverage_diagnostics.md`
 - `docs/local_moex_data_bootstrap.md`
 - `docs/conservative_event_overlay_paper_tracking_lifecycle.md`
+- `docs/conservative_event_overlay_quality_report.md`
 - `docs/ROADMAP.md`
 - `docs/STABILIZATION_NOTES.md`
 

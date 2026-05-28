@@ -65,6 +65,26 @@ Run from `backend`:
 python3 -m app.tasks.event_overlay_paper_tracking status
 python3 -m app.tasks.event_overlay_paper_tracking create --name daily --limit 100 --horizon-days 20
 python3 -m app.tasks.event_overlay_paper_tracking evaluate-ready --limit 50
+python3 -m app.tasks.event_overlay_paper_tracking daily-run --name daily --limit 100 --horizon-days 20 --evaluate-ready
+```
+
+The daily run command checks lifecycle status, creates today's snapshot only if it is not already present, evaluates ready snapshots, and prints a compact JSON summary.
+
+## Quality Report
+
+The quality report adds an operations view on top of stored paper snapshots:
+
+```bash
+curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-quality-report?limit=30"
+curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-notification-summary?limit=30"
+curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-data-health"
+curl "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-quality-report.csv?limit=30"
+```
+
+The page is:
+
+```text
+/signals/event-aware/conservative-overlay-quality-report-page
 ```
 
 ## Metrics

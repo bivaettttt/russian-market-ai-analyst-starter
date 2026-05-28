@@ -10,6 +10,7 @@ from app.services.event_overlay_paper_tracking import (
     build_event_overlay_paper_lifecycle_status,
     bulk_evaluate_ready_snapshots,
     create_conservative_overlay_paper_snapshot,
+    run_conservative_overlay_daily_workflow,
 )
 
 
@@ -36,6 +37,17 @@ def main(argv: list[str] | None = None) -> int:
     eval_parser.add_argument("--as-of-date", default=None)
     eval_parser.add_argument("--limit", type=int, default=50)
 
+    daily_parser = subparsers.add_parser("daily-run", help="Create today's snapshot if needed and evaluate ready snapshots")
+    daily_parser.add_argument("--name", default="daily")
+    daily_parser.add_argument("--limit", type=int, default=100)
+    daily_parser.add_argument("--candles-limit", type=int, default=240)
+    daily_parser.add_argument("--horizon-days", type=int, default=20)
+    daily_parser.add_argument("--overlay-mode", default="soft_adjust")
+    daily_parser.add_argument("--evaluate-ready", action="store_true")
+    daily_parser.add_argument("--no-evaluate-ready", action="store_true")
+    daily_parser.add_argument("--dedupe-same-day", action="store_true")
+    daily_parser.add_argument("--no-dedupe-same-day", action="store_true")
+
     args = parser.parse_args(argv)
     db = SessionLocal()
     try:
@@ -59,6 +71,27 @@ def main(argv: list[str] | None = None) -> int:
                 db,
                 as_of_date=args.as_of_date,
                 limit=args.limit,
+            )
+        elif args.command == "daily-run":
+            should_evaluate = True
+            if args.no_evaluate_ready:
+                should_evaluate = False
+            elif args.evaluate_ready:
+                should_evaluate = True
+            dedupe = True
+            if args.no_dedupe_same_day:
+                dedupe = False
+            elif args.dedupe_same_day:
+                dedupe = True
+            result = run_conservative_overlay_daily_workflow(
+                db,
+                name=args.name,
+                limit=args.limit,
+                candles_limit=args.candles_limit,
+                horizon_days=args.horizon_days,
+                overlay_mode=args.overlay_mode,
+                evaluate_ready=should_evaluate,
+                dedupe_same_day=dedupe,
             )
         else:
             parser.error("unknown command")

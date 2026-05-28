@@ -41,6 +41,7 @@ def build_event_overlay_paper_tracking_page_html() -> str:
     <div class="nav">
       <a href="/signals">Signals</a>
       <a href="/signals/event-aware/conservative-overlay-paper-page">Paper snapshot</a>
+      <a href="/signals/event-aware/conservative-overlay-quality-report-page">Quality report</a>
       <a href="/signals/event-aware/risk-overlay-conservative-page">Conservative calibration</a>
       <a href="/signals/event-aware/risk-overlay-page">Risk overlay</a>
     </div>
@@ -68,6 +69,7 @@ def build_event_overlay_paper_tracking_page_html() -> str:
         <button class="secondary" onclick="loadAll()">Refresh Dashboard</button>
         <a href="/signals/event-aware/conservative-overlay-paper-snapshots.csv?limit=100">Snapshots CSV</a>
         <a href="/signals/event-aware/conservative-overlay-paper-dashboard.csv">Dashboard CSV</a>
+        <a href="/signals/event-aware/conservative-overlay-quality-report.csv?limit=30">Quality CSV</a>
       </div>
     </section>
 

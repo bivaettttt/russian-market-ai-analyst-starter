@@ -77,8 +77,16 @@ from app.services.event_overlay_paper_tracking import (
     get_event_overlay_paper_snapshot_detail,
     get_ready_to_evaluate_snapshots,
     list_event_overlay_paper_snapshots,
+    run_conservative_overlay_daily_workflow,
 )
 from app.services.event_overlay_paper_tracking_page_html import build_event_overlay_paper_tracking_page_html
+from app.services.event_overlay_quality_report import (
+    build_conservative_overlay_data_health,
+    build_conservative_overlay_notification_summary,
+    build_conservative_overlay_quality_report,
+    build_conservative_overlay_quality_report_csv,
+)
+from app.services.event_overlay_quality_report_page_html import build_event_overlay_quality_report_page_html
 from app.services.event_aware_risk_overlay_backtest import (
     build_event_risk_overlay_backtest,
     parse_overlay_modes,
@@ -1294,6 +1302,83 @@ def event_aware_conservative_overlay_paper_evaluate_ready_api(
 @router.get("/signals/event-aware/conservative-overlay-paper-tracking-page", response_class=AIReportHTMLResponse)
 def event_aware_conservative_overlay_paper_tracking_page():
     return build_event_overlay_paper_tracking_page_html()
+
+
+@router.get("/signals/event-aware/conservative-overlay-quality-report")
+def event_aware_conservative_overlay_quality_report_api(
+    limit: int = Query(30, ge=1, le=200),
+    include_open_snapshots: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    return build_conservative_overlay_quality_report(
+        db=db,
+        limit=limit,
+        include_open_snapshots=include_open_snapshots,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-quality-report-page", response_class=AIReportHTMLResponse)
+def event_aware_conservative_overlay_quality_report_page():
+    return build_event_overlay_quality_report_page_html()
+
+
+@router.get("/signals/event-aware/conservative-overlay-notification-summary")
+def event_aware_conservative_overlay_notification_summary_api(
+    limit: int = Query(30, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    return build_conservative_overlay_notification_summary(
+        db=db,
+        limit=limit,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-data-health")
+def event_aware_conservative_overlay_data_health_api(
+    stale_days: int = Query(3, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    return build_conservative_overlay_data_health(
+        db=db,
+        stale_days=stale_days,
+    )
+
+
+@router.post("/signals/event-aware/conservative-overlay-daily-run")
+def event_aware_conservative_overlay_daily_run_api(
+    name: str = Query("daily"),
+    limit: int = Query(100, ge=1, le=500),
+    candles_limit: int = Query(240, ge=60, le=1000),
+    horizon_days: int = Query(20, ge=1, le=120),
+    evaluate_ready: bool = Query(True),
+    dedupe_same_day: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    return run_conservative_overlay_daily_workflow(
+        db=db,
+        name=name,
+        limit=limit,
+        candles_limit=candles_limit,
+        horizon_days=horizon_days,
+        evaluate_ready=evaluate_ready,
+        dedupe_same_day=dedupe_same_day,
+    )
+
+
+@router.get("/signals/event-aware/conservative-overlay-quality-report.csv")
+def event_aware_conservative_overlay_quality_report_csv_api(
+    limit: int = Query(30, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    csv_text = build_conservative_overlay_quality_report_csv(
+        db=db,
+        limit=limit,
+    )
+    return Response(
+        content="\ufeff" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="conservative_overlay_quality_report.csv"'},
+    )
 
 
 @router.get("/signals/consumer/ml-v2-gate-backtest")
