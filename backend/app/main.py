@@ -23,6 +23,7 @@ from app.services.market_daily_report import build_market_daily_report
 from app.services.dashboard_html import build_dashboard_html
 from app.services.ticker_analysis import build_ticker_analysis
 from app.services.signal_model_registry import PRODUCTION_SIGNAL_MODEL_VERSION
+from app.services.ui_theme import ThemedHTMLResponse
 
 Base.metadata.create_all(bind=engine)
 
@@ -255,7 +256,7 @@ def demo_briefing(tickers: str = "SBER,GAZP,LKOH,MOEX", db: Session = Depends(ge
         "note": "Demo briefing. Full version should add real-time market breadth, OFZ yields, FX, dividends, and source citations.",
     }
 
-from fastapi.responses import HTMLResponse as DashboardHTMLResponse
+DashboardHTMLResponse = ThemedHTMLResponse
 from app.services.dashboard_html import build_dashboard_html as build_dashboard_page
 
 
@@ -272,7 +273,7 @@ def ticker_analysis(
 ):
     return build_ticker_analysis(db=db, ticker=ticker)
 
-from fastapi.responses import HTMLResponse as TickerHTMLResponse
+TickerHTMLResponse = ThemedHTMLResponse
 from app.services.ticker_page_html import build_ticker_page_html
 
 
@@ -391,7 +392,7 @@ def events_dashboard_page():
     return build_events_dashboard_html()
 
 from fastapi import Body as AIReportBody
-from fastapi.responses import HTMLResponse as AIReportHTMLResponse
+AIReportHTMLResponse = ThemedHTMLResponse
 from app.services.ai_report import build_ai_report
 from app.services.portfolio_store import get_portfolio_positions, save_portfolio_positions
 from app.services.ai_report_page_html import build_ai_report_demo_html
@@ -581,4 +582,3 @@ app.include_router(signals_router)
 from app.routers.portfolio import router as portfolio_router
 
 app.include_router(portfolio_router)
-

@@ -1,6 +1,6 @@
 # Russian Market AI Analyst
 
-Research Alpha+ / Validation Engine для сигналов по инструментам МосБиржи.
+Live Paper Validation Alpha для сигналов по инструментам МосБиржи и event-aware conservative risk overlay.
 
 Проект вырос из starter/MVP в локальный исследовательский движок, который строит объяснимые consumer-сигналы, проверяет их на истории и показывает диагностику качества принятия решения. Это аналитический инструмент, не индивидуальная инвестиционная рекомендация.
 
@@ -21,6 +21,7 @@ Research Alpha+ / Validation Engine для сигналов по инструм�
 - Walk-forward validation: train/test проверка устойчивости threshold config.
 - Portfolio constructor, snapshots, compare, CSV exports.
 - AI reports, report history and trends.
+- Unified fintech-style HTML UI shell, research hub, operational pages and paper validation dashboards.
 
 ## Запуск
 
@@ -45,6 +46,12 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ## Главные Страницы
 
 - `/signals` — consumer signals UI.
+- `/signals/research-hub-page` — единая навигация по validation/research/paper pages.
+- `/signals/daily-ops/page` — Market Daily Ops command center.
+- `/signals/live-paper-validation/page` — Live Paper Validation workflow.
+- `/signals/event-aware/conservative-overlay-quality-report-page` — quality report по paper tracking.
+- `/signals/event-aware/conservative-overlay-paper-tracking-page` — snapshot lifecycle dashboard.
+- `/signals/daily-ops/market-refresh-report-page` — MOEX freshness/refresh diagnostics.
 - `/signals/consumer/backtest-audit-page` — historical backtest audit.
 - `/signals/consumer/threshold-sweep-page` — threshold sweep / grid search.
 - `/signals/consumer/walk-forward-page` — walk-forward validation.

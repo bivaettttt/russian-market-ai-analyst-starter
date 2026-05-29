@@ -98,6 +98,7 @@ echo
 
 check_get "dashboard" "/dashboard"
 check_get "signals" "/signals"
+check_get "signals research hub page" "/signals/research-hub-page"
 check_get "signals consumer data" "/signals/consumer.json?limit=5"
 check_get "signals consumer data ml v2 gate" "/signals/consumer.json?limit=5&use_ml_v2_research_gate=true"
 check_get "signals consumer data ml v2 soft gate" "/signals/consumer.json?limit=5&use_ml_v2_research_gate=true&ml_v2_gate_mode=soft_downgrade"
@@ -211,6 +212,7 @@ check_get "signals consumer threshold sweep regime filter" "/signals/consumer/th
 check_get "signals consumer walk forward regime filter" "/signals/consumer/walk-forward?max_tickers=5&max_samples=200&max_configs=20&folds=2&use_market_regime_filter=true"
 check_get "ticker search" "/tickers/search?q=SBER&limit=5"
 check_get "ticker universe" "/tickers/universe?limit=5"
+check_get "ticker legacy forecast page" "/ticker/SBER"
 check_get "ticker forecast page" "/tickers/SBER"
 check_get "signals v4 data" "/signals/data?limit=5&model_version=tech_v4_quality_rr"
 check_get "signals v4 backtest" "/signals/backtest.json?tickers=SBER,GAZP,LKOH,PLZL&limit=120&min_history=50&future_limit=20&max_points_per_ticker=10&model_version=tech_v4_quality_rr"

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 
-AIReportHTMLResponse = HTMLResponse
+from app.services.ui_theme import ThemedHTMLResponse
+
+AIReportHTMLResponse = ThemedHTMLResponse
 
 router = APIRouter()
 
@@ -115,6 +117,7 @@ from app.services.event_aware_walk_forward_page_html import build_event_aware_wa
 from app.services.historical_event_bootstrap import DEFAULT_SEED_PATH
 from app.services.setup_family_research import build_setup_family_parameter_sweep, build_setup_family_research
 from app.services.setup_family_research_page_html import build_setup_family_research_page_html
+from app.services.research_hub_page_html import build_research_hub_page_html
 
 
 @router.get("/signals/ml/status")
@@ -1500,6 +1503,11 @@ def signals_daily_ops_page():
     return build_market_daily_ops_page_html()
 
 
+@router.get("/signals/research-hub-page", response_class=AIReportHTMLResponse)
+def signals_research_hub_page():
+    return build_research_hub_page_html()
+
+
 @router.get("/signals/daily-ops/market-refresh-report")
 def signals_daily_ops_market_refresh_report_api(
     stale_days: int = Query(3, ge=1, le=30),
@@ -2368,7 +2376,7 @@ def market_signals_models_quality_json(
     )
 
 
-@router.get("/signals/models/quality", response_class=HTMLResponse)
+@router.get("/signals/models/quality", response_class=AIReportHTMLResponse)
 def market_signals_models_quality_page():
     return build_signals_model_quality_page_html()
 
@@ -2409,6 +2417,6 @@ def market_signal_models_set_production(
 from app.services.signals_champion_page_html import build_signal_champion_page_html
 
 
-@router.get("/signals/champion", response_class=HTMLResponse)
+@router.get("/signals/champion", response_class=AIReportHTMLResponse)
 def market_signals_champion_page():
     return build_signal_champion_page_html()

@@ -1,6 +1,17 @@
 # Roadmap
 
-Текущий статус: Research Alpha+ with Experimental ML Gate / Validation Engine.
+Текущий статус: Live Paper Validation Alpha with Daily Ops and unified fintech UI shell.
+
+## 0. UI / Product Shell
+
+Статус: реализовано. Добавлен единый server-rendered design system helper, общий top navigation, premium fintech-style CSS, research hub и визуальное выравнивание HTML pages без изменения business logic.
+
+Acceptance criteria:
+
+- `/signals`, ticker pages, Daily Ops, Live Validation, Quality Report, Paper Tracking, Market Refresh and research pages open through a consistent shell;
+- forms/buttons and existing JS behavior remain intact;
+- JSON endpoints and production recommendation defaults are unchanged;
+- no external frontend framework or CDN dependency added.
 
 Оценка готовности:
 
