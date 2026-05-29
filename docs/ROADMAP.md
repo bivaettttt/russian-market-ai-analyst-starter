@@ -1,6 +1,6 @@
 # Roadmap
 
-Текущий статус: Live Paper Validation Alpha with Daily Ops and unified fintech UI shell.
+Текущий статус: Live Paper Validation Alpha with Daily Ops and rebuilt product UI experience.
 
 ## 0. UI / Product Shell
 
@@ -9,6 +9,7 @@
 Acceptance criteria:
 
 - `/signals`, ticker pages, Daily Ops, Live Validation, Quality Report, Paper Tracking, Market Refresh and research pages open through a consistent shell;
+- product-facing pages now separate user-level signal/risk/exposure views from advanced research/debug diagnostics;
 - forms/buttons and existing JS behavior remain intact;
 - JSON endpoints and production recommendation defaults are unchanged;
 - no external frontend framework or CDN dependency added.
@@ -720,6 +721,20 @@ Acceptance criteria:
 - подготовить UX hardening и deployment только после стабильной paper статистики.
 
 Почему важно: historical/proxy validation уже показал candidate edge, но продуктовый вывод должен опираться на реальные daily snapshots.
+
+## 23.12 Product UI Redesign
+
+Статус: реализовано для основных user-facing pages. Business logic and JSON contracts unchanged.
+
+Что сделано:
+
+- `/signals` rebuilt as a product watchlist dashboard with status cards, compact filters and signal cards;
+- ticker detail rebuilt around signal/probability/risk/exposure cards and collapsed audit;
+- Live Validation, Quality, Paper Tracking, Daily Ops and Market Data pages rebuilt as product dashboards;
+- research/debug details moved into advanced/collapsible sections;
+- shared `ui_theme.py` extended with product shell, signal cards, badges, table wrappers and overflow-safe utilities.
+
+Почему важно: пользовательский слой теперь выглядит как продуктовый paper-validation terminal, а не research/admin dashboard.
 
 ## 24. Production News Pipeline
 

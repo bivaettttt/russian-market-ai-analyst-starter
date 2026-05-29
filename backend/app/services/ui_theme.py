@@ -55,6 +55,7 @@ DESIGN_SYSTEM_CSS = f"""
 }}
 
 * {{ box-sizing: border-box; letter-spacing: 0 !important; }}
+*, *::before, *::after {{ min-width: 0; }}
 html {{ background: var(--app-bg); }}
 body {{
   margin: 0;
@@ -65,7 +66,7 @@ body {{
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif !important;
   line-height: 1.5;
 }}
-body.app-enhanced {{ min-height: 100vh; }}
+body.app-enhanced {{ min-height: 100vh; overflow-x: hidden; }}
 a {{ color: var(--app-blue); text-decoration: none; }}
 a:hover {{ color: var(--app-accent); }}
 :focus-visible {{ outline: 3px solid rgba(244, 197, 66, 0.55); outline-offset: 2px; }}
@@ -223,9 +224,10 @@ td, th {{
   padding: 11px 12px !important;
   border-bottom: 1px solid var(--app-border) !important;
   color: var(--app-text);
+  overflow-wrap: anywhere;
 }}
 tr:hover td {{ background: rgba(244, 197, 66, 0.05); }}
-.table-wrap, .table-scroll {{ overflow-x: auto; }}
+.table-wrap, .table-scroll {{ overflow-x: auto; max-width: 100%; }}
 
 .status-badge, .badge, .pill, .diag-pill, .scenario-tab, .nav a {{
   border-radius: 999px !important;
@@ -252,6 +254,8 @@ tr:hover td {{ background: rgba(244, 197, 66, 0.05); }}
   border: 1px solid var(--app-border) !important;
   border-radius: var(--app-radius) !important;
   box-shadow: var(--app-shadow) !important;
+  min-width: 0;
+  overflow: hidden;
 }}
 .ticker-symbol, .ticker-title {{ color: var(--app-text) !important; font-weight: 950 !important; }}
 .ticker-action {{ display: inline-flex; }}
@@ -270,6 +274,199 @@ pre, code {{
 }}
 pre {{ padding: 14px !important; overflow-x: auto; }}
 
+.product-shell {{
+  display: grid;
+  gap: 18px;
+}}
+.product-hero {{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+  padding: 22px;
+  background: linear-gradient(135deg, rgba(244, 197, 66, 0.12), rgba(56, 189, 248, 0.08)), var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow);
+}}
+.product-hero h2 {{
+  margin: 0 0 8px;
+  font-size: clamp(26px, 4vw, 44px) !important;
+}}
+.product-subtitle {{
+  max-width: 820px;
+  margin: 0;
+  color: var(--app-muted);
+  overflow-wrap: anywhere;
+}}
+.kpi-strip {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}}
+.metric-card {{
+  padding: 15px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow);
+  min-width: 0;
+  overflow: hidden;
+}}
+.metric-card .metric-label {{
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}}
+.metric-card .metric-value {{
+  margin-top: 5px;
+  color: var(--app-text);
+  font-size: 22px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}}
+.metric-card .metric-hint {{
+  margin-top: 4px;
+  color: var(--app-muted);
+  font-size: 12px;
+}}
+.product-card {{
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow);
+  padding: 18px;
+  min-width: 0;
+  overflow: hidden;
+}}
+.product-card-header {{
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}}
+.product-card-title {{
+  margin: 0;
+  font-size: 18px;
+  font-weight: 950;
+}}
+.product-card-subtitle {{
+  color: var(--app-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}}
+.action-row, .filter-row {{
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}}
+.filter-row input, .filter-row select {{
+  min-width: 150px;
+}}
+.signal-list {{
+  display: grid;
+  gap: 12px;
+}}
+.signal-card {{
+  display: grid;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(0, 1.5fr) minmax(180px, 0.8fr);
+  gap: 14px;
+  padding: 16px;
+  align-items: center;
+}}
+.signal-main {{
+  display: grid;
+  gap: 6px;
+}}
+.ticker-symbol {{
+  font-size: 24px;
+  line-height: 1;
+}}
+.ticker-name {{
+  color: var(--app-muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}}
+.signal-reasons {{
+  display: grid;
+  gap: 5px;
+  color: var(--app-muted);
+  font-size: 13px;
+}}
+.signal-reason {{
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}}
+.signal-metrics {{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}}
+.mini-metric {{
+  padding: 9px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+}}
+.mini-label {{
+  color: var(--app-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}}
+.mini-value {{
+  margin-top: 2px;
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 950;
+  overflow-wrap: anywhere;
+}}
+.line-clamp-1, .line-clamp-2, .line-clamp-3 {{
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}}
+.line-clamp-1 {{ -webkit-line-clamp: 1; }}
+.line-clamp-2 {{ -webkit-line-clamp: 2; }}
+.line-clamp-3 {{ -webkit-line-clamp: 3; }}
+.overflow-safe, .text-wrap-anywhere {{
+  overflow-wrap: anywhere;
+  word-break: normal;
+}}
+.advanced-panel {{
+  margin-top: 12px;
+}}
+.risk-distribution {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}}
+.progress-steps {{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}}
+.progress-step {{
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  background: rgba(255,255,255,0.035);
+}}
+.progress-step strong {{ display: block; }}
+.disclaimer-bar {{
+  padding: 10px 13px;
+  color: var(--app-muted);
+  background: rgba(244, 197, 66, 0.08);
+  border: 1px solid rgba(244, 197, 66, 0.20);
+  border-radius: var(--app-radius);
+}}
+
 .app-footer-note {{
   width: min(1320px, calc(100% - 32px));
   margin: 28px auto;
@@ -287,6 +484,10 @@ pre {{ padding: 14px !important; overflow-x: auto; }}
   .summary, .grid, .card-grid, .metrics-grid {{ grid-template-columns: 1fr !important; }}
   .toolbar, .layout {{ grid-template-columns: 1fr !important; }}
   h1 {{ font-size: 32px !important; }}
+  .product-hero {{ grid-template-columns: 1fr; }}
+  .signal-card {{ grid-template-columns: 1fr; }}
+  .signal-metrics {{ grid-template-columns: 1fr 1fr; }}
+  .hide-mobile {{ display: none !important; }}
 }}
 """
 
@@ -324,6 +525,80 @@ def render_status_badge(label: str, tone: str = "neutral") -> str:
     return f'<span class="status-badge tone-{_esc(tone)}">{_esc(label)}</span>'
 
 
+def safe_text(value: Any) -> str:
+    return _esc(value)
+
+
+def truncate_text(value: Any, max_length: int = 120) -> str:
+    text = "" if value is None else str(value)
+    return text if len(text) <= max_length else text[: max(0, max_length - 1)].rstrip() + "…"
+
+
+def fmt_num(value: Any, digits: int = 2) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+
+def fmt_pct(value: Any, digits: int = 1) -> str:
+    formatted = fmt_num(value, digits)
+    return "—" if formatted == "—" else f"{formatted}%"
+
+
+def fmt_money_like(value: Any, digits: int = 2) -> str:
+    formatted = fmt_num(value, digits)
+    return "—" if formatted == "—" else formatted
+
+
+def fmt_date(value: Any) -> str:
+    return "—" if value in (None, "") else str(value)[:10]
+
+
+def css_class_for_action(value: Any) -> str:
+    text = str(value or "").lower()
+    if any(token in text for token in ["buy", "покуп", "consider", "positive"]):
+        return "positive"
+    if any(token in text for token in ["avoid", "risk", "negative", "не покуп"]):
+        return "negative"
+    return "neutral"
+
+
+def css_class_for_risk(value: Any) -> str:
+    text = str(value or "").lower()
+    if text in {"low"}:
+        return "risk-low"
+    if text in {"moderate"}:
+        return "risk-moderate"
+    if text in {"elevated"}:
+        return "risk-elevated"
+    if text in {"high"}:
+        return "risk-high"
+    if text in {"extreme"}:
+        return "risk-extreme"
+    return "neutral"
+
+
+def css_class_for_status(value: Any) -> str:
+    text = str(value or "").lower()
+    if any(token in text for token in ["fresh", "active", "ok", "completed", "official"]):
+        return "positive"
+    if any(token in text for token in ["stale", "blocked", "failed", "legacy", "zero"]):
+        return "negative"
+    if any(token in text for token in ["ready", "warning", "waiting"]):
+        return "warning"
+    return "neutral"
+
+
+def render_risk_badge(label: Any) -> str:
+    return render_status_badge(str(label or "unknown").title(), css_class_for_risk(label))
+
+
+def render_action_badge(label: Any) -> str:
+    return render_status_badge(str(label or "Watch").replace("_", " ").title(), css_class_for_action(label))
+
+
 def snapshot_badge_tone(snapshot_type: str | None) -> str:
     return {
         "official": "accent",
@@ -355,6 +630,83 @@ def render_metric_card(label: str, value: Any, hint: str | None = None, tone: st
         f'<div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value if value is not None else "—")}</div>'
         f"{hint_html}</article>"
+    )
+
+
+def render_card_grid(cards: list[str], *, class_name: str = "") -> str:
+    return f'<section class="kpi-strip {safe_text(class_name)}">{"".join(cards)}</section>'
+
+
+def render_kpi_strip(items: list[tuple[str, Any, str | None, str | None]]) -> str:
+    return render_card_grid([
+        render_metric_card(label, value, hint, tone or "neutral")
+        for label, value, hint, tone in items
+    ])
+
+
+def render_info_panel(title: str, message: str) -> str:
+    return f'<div class="product-card tone-info"><strong>{_esc(title)}</strong><p class="product-card-subtitle">{_esc(message)}</p></div>'
+
+
+def render_command_block(command: str) -> str:
+    return f'<pre class="command-block"><code>{_esc(command)}</code></pre>'
+
+
+def render_collapsible(title: str, content: str, *, open_by_default: bool = False) -> str:
+    open_attr = " open" if open_by_default else ""
+    return f'<details class="advanced-panel"{open_attr}><summary>{_esc(title)}</summary>{content}</details>'
+
+
+def render_filter_chips(chips: list[tuple[str, str, bool]]) -> str:
+    return '<div class="filter-chips">' + "".join(
+        f'<button class="button {"active" if active else "secondary"}" data-filter="{_esc(value)}">{_esc(label)}</button>'
+        for label, value, active in chips
+    ) + "</div>"
+
+
+def render_table_shell(table_html: str) -> str:
+    return f'<div class="table-wrap">{table_html}</div>'
+
+
+def render_progress_steps(steps: list[tuple[str, str, str]]) -> str:
+    return '<div class="progress-steps">' + "".join(
+        f'<div class="progress-step">{render_status_badge(status, css_class_for_status(status))}<strong>{_esc(title)}</strong><span class="muted">{_esc(text)}</span></div>'
+        for title, text, status in steps
+    ) + "</div>"
+
+
+def render_signal_card(
+    *,
+    ticker: str,
+    name: str | None = None,
+    action: str | None = None,
+    probability: Any = None,
+    risk_level: str | None = None,
+    multiplier: Any = None,
+    exposure: Any = None,
+    reasons: list[str] | None = None,
+    detail_url: str | None = None,
+) -> str:
+    reason_items = reasons or []
+    reason_html = "".join(
+        f'<div class="signal-reason line-clamp-1">• {_esc(truncate_text(reason, 140))}</div>'
+        for reason in reason_items[:3]
+    ) or '<div class="signal-reason muted">• No concise reason available.</div>'
+    link = detail_url or f"/ticker/{_esc(ticker)}"
+    return (
+        '<article class="signal-card overflow-safe">'
+        '<div class="signal-main">'
+        f'<a class="ticker-symbol" href="{_esc(link)}">{_esc(ticker)}</a>'
+        f'<div class="ticker-name line-clamp-1">{_esc(name or "MOEX equity")}</div>'
+        f'<div class="action-row">{render_action_badge(action or "Watch")}{render_risk_badge(risk_level or "unknown")}</div>'
+        "</div>"
+        f'<div class="signal-reasons">{reason_html}</div>'
+        '<div class="signal-metrics">'
+        f'<div class="mini-metric"><div class="mini-label">Probability</div><div class="mini-value">{_esc(probability or "—")}</div></div>'
+        f'<div class="mini-metric"><div class="mini-label">Event multiplier</div><div class="mini-value">{_esc(multiplier or "—")}</div></div>'
+        f'<div class="mini-metric"><div class="mini-label">Paper exposure</div><div class="mini-value">{_esc(exposure or "—")}</div></div>'
+        f'<a class="button secondary" href="{_esc(link)}">Details</a>'
+        "</div></article>"
     )
 
 

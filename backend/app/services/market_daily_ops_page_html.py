@@ -1,172 +1,79 @@
 from __future__ import annotations
 
+from app.services.ui_theme import render_page_shell
+
 
 def build_market_daily_ops_page_html() -> str:
-    return """
-<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Market Daily Ops</title>
-  <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f8fb; color: #17202a; }
-    header { padding: 18px 24px; background: #101820; color: white; }
-    main { max-width: 1180px; margin: 0 auto; padding: 20px; }
-    a { color: #0f62fe; text-decoration: none; }
-    .nav a { color: #dbeafe; margin-right: 14px; }
-    .panel { background: white; border: 1px solid #dde3ea; border-radius: 8px; padding: 16px; margin: 14px 0; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
-    .card { border: 1px solid #e1e7ef; border-radius: 8px; padding: 12px; background: #fbfcfe; }
-    .label { color: #667085; font-size: 12px; }
-    .value { font-size: 20px; font-weight: 700; margin-top: 4px; }
-    label { display: block; font-size: 12px; color: #475467; margin-bottom: 4px; }
-    input, button { font: inherit; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; }
-    button { cursor: pointer; background: #0f62fe; color: white; border-color: #0f62fe; }
-    button.secondary { background: white; color: #0f62fe; }
-    .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
-    .controls > div { min-width: 130px; }
-    pre { white-space: pre-wrap; overflow: auto; background: #0b1220; color: #dbeafe; padding: 12px; border-radius: 8px; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Market Daily Ops · Paper Validation Alpha</h1>
-    <div class="nav">
-      <a href="/signals">Signals</a>
-      <a href="/signals/event-aware/conservative-overlay-quality-report-page">Overlay quality</a>
-      <a href="/signals/event-aware/conservative-overlay-paper-tracking-page">Overlay tracking</a>
-      <a href="/signals/daily-ops/market-refresh-report-page">Refresh report</a>
-      <a href="/signals/live-paper-validation/page">Live paper start</a>
-      <a href="/signals/data-coverage-page">Data coverage</a>
-      <a href="/signals/market-regime">Market regime</a>
-      <a href="/signals/daily-ops/status">Status JSON</a>
-      <a href="/signals/daily-ops/market-data-freshness">Freshness JSON</a>
+    content = """
+<div class="product-shell daily-ops-product">
+  <section class="product-hero">
+    <div>
+      <div class="action-row"><span class="status-badge tone-info">Operational workflow</span><span class="status-badge tone-warning">Local writes only</span></div>
+      <h2>Market Daily Ops</h2>
+      <p class="product-subtitle">Daily checklist: refresh MOEX candles, create official paper snapshot, evaluate ready snapshots, review quality.</p>
     </div>
-  </header>
-  <main>
-    <section class="panel">
-      <h2>Status</h2>
-      <div id="cards" class="grid"></div>
-    </section>
+    <div class="action-row">
+      <a class="button" href="/signals/live-paper-validation/page">Live Validation</a>
+      <a class="button secondary" href="/signals/daily-ops/market-refresh-report-page">Market Data</a>
+      <a class="button secondary" href="/signals/event-aware/conservative-overlay-quality-report-page">Quality</a>
+    </div>
+  </section>
 
-    <section class="panel">
-      <h2>Actions</h2>
-      <div class="controls">
-        <div><label>Name</label><input id="name" value="daily"></div>
-        <div><label>Limit</label><input id="limit" type="number" value="100" min="1" max="500"></div>
-        <div><label>Horizon</label><input id="horizon" type="number" value="20" min="1" max="120"></div>
-        <div><label>Refresh tickers</label><input id="refreshTickers" type="number" value="150" min="1" max="500"></div>
-        <div><label>Refresh days</label><input id="refreshDays" type="number" value="120" min="10" max="1000"></div>
-        <button onclick="dryRun()">Dry run</button>
-        <button onclick="runDaily(true)">Run daily ops</button>
-        <button onclick="refreshMarket()">Refresh market data</button>
-        <button class="secondary" onclick="runDaily(false)">Run without refresh</button>
-        <button class="secondary" onclick="evaluateReady()">Evaluate ready</button>
-        <button class="secondary" onclick="loadStatus()">Refresh status</button>
-      </div>
-    </section>
+  <section class="kpi-strip" id="cards"></section>
 
-    <section class="panel">
-      <h2>Latest Run Result</h2>
-      <div id="runCards" class="grid"></div>
-      <pre id="output">Ready.</pre>
-    </section>
+  <section class="product-card">
+    <h3 class="product-card-title">Daily checklist</h3>
+    <div class="progress-steps">
+      <div class="progress-step"><span class="status-badge tone-info">1</span><strong>Refresh market data</strong><span class="muted">Update local MOEX candles.</span></div>
+      <div class="progress-step"><span class="status-badge tone-info">2</span><strong>Start official snapshot</strong><span class="muted">Dedupe same-day official paper view.</span></div>
+      <div class="progress-step"><span class="status-badge tone-info">3</span><strong>Evaluate ready</strong><span class="muted">Use future local candles after horizon.</span></div>
+      <div class="progress-step"><span class="status-badge tone-info">4</span><strong>Review quality</strong><span class="muted">Official-only baseline vs overlay.</span></div>
+    </div>
+  </section>
 
-    <section class="panel">
-      <h2>Caveats</h2>
-      <ul>
-        <li>Paper tracking only; no real trades are created.</li>
-        <li>Market data refresh writes only local MOEX candles/instruments.</li>
-        <li>Dry-run does not create snapshots or evaluate ready snapshots.</li>
-        <li>No investment advice.</li>
-      </ul>
-    </section>
-  </main>
+  <section class="product-card">
+    <div class="filter-row">
+      <label>Name <input id="name" value="daily"></label>
+      <label>Limit <input id="limit" type="number" value="100" min="1" max="500"></label>
+      <label>Horizon <input id="horizon" type="number" value="20" min="1" max="120"></label>
+      <label>Refresh tickers <input id="refreshTickers" type="number" value="150" min="1" max="500"></label>
+      <label>Refresh days <input id="refreshDays" type="number" value="120" min="10" max="1000"></label>
+      <button onclick="dryRun()">Dry run</button>
+      <button onclick="runDaily(true)">Run daily ops</button>
+      <button class="secondary" onclick="runDaily(false)">Run without refresh</button>
+      <button class="secondary" onclick="evaluateReady()">Evaluate ready</button>
+      <button class="secondary" onclick="loadStatus()">Refresh status</button>
+    </div>
+  </section>
+
+  <section class="product-card">
+    <h3 class="product-card-title">Terminal command</h3>
+    <pre><code>cd backend
+python3 -m app.tasks.market_daily_ops run --name daily --limit 100 --horizon-days 20 --refresh-max-tickers 150 --refresh-days 120</code></pre>
+    <details class="advanced-panel"><summary>Latest raw result</summary><pre id="output">Ready.</pre></details>
+  </section>
+  <section class="disclaimer-bar">Daily Ops is for local paper validation. It does not place trades and is not investment advice.</section>
+</div>
+"""
+    scripts = """
 <script>
-function fmt(value) {
-  if (value === null || value === undefined) return "—";
-  return String(value);
-}
-function esc(value) {
-  return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-}
-function card(label, value) { return `<div class="card"><div class="label">${esc(label)}</div><div class="value">${esc(fmt(value))}</div></div>`; }
-async function fetchJson(url, options) {
-  const res = await fetch(url, options || {});
-  const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
-  return JSON.parse(text);
-}
-function params() {
-  const p = new URLSearchParams();
-  p.set("name", name.value || "daily");
-  p.set("limit", limit.value || "100");
-  p.set("horizon_days", horizon.value || "20");
-  p.set("refresh_max_tickers", refreshTickers.value || "150");
-  p.set("refresh_days", refreshDays.value || "120");
-  return p;
-}
-function renderRun(data) {
-  const s = data.summary || {};
-  runCards.innerHTML = [
-    ["Refresh", s.market_refresh_status],
-    ["Latest candle", s.latest_candle_date],
-    ["Stale", s.market_data_stale],
-    ["Snapshot", s.created_snapshot ? `created #${s.snapshot_id}` : (s.duplicate_snapshot ? `duplicate #${s.snapshot_id}` : "none")],
-    ["Evaluated", s.evaluated_snapshots],
-    ["Items", s.evaluated_items],
-    ["Quality", s.quality_label],
-    ["Next", s.recommended_action],
-  ].map(x => card(x[0], x[1])).join("");
-  output.textContent = JSON.stringify(data, null, 2);
-}
-async function loadStatus() {
-  try {
-    const data = await fetchJson("/signals/daily-ops/status");
-    const s = data.summary || {};
-    cards.innerHTML = [
-      ["Latest candle", s.latest_candle_date],
-      ["Freshness", s.market_data_stale ? "stale" : "fresh"],
-      ["Paper snapshots", s.paper_snapshots_total],
-      ["Ready", s.ready_to_evaluate],
-      ["Quality", s.quality_label],
-      ["Next", s.recommended_action],
-    ].map(x => card(x[0], x[1])).join("");
-    output.textContent = JSON.stringify(data, null, 2);
-  } catch (err) {
-    output.textContent = String(err);
-  }
-}
-async function dryRun() {
-  const p = params();
-  p.set("dry_run", "true");
-  p.set("refresh_market_data", "false");
-  const data = await fetchJson(`/signals/daily-ops/run?${p.toString()}`, { method: "POST" });
-  renderRun(data);
-}
-async function runDaily(withRefresh) {
-  const p = params();
-  p.set("refresh_market_data", withRefresh ? "true" : "false");
-  const data = await fetchJson(`/signals/daily-ops/run?${p.toString()}`, { method: "POST" });
-  renderRun(data);
-  await loadStatus();
-}
-async function refreshMarket() {
-  const p = new URLSearchParams();
-  p.set("max_tickers", refreshTickers.value || "150");
-  p.set("days", refreshDays.value || "120");
-  const data = await fetchJson(`/signals/daily-ops/refresh-market-data?${p.toString()}`, { method: "POST" });
-  renderRun({ summary: { market_refresh_status: data.recommendation, latest_candle_date: (data.after?.summary || {}).latest_candle_date, market_data_stale: (data.after?.summary || {}).is_stale }, steps: { market_refresh: data }, warnings: data.warnings || [] });
-  await loadStatus();
-}
-async function evaluateReady() {
-  const data = await fetchJson("/signals/event-aware/conservative-overlay-paper-evaluate-ready?limit=50", { method: "POST" });
-  output.textContent = JSON.stringify(data, null, 2);
-  await loadStatus();
-}
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function card(l,v,h=""){return `<article class="metric-card"><div class="metric-label">${esc(l)}</div><div class="metric-value">${esc(v??"—")}</div><div class="metric-hint">${esc(h)}</div></article>`;}
+async function fetchJson(url,opt){const r=await fetch(url,opt||{});const t=await r.text();if(!r.ok)throw new Error(`HTTP ${r.status}: ${t}`);return JSON.parse(t);}
+function params(){const p=new URLSearchParams();p.set("name",name.value||"daily");p.set("limit",limit.value||"100");p.set("horizon_days",horizon.value||"20");p.set("refresh_max_tickers",refreshTickers.value||"150");p.set("refresh_days",refreshDays.value||"120");return p;}
+function renderStatus(data){const s=data.summary||{};cards.innerHTML=[card("Market data",s.market_data_stale?"Stale":"Fresh",s.latest_candle_date||"local candles"),card("Paper snapshots",s.paper_snapshots_total,"stored"),card("Ready",s.ready_to_evaluate,"due for evaluation"),card("Quality",s.quality_label,"official quality"),card("Next action",s.recommended_action,"operational guidance")].join("");output.textContent=JSON.stringify(data,null,2);}
+async function loadStatus(){try{renderStatus(await fetchJson("/signals/daily-ops/status"));}catch(e){output.textContent=String(e);}}
+async function dryRun(){const p=params();p.set("dry_run","true");p.set("refresh_market_data","false");renderStatus(await fetchJson(`/signals/daily-ops/run?${p}`,{method:"POST"}));}
+async function runDaily(withRefresh){const p=params();p.set("refresh_market_data",withRefresh?"true":"false");renderStatus(await fetchJson(`/signals/daily-ops/run?${p}`,{method:"POST"}));}
+async function evaluateReady(){output.textContent=JSON.stringify(await fetchJson("/signals/event-aware/conservative-overlay-paper-evaluate-ready?official_only=true&include_test=false&include_legacy=false&limit=50",{method:"POST"}),null,2);await loadStatus();}
 loadStatus();
 </script>
-</body>
-</html>
 """
+    return render_page_shell(
+        title="Market Daily Ops",
+        subtitle="Operational command center for live paper validation.",
+        active="daily-ops",
+        content=content,
+        body_class="product-shell-body",
+        extra_scripts=scripts,
+    )

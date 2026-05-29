@@ -22,6 +22,7 @@ Live Paper Validation Alpha для сигналов по инструмента�
 - Portfolio constructor, snapshots, compare, CSV exports.
 - AI reports, report history and trends.
 - Unified fintech-style HTML UI shell, research hub, operational pages and paper validation dashboards.
+- Product UI redesign: user-facing `/signals`, ticker detail, Live Validation, Quality, Tracking, Daily Ops and Market Data pages now separate clean product views from advanced research/debug views.
 
 ## Запуск
 
@@ -84,6 +85,15 @@ curl -X POST "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-pap
 ```
 
 Official snapshots are kept by default. This remains paper validation only: no real orders and no production recommendation changes.
+
+## Product UI
+
+The UI is split into:
+
+- Product layer: `/signals`, `/ticker/SBER`, Live Validation, Quality, Paper Tracking, Daily Ops and Market Data.
+- Advanced layer: `/signals/research-hub-page` and research/calibration/backtest pages.
+
+Product pages use concise cards, status badges, collapsed advanced diagnostics and overflow-safe responsive layouts. See `docs/product_ui_redesign.md`.
 
 ## Bootstrap Market Data
 
