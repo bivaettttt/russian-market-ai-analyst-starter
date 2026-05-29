@@ -42,6 +42,15 @@ POST /signals/daily-ops/run
 
 Existing tracking endpoints remain available for lifecycle status, snapshots, dashboard, evaluation, and cleanup.
 
+Official live validation should use:
+
+```text
+GET /signals/event-aware/conservative-overlay-quality-report?official_only=true
+GET /signals/event-aware/conservative-overlay-notification-summary?official_only=true
+```
+
+The HTML quality report defaults to official-only mode. Test and legacy snapshots remain visible through filters but are excluded from the official view.
+
 ## Metrics
 
 - `baseline_total_pnl_pct`: realized paper PnL using baseline position sizes.

@@ -13,6 +13,8 @@ from app.services.event_overlay_paper_tracking import (
     _csv_text,
     _date_or_none,
     _ensure_tables,
+    classify_paper_snapshot,
+    filter_paper_snapshots,
     _item_to_dict,
     _snapshot_to_dict,
     build_event_overlay_paper_lifecycle_status,
@@ -137,10 +139,23 @@ def _safe_snapshot_summary(snapshot: EventOverlayPaperSnapshot) -> dict[str, Any
     return _snapshot_to_dict(snapshot).get("summary") or {}
 
 
-def _load_quality_data(db: Session, *, limit: int, include_open_snapshots: bool) -> tuple[list[EventOverlayPaperSnapshot], list[EventOverlayPaperSnapshotItem]]:
+def _load_quality_data(
+    db: Session,
+    *,
+    limit: int,
+    include_open_snapshots: bool,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
+) -> tuple[list[EventOverlayPaperSnapshot], list[EventOverlayPaperSnapshotItem]]:
     _ensure_tables(db)
-    query = select(EventOverlayPaperSnapshot).order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id)).limit(limit)
-    snapshots = list(db.scalars(query).all())
+    query = select(EventOverlayPaperSnapshot).order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id)).limit(limit * 5)
+    snapshots = filter_paper_snapshots(
+        list(db.scalars(query).all()),
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )[:limit]
     if not include_open_snapshots:
         snapshots = [snapshot for snapshot in snapshots if snapshot.status in {"evaluated", "partially_evaluated"}]
     ids = [snapshot.id for snapshot in snapshots]
@@ -163,6 +178,7 @@ def _snapshot_rows(snapshots: list[EventOverlayPaperSnapshot], items: list[Event
             "items": 0,
             "avg_multiplier": snapshot.avg_multiplier,
             "exposure_reduction_pct": snapshot.exposure_reduction_pct,
+            **classify_paper_snapshot(snapshot),
         }
         for snapshot in snapshots
     }
@@ -245,9 +261,24 @@ def build_conservative_overlay_quality_report(
     *,
     limit: int = 30,
     include_open_snapshots: bool = True,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> dict[str, Any]:
-    snapshots, item_rows = _load_quality_data(db, limit=limit, include_open_snapshots=include_open_snapshots)
-    lifecycle = build_event_overlay_paper_lifecycle_status(db)
+    snapshots, item_rows = _load_quality_data(
+        db,
+        limit=limit,
+        include_open_snapshots=include_open_snapshots,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
+    lifecycle = build_event_overlay_paper_lifecycle_status(
+        db,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     lifecycle_summary = lifecycle.get("summary") or {}
     items = [_item_to_dict(item) for item in item_rows]
     snapshot_rows = _snapshot_rows(snapshots, item_rows)
@@ -291,6 +322,8 @@ def build_conservative_overlay_quality_report(
         warnings.append("overlay_underperforming")
     if any((_to_float(snapshot.baseline_total_exposure) or 0.0) <= 0 and int(((_safe_snapshot_summary(snapshot) or {}).get("rows") or 0)) > 0 for snapshot in snapshots):
         warnings.append("zero_exposure_snapshots_detected")
+    if official_only:
+        warnings.append("official_only_view")
 
     return {
         "ok": True,
@@ -315,6 +348,11 @@ def build_conservative_overlay_quality_report(
             "last_snapshot_date": lifecycle_summary.get("last_snapshot_date"),
             "quality_label": quality_label,
             "recommended_action": recommended_action,
+            "filters": {
+                "official_only": official_only,
+                "include_test": include_test,
+                "include_legacy": include_legacy,
+            },
         },
         "cumulative_curve": aggregate_quality_cumulative_curve(snapshot_rows),
         "by_risk_level": aggregate_quality_by_risk_level(items),
@@ -331,8 +369,18 @@ def build_conservative_overlay_notification_summary(
     db: Session,
     *,
     limit: int = 30,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> dict[str, Any]:
-    report = build_conservative_overlay_quality_report(db, limit=limit, include_open_snapshots=True)
+    report = build_conservative_overlay_quality_report(
+        db,
+        limit=limit,
+        include_open_snapshots=True,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     health = build_conservative_overlay_data_health(db)
     summary = report.get("summary") or {}
     health_summary = health.get("summary") or {}
@@ -374,6 +422,7 @@ def build_conservative_overlay_notification_summary(
             "quality_label": quality_label,
             "market_data_stale": health_summary.get("market_data_stale"),
             "last_market_candle_date": health_summary.get("last_market_candle_date"),
+            "official_only": official_only,
         },
         "recommended_action": health.get("recommended_action") if health_summary.get("market_data_stale") else summary.get("recommended_action"),
         "warnings": sorted(set((report.get("warnings") or []) + (health.get("warnings") or []))),
@@ -495,8 +544,18 @@ def build_conservative_overlay_quality_report_csv(
     db: Session,
     *,
     limit: int = 30,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> str:
-    data = build_conservative_overlay_quality_report(db, limit=limit, include_open_snapshots=True)
+    data = build_conservative_overlay_quality_report(
+        db,
+        limit=limit,
+        include_open_snapshots=True,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     rows: list[dict[str, Any]] = []
     for key, value in (data.get("summary") or {}).items():
         if not isinstance(value, (dict, list)):

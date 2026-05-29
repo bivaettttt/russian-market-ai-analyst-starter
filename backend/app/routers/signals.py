@@ -72,7 +72,9 @@ from app.services.event_overlay_paper_tracking import (
     build_event_overlay_paper_lifecycle_status,
     build_event_overlay_paper_snapshot_items_csv,
     build_event_overlay_paper_snapshots_csv,
+    build_official_live_validation_summary,
     bulk_evaluate_ready_snapshots,
+    cleanup_event_overlay_paper_snapshots,
     create_conservative_overlay_paper_snapshot,
     delete_event_overlay_paper_snapshot,
     evaluate_event_overlay_paper_snapshot,
@@ -1176,12 +1178,18 @@ def event_aware_conservative_overlay_paper_snapshot_create_api(
 def event_aware_conservative_overlay_paper_snapshots_list_api(
     limit: int = Query(50, ge=1, le=200),
     status: str | None = Query(None),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     return list_event_overlay_paper_snapshots(
         db=db,
         limit=limit,
         status=status,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
 
 
@@ -1189,12 +1197,18 @@ def event_aware_conservative_overlay_paper_snapshots_list_api(
 def event_aware_conservative_overlay_paper_snapshots_csv_api(
     limit: int = Query(100, ge=1, le=1000),
     status: str | None = Query(None),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     csv_text = build_event_overlay_paper_snapshots_csv(
         db=db,
         limit=limit,
         status=status,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
     return Response(
         content="\ufeff" + csv_text,
@@ -1259,19 +1273,33 @@ def event_aware_conservative_overlay_paper_snapshot_delete_api(
 @router.get("/signals/event-aware/conservative-overlay-paper-dashboard")
 def event_aware_conservative_overlay_paper_dashboard_api(
     limit: int = Query(20, ge=1, le=100),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     return build_event_overlay_paper_dashboard(
         db=db,
         limit=limit,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
 
 
 @router.get("/signals/event-aware/conservative-overlay-paper-dashboard.csv")
 def event_aware_conservative_overlay_paper_dashboard_csv_api(
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
-    csv_text = build_event_overlay_paper_dashboard_csv(db=db)
+    csv_text = build_event_overlay_paper_dashboard_csv(
+        db=db,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     return Response(
         content="\ufeff" + csv_text,
         media_type="text/csv; charset=utf-8",
@@ -1282,11 +1310,17 @@ def event_aware_conservative_overlay_paper_dashboard_csv_api(
 @router.get("/signals/event-aware/conservative-overlay-paper-lifecycle-status")
 def event_aware_conservative_overlay_paper_lifecycle_status_api(
     as_of_date: str | None = Query(None),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     return build_event_overlay_paper_lifecycle_status(
         db=db,
         as_of_date=as_of_date,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
 
 
@@ -1294,12 +1328,18 @@ def event_aware_conservative_overlay_paper_lifecycle_status_api(
 def event_aware_conservative_overlay_paper_ready_api(
     as_of_date: str | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     return get_ready_to_evaluate_snapshots(
         db=db,
         as_of_date=as_of_date,
         limit=limit,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
 
 
@@ -1307,12 +1347,18 @@ def event_aware_conservative_overlay_paper_ready_api(
 def event_aware_conservative_overlay_paper_evaluate_ready_api(
     as_of_date: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     return bulk_evaluate_ready_snapshots(
         db=db,
         as_of_date=as_of_date,
         limit=limit,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
 
 
@@ -1321,16 +1367,41 @@ def event_aware_conservative_overlay_paper_tracking_page():
     return build_event_overlay_paper_tracking_page_html()
 
 
+@router.post("/signals/event-aware/conservative-overlay-paper-cleanup")
+def event_aware_conservative_overlay_paper_cleanup_api(
+    delete_legacy_zero_exposure: bool = Query(False),
+    delete_test_snapshots: bool = Query(False),
+    keep_official: bool = Query(True),
+    dry_run: bool = Query(True),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    return cleanup_event_overlay_paper_snapshots(
+        db=db,
+        delete_legacy_zero_exposure=delete_legacy_zero_exposure,
+        delete_test_snapshots=delete_test_snapshots,
+        keep_official=keep_official,
+        dry_run=dry_run,
+        limit=limit,
+    )
+
+
 @router.get("/signals/event-aware/conservative-overlay-quality-report")
 def event_aware_conservative_overlay_quality_report_api(
     limit: int = Query(30, ge=1, le=200),
     include_open_snapshots: bool = Query(True),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     return build_conservative_overlay_quality_report(
         db=db,
         limit=limit,
         include_open_snapshots=include_open_snapshots,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
 
 
@@ -1342,11 +1413,17 @@ def event_aware_conservative_overlay_quality_report_page():
 @router.get("/signals/event-aware/conservative-overlay-notification-summary")
 def event_aware_conservative_overlay_notification_summary_api(
     limit: int = Query(30, ge=1, le=200),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     return build_conservative_overlay_notification_summary(
         db=db,
         limit=limit,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
 
 
@@ -1385,11 +1462,17 @@ def event_aware_conservative_overlay_daily_run_api(
 @router.get("/signals/event-aware/conservative-overlay-quality-report.csv")
 def event_aware_conservative_overlay_quality_report_csv_api(
     limit: int = Query(30, ge=1, le=200),
+    official_only: bool = Query(False),
+    include_test: bool = Query(True),
+    include_legacy: bool = Query(True),
     db: Session = Depends(get_db),
 ):
     csv_text = build_conservative_overlay_quality_report_csv(
         db=db,
         limit=limit,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
     )
     return Response(
         content="\ufeff" + csv_text,
@@ -1593,6 +1676,13 @@ def signals_live_paper_validation_status_api(
         db=db,
         max_stale_days=max_stale_days,
     )
+
+
+@router.get("/signals/live-paper-validation/official-summary")
+def signals_live_paper_validation_official_summary_api(
+    db: Session = Depends(get_db),
+):
+    return build_official_live_validation_summary(db=db)
 
 
 @router.get("/signals/live-paper-validation/page", response_class=AIReportHTMLResponse)

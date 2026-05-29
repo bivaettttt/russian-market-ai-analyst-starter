@@ -30,6 +30,11 @@ def build_event_overlay_paper_tracking_page_html() -> str:
     .muted { color: #667085; }
     .danger { color: #b42318; }
     .ok { color: #027a48; }
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 8px; font-size: 11px; font-weight: 800; margin: 2px 4px 2px 0; border: 1px solid #e5e7eb; background: #f8fafc; color: #334155; }
+    .badge.official { background: #ecfdf5; border-color: #bbf7d0; color: #047857; }
+    .badge.test { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .badge.manual { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+    .badge.legacy, .badge.zero { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
     .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     .controls > div { min-width: 140px; }
     pre { white-space: pre-wrap; overflow: auto; background: #0b1220; color: #dbeafe; padding: 12px; border-radius: 8px; }
@@ -64,6 +69,12 @@ def build_event_overlay_paper_tracking_page_html() -> str:
 
     <section class="panel">
       <h2>Lifecycle Status</h2>
+      <div class="controls" style="margin-bottom:12px;">
+        <label><input id="officialOnly" type="checkbox"> Official only</label>
+        <label><input id="includeTest" type="checkbox" checked> Include test</label>
+        <label><input id="includeLegacy" type="checkbox" checked> Include legacy</label>
+        <button class="secondary" onclick="loadAll()">Apply filters</button>
+      </div>
       <div id="lifecycleCards" class="grid"></div>
       <div class="controls" style="margin-top:12px;">
         <button onclick="evaluateReady()">Evaluate Ready Snapshots</button>
@@ -98,9 +109,18 @@ def build_event_overlay_paper_tracking_page_html() -> str:
     <section class="panel">
       <h2>Snapshots</h2>
       <table>
-        <thead><tr><th>ID</th><th>Date</th><th>Status</th><th>Exposure</th><th>Multiplier</th><th>Evaluation</th><th>Actions</th></tr></thead>
+        <thead><tr><th>ID</th><th>Date</th><th>Type</th><th>Status</th><th>Exposure</th><th>Multiplier</th><th>Evaluation</th><th>Actions</th></tr></thead>
         <tbody id="snapshotRows"></tbody>
       </table>
+    </section>
+
+    <section class="panel">
+      <h2>Cleanup</h2>
+      <p class="muted">Dry-run is the default. Official snapshots are kept unless explicitly changed by the API; this page only offers safe cleanup for legacy/test candidates.</p>
+      <div class="controls">
+        <button class="secondary" onclick="cleanupSnapshots(true)">Dry-run cleanup legacy/test</button>
+        <button onclick="cleanupSnapshots(false)">Delete legacy/test candidates</button>
+      </div>
     </section>
 
     <section class="panel">
@@ -129,6 +149,23 @@ function fmt(value, suffix = "") {
   return Number(value).toFixed(3).replace(/\\.000$/, "") + suffix;
 }
 function setStatus(value) { document.getElementById("status").textContent = value; }
+function filterParams() {
+  const p = new URLSearchParams();
+  p.set("official_only", officialOnly.checked ? "true" : "false");
+  p.set("include_test", includeTest.checked ? "true" : "false");
+  p.set("include_legacy", includeLegacy.checked ? "true" : "false");
+  return p;
+}
+function badges(row) {
+  const parts = [];
+  const type = row.snapshot_type || "manual";
+  parts.push(`<span class="badge ${type}">${type}</span>`);
+  if (row.is_official) parts.push(`<span class="badge official">Official</span>`);
+  if (row.is_test) parts.push(`<span class="badge test">Test</span>`);
+  if (row.is_legacy) parts.push(`<span class="badge legacy">Legacy</span>`);
+  if (row.has_zero_exposure) parts.push(`<span class="badge zero">Zero exposure</span>`);
+  return parts.join("");
+}
 async function fetchJson(url, options) {
   const res = await fetch(url, options || {});
   const text = await res.text();
@@ -186,6 +223,7 @@ function renderSnapshots(data) {
     return `<tr>
       <td>#${row.id}</td>
       <td>${row.snapshot_date || "—"}</td>
+      <td>${badges(row)}<div class="muted">${row.classification_reason || ""}</div><div class="muted">Next eval: ${row.next_evaluation_date || "—"}</div></td>
       <td>${ready ? "ready" : (row.status || "—")}</td>
       <td>${fmt(row.baseline_total_exposure, "%")} → ${fmt(row.overlay_total_exposure, "%")}</td>
       <td>${fmt(row.avg_multiplier)}</td>
@@ -197,7 +235,7 @@ function renderSnapshots(data) {
         <a href="/signals/event-aware/conservative-overlay-paper-snapshots/${row.id}.csv">CSV</a>
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="7" class="muted">No snapshots yet.</td></tr>`;
+  }).join("") || `<tr><td colspan="8" class="muted">No snapshots for current filters.</td></tr>`;
 }
 function renderDetail(data) {
   const summary = data.summary || {};
@@ -216,11 +254,16 @@ function renderDetail(data) {
 }
 async function loadAll() {
   try {
-    const lifecycle = await fetchJson("/signals/event-aware/conservative-overlay-paper-lifecycle-status");
+    const params = filterParams();
+    const lifecycle = await fetchJson(`/signals/event-aware/conservative-overlay-paper-lifecycle-status?${params.toString()}`);
     renderLifecycle(lifecycle);
-    const dash = await fetchJson("/signals/event-aware/conservative-overlay-paper-dashboard?limit=20");
+    const dashParams = filterParams();
+    dashParams.set("limit", "20");
+    const dash = await fetchJson(`/signals/event-aware/conservative-overlay-paper-dashboard?${dashParams.toString()}`);
     renderDashboard(dash);
-    const list = await fetchJson("/signals/event-aware/conservative-overlay-paper-snapshots?limit=50");
+    const listParams = filterParams();
+    listParams.set("limit", "50");
+    const list = await fetchJson(`/signals/event-aware/conservative-overlay-paper-snapshots?${listParams.toString()}`);
     renderSnapshots(list);
     setStatus("Loaded.");
   } catch (err) {
@@ -229,7 +272,24 @@ async function loadAll() {
 }
 async function evaluateReady() {
   try {
-    const data = await fetchJson("/signals/event-aware/conservative-overlay-paper-evaluate-ready?limit=50", { method: "POST" });
+    const params = filterParams();
+    params.set("limit", "50");
+    const data = await fetchJson(`/signals/event-aware/conservative-overlay-paper-evaluate-ready?${params.toString()}`, { method: "POST" });
+    setStatus(JSON.stringify(data, null, 2));
+    await loadAll();
+  } catch (err) {
+    setStatus(String(err));
+  }
+}
+async function cleanupSnapshots(dryRun) {
+  if (!dryRun && !confirm("Delete legacy/test paper snapshots? Official snapshots are kept.")) return;
+  try {
+    const p = new URLSearchParams();
+    p.set("dry_run", dryRun ? "true" : "false");
+    p.set("delete_legacy_zero_exposure", "true");
+    p.set("delete_test_snapshots", "true");
+    p.set("keep_official", "true");
+    const data = await fetchJson(`/signals/event-aware/conservative-overlay-paper-cleanup?${p.toString()}`, { method: "POST" });
     setStatus(JSON.stringify(data, null, 2));
     await loadAll();
   } catch (err) {

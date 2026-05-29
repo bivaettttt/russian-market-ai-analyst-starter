@@ -9,6 +9,7 @@ from app.db import SessionLocal
 from app.services.event_overlay_paper_tracking import (
     build_event_overlay_paper_lifecycle_status,
     bulk_evaluate_ready_snapshots,
+    cleanup_event_overlay_paper_snapshots,
     create_conservative_overlay_paper_snapshot,
     run_conservative_overlay_daily_workflow,
 )
@@ -47,6 +48,12 @@ def main(argv: list[str] | None = None) -> int:
     daily_parser.add_argument("--no-evaluate-ready", action="store_true")
     daily_parser.add_argument("--dedupe-same-day", action="store_true")
     daily_parser.add_argument("--no-dedupe-same-day", action="store_true")
+
+    cleanup_parser = subparsers.add_parser("cleanup", help="Dry-run or delete legacy/test paper snapshots")
+    cleanup_parser.add_argument("--legacy-zero-exposure", action="store_true")
+    cleanup_parser.add_argument("--test-snapshots", action="store_true")
+    cleanup_parser.add_argument("--delete", action="store_true", help="Actually delete selected candidates. Default is dry-run.")
+    cleanup_parser.add_argument("--limit", type=int, default=100)
 
     args = parser.parse_args(argv)
     db = SessionLocal()
@@ -92,6 +99,15 @@ def main(argv: list[str] | None = None) -> int:
                 overlay_mode=args.overlay_mode,
                 evaluate_ready=should_evaluate,
                 dedupe_same_day=dedupe,
+            )
+        elif args.command == "cleanup":
+            result = cleanup_event_overlay_paper_snapshots(
+                db,
+                delete_legacy_zero_exposure=args.legacy_zero_exposure,
+                delete_test_snapshots=args.test_snapshots,
+                keep_official=True,
+                dry_run=not args.delete,
+                limit=args.limit,
             )
         else:
             parser.error("unknown command")

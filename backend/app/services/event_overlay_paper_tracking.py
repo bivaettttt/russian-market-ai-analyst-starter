@@ -62,6 +62,109 @@ def _market_regime_label(value: Any) -> str | None:
     return str(value)
 
 
+def _snapshot_field(snapshot: Any, key: str, default: Any = None) -> Any:
+    if isinstance(snapshot, dict):
+        return snapshot.get(key, default)
+    return getattr(snapshot, key, default)
+
+
+def _snapshot_summary(snapshot: Any) -> dict[str, Any]:
+    if isinstance(snapshot, dict):
+        return snapshot.get("summary") or {}
+    return _json_load(getattr(snapshot, "summary_json", None), {})
+
+
+def _next_evaluation_date(snapshot_date: Any, horizon_days: Any) -> str | None:
+    start = _date_or_none(snapshot_date)
+    if start is None:
+        return None
+    try:
+        horizon = int(horizon_days or 0)
+    except (TypeError, ValueError):
+        horizon = 0
+    return (start + timedelta(days=max(0, horizon))).isoformat()
+
+
+def classify_paper_snapshot(snapshot: Any) -> dict[str, Any]:
+    name = str(_snapshot_field(snapshot, "name") or "").strip().lower()
+    source = str(_snapshot_field(snapshot, "source") or "").strip().lower()
+    summary = _snapshot_summary(snapshot)
+    baseline = _to_float(_snapshot_field(snapshot, "baseline_total_exposure"))
+    overlay = _to_float(_snapshot_field(snapshot, "overlay_total_exposure"))
+    exposure_reduction = _to_float(_snapshot_field(snapshot, "exposure_reduction_pct"))
+    has_zero_exposure = baseline is None or baseline <= 0 or overlay is None or overlay <= 0
+    lacks_position_source = bool(summary) and "position_size_source" not in summary
+
+    is_name_official = name.startswith("official-") or name.startswith("official-daily")
+    is_name_test = any(token in name for token in ["test", "manual-test", "exposure-fix-test", "cli-daily-test"])
+    is_name_manual = "manual" in name or (name == "daily" and not is_name_official)
+
+    if is_name_official and not has_zero_exposure:
+        snapshot_type = "official"
+        reason = "official_name_with_positive_exposure"
+    elif has_zero_exposure or lacks_position_source:
+        snapshot_type = "legacy"
+        reason = "zero_or_missing_exposure" if has_zero_exposure else "missing_position_size_source"
+    elif is_name_test or "test" in source:
+        snapshot_type = "test"
+        reason = "test_name_or_source"
+    elif is_name_manual:
+        snapshot_type = "manual"
+        reason = "manual_name_with_positive_exposure"
+    else:
+        snapshot_type = "manual"
+        reason = "positive_exposure_fallback_manual"
+
+    return {
+        "snapshot_type": snapshot_type,
+        "is_official": snapshot_type == "official",
+        "is_test": snapshot_type == "test",
+        "is_legacy": snapshot_type == "legacy",
+        "has_zero_exposure": bool(has_zero_exposure),
+        "classification_reason": reason,
+        "next_evaluation_date": _next_evaluation_date(
+            _snapshot_field(snapshot, "snapshot_date"),
+            _snapshot_field(snapshot, "horizon_days"),
+        ),
+    }
+
+
+def snapshot_passes_filters(
+    snapshot: Any,
+    *,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
+) -> bool:
+    classification = classify_paper_snapshot(snapshot)
+    if official_only:
+        return bool(classification.get("is_official"))
+    if not include_test and classification.get("is_test"):
+        return False
+    if not include_legacy and (classification.get("is_legacy") or classification.get("has_zero_exposure")):
+        return False
+    return True
+
+
+def filter_paper_snapshots(
+    snapshots: list[Any],
+    *,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
+) -> list[Any]:
+    return [
+        snapshot
+        for snapshot in snapshots
+        if snapshot_passes_filters(
+            snapshot,
+            official_only=official_only,
+            include_test=include_test,
+            include_legacy=include_legacy,
+        )
+    ]
+
+
 def calculate_position_pnl_pct(realized_return_pct: float | None, position_size_pct: float | None) -> float | None:
     if realized_return_pct is None or position_size_pct is None:
         return None
@@ -144,6 +247,7 @@ def _snapshot_to_dict(row: EventOverlayPaperSnapshot, *, include_items: bool = F
         "notes": row.notes,
         "detail_url": f"/signals/event-aware/conservative-overlay-paper-snapshots/{row.id}",
     }
+    result.update(classify_paper_snapshot(result))
     if include_items:
         result["items"] = items or []
     return result
@@ -330,18 +434,32 @@ def list_event_overlay_paper_snapshots(
     *,
     limit: int = 50,
     status: str | None = None,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> dict[str, Any]:
     _ensure_tables(db)
     query = select(EventOverlayPaperSnapshot)
     if status:
         query = query.where(EventOverlayPaperSnapshot.status == status)
-    rows = db.scalars(
-        query.order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id)).limit(limit)
+    raw_rows = db.scalars(
+        query.order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id)).limit(limit * 5)
     ).all()
+    rows = filter_paper_snapshots(
+        list(raw_rows),
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )[:limit]
     return {
         "ok": True,
         "mode": "list_conservative_overlay_paper_snapshots",
         "total": len(rows),
+        "filters": {
+            "official_only": official_only,
+            "include_test": include_test,
+            "include_legacy": include_legacy,
+        },
         "rows": [_snapshot_to_dict(row) for row in rows],
     }
 
@@ -560,6 +678,9 @@ def get_ready_to_evaluate_snapshots(
     *,
     as_of_date: str | None = None,
     limit: int = 100,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> dict[str, Any]:
     _ensure_tables(db)
     as_of = (_date_or_none(as_of_date) or date.today()).isoformat()
@@ -573,12 +694,23 @@ def get_ready_to_evaluate_snapshots(
         row
         for row in rows
         if is_snapshot_ready_to_evaluate(_snapshot_to_dict(row), as_of_date=as_of)
+        and snapshot_passes_filters(
+            row,
+            official_only=official_only,
+            include_test=include_test,
+            include_legacy=include_legacy,
+        )
     ][:limit]
     return {
         "ok": True,
         "mode": "ready_to_evaluate_snapshots",
         "as_of_date": as_of,
         "ready_count": len(ready),
+        "filters": {
+            "official_only": official_only,
+            "include_test": include_test,
+            "include_legacy": include_legacy,
+        },
         "snapshots": [_snapshot_to_dict(row) for row in ready],
     }
 
@@ -588,8 +720,18 @@ def bulk_evaluate_ready_snapshots(
     *,
     as_of_date: str | None = None,
     limit: int = 50,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> dict[str, Any]:
-    ready = get_ready_to_evaluate_snapshots(db, as_of_date=as_of_date, limit=limit)
+    ready = get_ready_to_evaluate_snapshots(
+        db,
+        as_of_date=as_of_date,
+        limit=limit,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     results: list[dict[str, Any]] = []
     total_items = 0
     total_evaluated = 0
@@ -691,13 +833,22 @@ def build_event_overlay_paper_lifecycle_status(
     db: Session,
     *,
     as_of_date: str | None = None,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> dict[str, Any]:
     _ensure_tables(db)
     as_of = _date_or_none(as_of_date) or date.today()
-    rows = db.scalars(
+    all_rows = db.scalars(
         select(EventOverlayPaperSnapshot)
         .order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id))
     ).all()
+    rows = filter_paper_snapshots(
+        list(all_rows),
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     ready = [
         row
         for row in rows
@@ -733,6 +884,11 @@ def build_event_overlay_paper_lifecycle_status(
             "days_since_last_snapshot": days_since_last,
             "recommended_action": recommended_action,
             "recommendations": recommendations,
+            "filters": {
+                "official_only": official_only,
+                "include_test": include_test,
+                "include_legacy": include_legacy,
+            },
         },
         "ready_snapshots": [_snapshot_to_dict(row) for row in ready[:25]],
         "latest_snapshots": [_snapshot_to_dict(row) for row in rows[:10]],
@@ -743,14 +899,28 @@ def build_event_overlay_paper_dashboard(
     db: Session,
     *,
     limit: int = 20,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> dict[str, Any]:
     _ensure_tables(db)
-    snapshots = db.scalars(
+    raw_snapshots = db.scalars(
         select(EventOverlayPaperSnapshot)
         .order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id))
-        .limit(limit)
+        .limit(limit * 5)
     ).all()
-    lifecycle = build_event_overlay_paper_lifecycle_status(db)
+    snapshots = filter_paper_snapshots(
+        list(raw_snapshots),
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )[:limit]
+    lifecycle = build_event_overlay_paper_lifecycle_status(
+        db,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     if not snapshots:
         return {
             "ok": True,
@@ -770,6 +940,11 @@ def build_event_overlay_paper_dashboard(
                 "overlay_total_pnl_pct": 0.0,
                 "overlay_delta_pnl_pct": 0.0,
                 "recommendation": "create_snapshot",
+                "filters": {
+                    "official_only": official_only,
+                    "include_test": include_test,
+                    "include_legacy": include_legacy,
+                },
             },
             "recent_snapshots": [],
             "by_risk_level": {},
@@ -905,6 +1080,11 @@ def build_event_overlay_paper_dashboard(
             "latest_snapshot": _snapshot_to_dict(snapshots[0]) if snapshots else None,
             "recommendation": recommendation,
             "paper_trading_note": PAPER_TRADING_NOTE,
+            "filters": {
+                "official_only": official_only,
+                "include_test": include_test,
+                "include_legacy": include_legacy,
+            },
         },
         "latest_snapshot": _snapshot_to_dict(snapshots[0]) if snapshots else None,
         "recent_snapshots": [_snapshot_to_dict(snapshot) for snapshot in snapshots],
@@ -935,6 +1115,138 @@ def build_event_overlay_paper_dashboard(
     }
 
 
+def get_latest_official_snapshot(db: Session) -> dict[str, Any]:
+    _ensure_tables(db)
+    rows = db.scalars(
+        select(EventOverlayPaperSnapshot)
+        .order_by(desc(EventOverlayPaperSnapshot.snapshot_date), desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id))
+        .limit(200)
+    ).all()
+    official = next((row for row in rows if classify_paper_snapshot(row).get("is_official")), None)
+    snapshot = _snapshot_to_dict(official) if official is not None else None
+    today = date.today()
+    snapshot_date = _date_or_none(snapshot.get("snapshot_date")) if snapshot else None
+    next_eval = snapshot.get("next_evaluation_date") if snapshot else None
+    next_eval_date = _date_or_none(next_eval)
+    return {
+        "ok": True,
+        "mode": "latest_official_paper_snapshot",
+        "snapshot": snapshot,
+        "summary": {
+            "has_official_snapshot": snapshot is not None,
+            "latest_official_snapshot_id": snapshot.get("id") if snapshot else None,
+            "latest_official_snapshot_date": snapshot.get("snapshot_date") if snapshot else None,
+            "days_since_latest_official": (today - snapshot_date).days if snapshot_date else None,
+            "next_evaluation_date": next_eval,
+            "days_until_next_evaluation": (next_eval_date - today).days if next_eval_date else None,
+            "horizon_days": snapshot.get("horizon_days") if snapshot else None,
+        },
+    }
+
+
+def build_official_live_validation_summary(db: Session) -> dict[str, Any]:
+    latest = get_latest_official_snapshot(db)
+    from app.services.event_overlay_quality_report import build_conservative_overlay_quality_report
+
+    quality = build_conservative_overlay_quality_report(
+        db,
+        limit=50,
+        include_open_snapshots=True,
+        official_only=True,
+        include_test=False,
+        include_legacy=False,
+    )
+    ready = get_ready_to_evaluate_snapshots(
+        db,
+        limit=100,
+        official_only=True,
+        include_test=False,
+        include_legacy=False,
+    )
+    warnings: list[str] = []
+    if not (latest.get("summary") or {}).get("has_official_snapshot"):
+        warnings.append("no_official_snapshot")
+    if int(ready.get("ready_count") or 0) > 0:
+        warnings.append("official_snapshots_ready_to_evaluate")
+    return {
+        "ok": True,
+        "mode": "official_live_validation_summary",
+        "latest_official_snapshot": latest.get("snapshot"),
+        "summary": {
+            **(latest.get("summary") or {}),
+            "ready_official_snapshots": ready.get("ready_count"),
+            "official_snapshots": (quality.get("summary") or {}).get("snapshots_total"),
+            "official_evaluated_items": (quality.get("summary") or {}).get("items_evaluated"),
+            "official_avg_multiplier": (quality.get("summary") or {}).get("avg_multiplier"),
+            "official_avg_exposure_reduction_pct": (quality.get("summary") or {}).get("avg_exposure_reduction_pct"),
+        },
+        "quality_official": quality,
+        "ready_official": ready,
+        "warnings": warnings,
+    }
+
+
+def cleanup_event_overlay_paper_snapshots(
+    db: Session,
+    *,
+    delete_legacy_zero_exposure: bool = False,
+    delete_test_snapshots: bool = False,
+    keep_official: bool = True,
+    dry_run: bool = True,
+    limit: int = 100,
+) -> dict[str, Any]:
+    _ensure_tables(db)
+    rows = db.scalars(
+        select(EventOverlayPaperSnapshot)
+        .order_by(desc(EventOverlayPaperSnapshot.created_at), desc(EventOverlayPaperSnapshot.id))
+        .limit(limit)
+    ).all()
+    warnings: list[str] = []
+    candidates: list[EventOverlayPaperSnapshot] = []
+    if not delete_legacy_zero_exposure and not delete_test_snapshots:
+        warnings.append("no_cleanup_selector_enabled")
+    for row in rows:
+        info = classify_paper_snapshot(row)
+        if keep_official and info.get("is_official"):
+            continue
+        should_delete = False
+        if delete_legacy_zero_exposure and (info.get("is_legacy") or info.get("has_zero_exposure")):
+            should_delete = True
+        if delete_test_snapshots and info.get("is_test"):
+            should_delete = True
+        if should_delete:
+            candidates.append(row)
+
+    deleted_items = 0
+    if not dry_run:
+        for row in candidates:
+            items = db.scalars(
+                select(EventOverlayPaperSnapshotItem).where(EventOverlayPaperSnapshotItem.snapshot_id == row.id)
+            ).all()
+            deleted_items += len(items)
+            for item in items:
+                db.delete(item)
+            db.delete(row)
+        db.commit()
+
+    return {
+        "ok": True,
+        "mode": "paper_snapshot_cleanup",
+        "dry_run": dry_run,
+        "selectors": {
+            "delete_legacy_zero_exposure": delete_legacy_zero_exposure,
+            "delete_test_snapshots": delete_test_snapshots,
+            "keep_official": keep_official,
+            "limit": limit,
+        },
+        "candidates": [_snapshot_to_dict(row) for row in candidates],
+        "candidate_count": len(candidates),
+        "deleted_snapshots": 0 if dry_run else len(candidates),
+        "deleted_items": 0 if dry_run else deleted_items,
+        "warnings": warnings,
+    }
+
+
 def _csv_text(headers: list[str], rows: list[dict[str, Any]]) -> str:
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=headers, extrasaction="ignore")
@@ -949,8 +1261,18 @@ def build_event_overlay_paper_snapshots_csv(
     *,
     limit: int = 100,
     status: str | None = None,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
 ) -> str:
-    data = list_event_overlay_paper_snapshots(db, limit=limit, status=status)
+    data = list_event_overlay_paper_snapshots(
+        db,
+        limit=limit,
+        status=status,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     rows = []
     for row in data.get("rows") or []:
         summary = row.get("summary") or {}
@@ -1042,8 +1364,20 @@ def build_event_overlay_paper_snapshot_items_csv(
     )
 
 
-def build_event_overlay_paper_dashboard_csv(db: Session) -> str:
-    data = build_event_overlay_paper_dashboard(db, limit=100)
+def build_event_overlay_paper_dashboard_csv(
+    db: Session,
+    *,
+    official_only: bool = False,
+    include_test: bool = True,
+    include_legacy: bool = True,
+) -> str:
+    data = build_event_overlay_paper_dashboard(
+        db,
+        limit=100,
+        official_only=official_only,
+        include_test=include_test,
+        include_legacy=include_legacy,
+    )
     summary = data.get("summary") or {}
     rows = [{"metric": key, "value": value} for key, value in summary.items() if not isinstance(value, (dict, list))]
     return _csv_text(["metric", "value"], rows)

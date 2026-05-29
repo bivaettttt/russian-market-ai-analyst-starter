@@ -52,6 +52,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 - `/signals/event-aware/conservative-overlay-quality-report-page` — quality report по paper tracking.
 - `/signals/event-aware/conservative-overlay-paper-tracking-page` — snapshot lifecycle dashboard.
 - `/signals/daily-ops/market-refresh-report-page` — MOEX freshness/refresh diagnostics.
+- `/signals/live-paper-validation/official-summary` — official-only snapshot hygiene summary.
 - `/signals/consumer/backtest-audit-page` — historical backtest audit.
 - `/signals/consumer/threshold-sweep-page` — threshold sweep / grid search.
 - `/signals/consumer/walk-forward-page` — walk-forward validation.
@@ -71,6 +72,18 @@ BASE_URL=http://127.0.0.1:8010 ./scripts/smoke_test.sh
 ```
 
 `pytest.ini` добавляет `backend` в `pythonpath`, поэтому `PYTHONPATH=backend` больше не нужен.
+
+## Official Paper Validation Hygiene
+
+Live paper validation separates snapshots into `official`, `manual`, `test`, and `legacy`. Official quality views use `official_only=true` so old zero-exposure or manual test snapshots do not distort the official paper report.
+
+Safe cleanup is explicit and dry-run by default:
+
+```bash
+curl -X POST "http://127.0.0.1:8010/signals/event-aware/conservative-overlay-paper-cleanup?dry_run=true&delete_legacy_zero_exposure=true&delete_test_snapshots=true"
+```
+
+Official snapshots are kept by default. This remains paper validation only: no real orders and no production recommendation changes.
 
 ## Bootstrap Market Data
 

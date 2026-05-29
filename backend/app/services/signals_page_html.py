@@ -651,6 +651,11 @@ def build_signals_page_html() -> str:
         <div class="value" id="metricRegime">—</div>
         <div class="small muted" id="metricRegimeDetails">—</div>
       </div>
+      <div class="metric">
+        <div class="label">Live Paper Validation</div>
+        <div class="value" id="metricOfficialSnapshot">—</div>
+        <div class="small muted" id="metricOfficialDetails">Official-only quality</div>
+      </div>
     </section>
 
     <section id="signalsGrid" class="grid"></section>
@@ -1527,6 +1532,25 @@ def build_signals_page_html() -> str:
       }
     }
 
+    async function loadOfficialValidationStatus() {
+      try {
+        const response = await fetch("/signals/live-paper-validation/official-summary");
+        const data = await response.json();
+        const summary = data.summary || {};
+        const quality = (data.quality_official || {}).summary || {};
+        const hasOfficial = Boolean(summary.has_official_snapshot);
+        document.getElementById("metricOfficialSnapshot").textContent = hasOfficial
+          ? `#${summary.latest_official_snapshot_id}`
+          : "Not started";
+        document.getElementById("metricOfficialDetails").textContent = hasOfficial
+          ? `Date ${summary.latest_official_snapshot_date || "—"} · next eval ${summary.next_evaluation_date || "—"} · quality ${quality.recommendation || quality.quality_label || "pending"}`
+          : "Create official snapshot from Live Validation page";
+      } catch (err) {
+        document.getElementById("metricOfficialSnapshot").textContent = "—";
+        document.getElementById("metricOfficialDetails").textContent = "Live validation status unavailable";
+      }
+    }
+
     function clearFilters() {
       document.getElementById("searchInput").value = "";
       document.getElementById("decisionFilter").value = "";
@@ -1556,6 +1580,7 @@ def build_signals_page_html() -> str:
     window.toggleDetails = toggleDetails;
     window.setScenario = setScenario;
 
+    loadOfficialValidationStatus();
     loadSignals();
   </script>
 </body>

@@ -20,6 +20,8 @@ def build_live_paper_validation_page_html() -> str:
     .card { border: 1px solid #e1e7ef; border-radius: 8px; padding: 12px; background: #fbfcfe; }
     .label { color: #667085; font-size: 12px; }
     .value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .badge { display: inline-flex; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 800; background: #ecfdf5; color: #047857; border: 1px solid #bbf7d0; }
+    .muted { color: #667085; }
     button, input { font: inherit; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; }
     button { cursor: pointer; background: #0f62fe; color: white; border-color: #0f62fe; }
     button.secondary { background: white; color: #0f62fe; }
@@ -40,6 +42,11 @@ def build_live_paper_validation_page_html() -> str:
   <main>
     <section class="panel"><h2>Status</h2><div id="cards" class="grid"></div></section>
     <section class="panel">
+      <h2>Latest Official Snapshot <span class="badge">Official validation view</span></h2>
+      <div id="officialCards" class="grid"></div>
+      <div id="officialNote" class="muted"></div>
+    </section>
+    <section class="panel">
       <h2>Official Start</h2>
       <div class="controls">
         <label>Name <input id="name" value="official-daily"></label>
@@ -49,8 +56,15 @@ def build_live_paper_validation_page_html() -> str:
         <button onclick="dryRun()">Dry run official start</button>
         <button onclick="start(true)">Start official validation</button>
         <button class="secondary" onclick="start(false)">Start without refresh</button>
+        <button class="secondary" onclick="evaluateOfficialReady()">Evaluate ready official</button>
         <button class="secondary" onclick="loadStatus()">Refresh</button>
       </div>
+    </section>
+    <section class="panel">
+      <h2>Daily Command</h2>
+      <pre>cd backend
+python3 -m app.tasks.market_daily_ops refresh --skip-universe-refresh --max-tickers 150 --days 120
+python3 -m app.tasks.live_paper_validation start --name official-daily --limit 100 --horizon-days 20</pre>
     </section>
     <section class="panel">
       <h2>Result</h2>
@@ -85,6 +99,9 @@ function baseParams() {
 }
 function renderStatus(data) {
   const s = data.summary || {};
+  const official = data.official_summary || {};
+  const os = official.summary || {};
+  const snap = official.latest_official_snapshot || {};
   cards.innerHTML = [
     ["Blocked", s.blocked],
     ["Reason", s.blocked_reason],
@@ -92,7 +109,25 @@ function renderStatus(data) {
     ["Stale", s.market_data_stale],
     ["Snapshots", s.paper_snapshots_total],
     ["Quality", s.quality_label],
+    ["Official snapshot", os.latest_official_snapshot_id ? `#${os.latest_official_snapshot_id}` : "not started"],
+    ["Next eval", os.next_evaluation_date],
   ].map(x => card(x[0], x[1])).join("");
+  officialCards.innerHTML = [
+    ["Snapshot", os.latest_official_snapshot_id ? `#${os.latest_official_snapshot_id}` : "—"],
+    ["Name", snap.name],
+    ["Date", os.latest_official_snapshot_date],
+    ["Rows", ((snap.summary || {}).rows ?? snap.limit)],
+    ["Baseline exposure", snap.baseline_total_exposure],
+    ["Overlay exposure", snap.overlay_total_exposure],
+    ["Exposure reduction", snap.exposure_reduction_pct],
+    ["Avg multiplier", snap.avg_multiplier],
+    ["Next evaluation", os.next_evaluation_date],
+    ["Days until eval", os.days_until_next_evaluation],
+  ].map(x => card(x[0], x[1])).join("");
+  const counts = snap.risk_level_counts || {};
+  officialNote.textContent = os.has_official_snapshot
+    ? `Live validation is active. Risk counts: low ${counts.low || 0}, moderate ${counts.moderate || 0}, elevated ${counts.elevated || 0}, high ${counts.high || 0}, extreme ${counts.extreme || 0}.`
+    : "No official snapshots yet. Start official validation after market data freshness is confirmed.";
   output.textContent = JSON.stringify(data, null, 2);
 }
 async function loadStatus() {
@@ -109,6 +144,11 @@ async function start(withRefresh) {
   const p = baseParams();
   p.set("refresh_market_data", withRefresh ? "true" : "false");
   const data = await fetchJson(`/signals/live-paper-validation/start?${p.toString()}`, { method: "POST" });
+  output.textContent = JSON.stringify(data, null, 2);
+  await loadStatus();
+}
+async function evaluateOfficialReady() {
+  const data = await fetchJson("/signals/event-aware/conservative-overlay-paper-evaluate-ready?official_only=true&include_test=false&include_legacy=false&limit=50", { method: "POST" });
   output.textContent = JSON.stringify(data, null, 2);
   await loadStatus();
 }

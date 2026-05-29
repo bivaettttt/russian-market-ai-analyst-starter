@@ -706,7 +706,7 @@ Acceptance criteria:
 
 ## 23.11 Live Paper Validation Period
 
-Статус: следующий этап.
+Статус: активный этап. Official snapshot hygiene добавлен: official/test/manual/legacy snapshots разделяются, official quality report по умолчанию не смешивается с legacy/test данными.
 
 Цель: накопить 4-8 недель official daily snapshots с fresh market data и оценить realized baseline vs conservative overlay delta.
 
@@ -714,6 +714,8 @@ Acceptance criteria:
 
 - запускать official daily snapshot только после успешного market refresh;
 - еженедельно анализировать quality report, problem tickers и by-risk-level contribution;
+- использовать `official_only=true` quality/dashboard views для продуктового наблюдения;
+- удалять legacy/test snapshots только через explicit dry-run cleanup;
 - не переводить overlay в production default до достаточного live paper периода;
 - подготовить UX hardening и deployment только после стабильной paper статистики.
 

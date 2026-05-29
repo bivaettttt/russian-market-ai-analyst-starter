@@ -44,6 +44,7 @@ GET  /signals/daily-ops/market-refresh-report.csv
 GET  /signals/daily-ops/market-refresh-report-page
 
 GET  /signals/live-paper-validation/status
+GET  /signals/live-paper-validation/official-summary
 POST /signals/live-paper-validation/start
 GET  /signals/live-paper-validation/page
 ```
@@ -60,7 +61,9 @@ curl -X POST "http://127.0.0.1:8010/signals/live-paper-validation/start?dry_run=
 2. Verify `/signals/daily-ops/market-refresh-report`.
 3. Start official daily snapshot only when data is fresh.
 4. Evaluate ready snapshots.
-5. Review quality report weekly.
+5. Review the official-only quality report weekly.
+
+Official snapshot hygiene is documented in `docs/official_live_validation_hygiene.md`. Test and legacy snapshots are still available for audit, but official quality views use `official_only=true` by default.
 
 ## Launchd Or Cron Examples
 

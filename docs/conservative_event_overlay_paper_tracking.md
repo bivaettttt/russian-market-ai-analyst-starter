@@ -53,6 +53,18 @@ Key lifecycle endpoints:
 - `GET /signals/event-aware/conservative-overlay-paper-snapshots.csv`
 - `GET /signals/event-aware/conservative-overlay-paper-dashboard.csv`
 
+## Official/Test/Legacy Hygiene
+
+Snapshots are classified at service level as `official`, `manual`, `test`, or `legacy`. Official live validation uses `official_only=true` views so old zero-exposure or manual test snapshots do not distort the official report.
+
+Useful endpoints:
+
+- `GET /signals/live-paper-validation/official-summary`
+- `GET /signals/event-aware/conservative-overlay-paper-snapshots?official_only=true`
+- `POST /signals/event-aware/conservative-overlay-paper-cleanup?dry_run=true&delete_legacy_zero_exposure=true&delete_test_snapshots=true`
+
+Cleanup defaults to dry-run and keeps official snapshots by default.
+
 ## Metrics
 
 - `baseline_total_exposure`: sum of baseline paper position sizes.

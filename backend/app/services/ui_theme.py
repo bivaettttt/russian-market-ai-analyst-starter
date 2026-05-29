@@ -324,6 +324,30 @@ def render_status_badge(label: str, tone: str = "neutral") -> str:
     return f'<span class="status-badge tone-{_esc(tone)}">{_esc(label)}</span>'
 
 
+def snapshot_badge_tone(snapshot_type: str | None) -> str:
+    return {
+        "official": "accent",
+        "test": "warning",
+        "manual": "info",
+        "legacy": "negative",
+    }.get(str(snapshot_type or "").lower(), "neutral")
+
+
+def render_snapshot_badges(snapshot: dict[str, Any]) -> str:
+    badges = [
+        render_status_badge(str(snapshot.get("snapshot_type") or "manual").title(), snapshot_badge_tone(snapshot.get("snapshot_type")))
+    ]
+    if snapshot.get("is_official"):
+        badges.append(render_status_badge("Official", "positive"))
+    if snapshot.get("is_test"):
+        badges.append(render_status_badge("Test", "warning"))
+    if snapshot.get("is_legacy"):
+        badges.append(render_status_badge("Legacy", "negative"))
+    if snapshot.get("has_zero_exposure"):
+        badges.append(render_status_badge("Zero exposure", "negative"))
+    return '<span class="snapshot-badges">' + "".join(badges) + "</span>"
+
+
 def render_metric_card(label: str, value: Any, hint: str | None = None, tone: str = "neutral") -> str:
     hint_html = f'<div class="hint">{_esc(hint)}</div>' if hint else ""
     return (
